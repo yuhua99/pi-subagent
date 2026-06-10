@@ -19,11 +19,10 @@ import {
   buildForkSessionSnapshotJsonl,
   confirmProjectAgentsIfNeeded,
   formatAgentNames,
-  getCycleViolations,
   getRequestedProjectAgents,
+  isSubagentChild,
   makeDetailsFactory,
   parseDelegationMode,
-  resolveDelegationDepthConfig,
 } from "./delegation.js";
 import { formatSubagentList, renderCall, renderResult } from "./render.js";
 import { getSubagent, listSubagents } from "./registry.js";
@@ -33,17 +32,7 @@ import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARA
 import { DEFAULT_DELEGATION_MODE, emptyUsage, isResultError, isResultSuccess, type DelegationMode, type SingleResult } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
-  pi.registerFlag("subagent-max-depth", {
-    description: "Maximum allowed subagent delegation depth (default: 3).",
-    type: "string",
-  });
-  pi.registerFlag("subagent-prevent-cycles", {
-    description: "Block delegating to agents already in the current delegation stack (default: true).",
-    type: "boolean",
-  });
-
-  const { currentDepth, maxDepth, canDelegate, ancestorAgentStack, preventCycles } =
-    resolveDelegationDepthConfig(pi);
+  if (isSubagentChild()) return;
 
   let discoveredAgents: AgentConfig[] = [];
 
@@ -52,8 +41,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    if (!canDelegate) return;
-
     const starterDiscovery = discoverAgentsWithStarter(ctx.cwd);
     discoveredAgents = starterDiscovery.discovery.agents;
 
@@ -73,7 +60,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event) => {
-    if (!canDelegate) return;
     if (discoveredAgents.length === 0) return;
 
     const agentList = discoveredAgents.map((a) => `- **${a.name}**: ${a.description}`).join("\n");
@@ -106,16 +92,10 @@ Context behavior is controlled by optional 'mode':
 
 Use single mode for one task, parallel mode when tasks are independent and can run simultaneously.
 
-### Runtime delegation guards
-
-- Max depth: current depth ${currentDepth}, max depth ${maxDepth}
-- Cycle prevention: ${preventCycles ? "enabled" : "disabled"}
-- Current delegation stack: ${ancestorAgentStack.length > 0 ? ancestorAgentStack.join(" -> ") : "(root)"}
+Delegation is single-level: subagents cannot spawn their own subagents.
 `,
     };
   });
-
-  if (!canDelegate) return;
 
   pi.registerTool({
     name: "subagent",
@@ -163,23 +143,6 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       const requested = new Set<string>();
       if (params.tasks) for (const t of params.tasks) requested.add(t.agent);
       if (params.agent) requested.add(params.agent);
-
-      if (preventCycles) {
-        const cycleViolations = getCycleViolations(requested, ancestorAgentStack);
-        if (cycleViolations.length > 0) {
-          const stackText = ancestorAgentStack.length > 0 ? ancestorAgentStack.join(" -> ") : "(root)";
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Blocked: delegation cycle detected. Requested agent(s) already in the delegation stack: ${cycleViolations.join(", ")}.\nCurrent stack: ${stackText}\n\nThis guard prevents self-recursion and cyclic handoffs (for example A -> B -> A).`,
-              },
-            ],
-            details: makeDetails(hasTasks ? "parallel" : "single")([]),
-            isError: true,
-          };
-        }
-      }
 
       const requestedProjectAgents = getRequestedProjectAgents(agents, requested);
       const shouldConfirmProjectAgents = params.confirmProjectAgents ?? true;
@@ -326,10 +289,6 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       taskCwd: cwd,
       delegationMode,
       forkSessionSnapshotJsonl,
-      parentDepth: currentDepth,
-      parentAgentStack: ancestorAgentStack,
-      maxDepth,
-      preventCycles,
       signal,
       onUpdate,
       makeDetails: makeDetails("single"),
@@ -371,10 +330,6 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       taskCwd: cwd,
       delegationMode,
       forkSessionSnapshotJsonl,
-      parentDepth: currentDepth,
-      parentAgentStack: ancestorAgentStack,
-      maxDepth,
-      preventCycles,
       onSpawn: (id) => onSpawn(id),
       makeDetails: makeDetails("single"),
     });
@@ -480,10 +435,6 @@ Use single mode for one task, parallel mode when tasks are independent and can r
           taskCwd: t.cwd,
           delegationMode,
           forkSessionSnapshotJsonl,
-          parentDepth: currentDepth,
-          parentAgentStack: ancestorAgentStack,
-          maxDepth,
-          preventCycles,
           signal,
           onUpdate: (partial) => {
             if (partial.details?.results[0]) {

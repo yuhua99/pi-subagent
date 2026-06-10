@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AgentConfig } from "./agents.js";
+import { SUBAGENT_CHILD_ENV } from "./delegation.js";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
 import { registerSubagent, unregisterSubagent } from "./registry.js";
@@ -25,10 +26,6 @@ import {
 const isWindows = process.platform === "win32";
 const SIGKILL_TIMEOUT_MS = 5000;
 const AGENT_END_GRACE_MS = 250;
-const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
-const SUBAGENT_MAX_DEPTH_ENV = "PI_SUBAGENT_MAX_DEPTH";
-const SUBAGENT_STACK_ENV = "PI_SUBAGENT_STACK";
-const SUBAGENT_PREVENT_CYCLES_ENV = "PI_SUBAGENT_PREVENT_CYCLES";
 const PI_OFFLINE_ENV = "PI_OFFLINE";
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
@@ -151,14 +148,6 @@ export interface RunAgentOptions {
   delegationMode: DelegationMode;
   /** Serialized parent session snapshot used when delegationMode is "fork". */
   forkSessionSnapshotJsonl?: string;
-  /** Current delegation depth of the caller process. */
-  parentDepth: number;
-  /** Delegation stack from the caller process (ancestor agent names). */
-  parentAgentStack: string[];
-  /** Maximum allowed delegation depth to propagate to child processes. */
-  maxDepth: number;
-  /** Whether cycle prevention should be enforced in child processes. */
-  preventCycles: boolean;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
   /** Called with the registry id once the child process is spawned. */
@@ -183,10 +172,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     taskCwd,
     delegationMode,
     forkSessionSnapshotJsonl,
-    parentDepth,
-    parentAgentStack,
-    maxDepth,
-    preventCycles,
     signal,
     onSpawn,
     onUpdate,
@@ -280,9 +265,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     let wasKilled = false;
 
     const exitCode = await new Promise<number>((resolve) => {
-      const nextDepth = Math.max(0, Math.floor(parentDepth)) + 1;
-      const propagatedMaxDepth = Math.max(0, Math.floor(maxDepth));
-      const propagatedStack = [...parentAgentStack, agentName];
       const { command, prefixArgs } = resolvePiSpawn();
       const proc = spawn(command, [...prefixArgs, ...piArgs], {
         cwd: taskCwd ?? cwd,
@@ -290,10 +272,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         stdio: ["pipe", "pipe", "pipe"],
         env: {
           ...process.env,
-          [SUBAGENT_DEPTH_ENV]: String(nextDepth),
-          [SUBAGENT_MAX_DEPTH_ENV]: String(propagatedMaxDepth),
-          [SUBAGENT_STACK_ENV]: JSON.stringify(propagatedStack),
-          [SUBAGENT_PREVENT_CYCLES_ENV]: preventCycles ? "1" : "0",
+          [SUBAGENT_CHILD_ENV]: "1",
           [PI_OFFLINE_ENV]: "1",
         },
       });

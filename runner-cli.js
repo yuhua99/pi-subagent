@@ -76,7 +76,6 @@ export function parseInheritedCliArgs(argv) {
         "--session",
         "--append-system-prompt",
         "--export",
-        "--subagent-max-depth",
       ].includes(flagName)
     ) {
       const [, skip] = getValue();
@@ -84,7 +83,7 @@ export function parseInheritedCliArgs(argv) {
       continue;
     }
 
-    if (["--subagent-prevent-cycles", "--list-models"].includes(flagName)) {
+    if (["--list-models"].includes(flagName)) {
       const [, skip] = getValue();
       i += skip;
       continue;
@@ -104,7 +103,6 @@ export function parseInheritedCliArgs(argv) {
         "-h",
         "--version",
         "-v",
-        "--no-subagent-prevent-cycles",
       ].includes(flagName)
     ) {
       i++;

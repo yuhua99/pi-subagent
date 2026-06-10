@@ -74,13 +74,11 @@ export const SubagentKillParams = Type.Object({
 export const LIST_TOOL_DESCRIPTION = [
   "List subagents currently running as direct children of this session.",
   "Returns each subagent's id (used by subagent_kill), agent name, elapsed time, and task preview.",
-  "Note: only direct children are visible; each delegation depth has its own registry.",
 ].join("\n");
 
 export const KILL_TOOL_DESCRIPTION = [
   "Kill a running subagent by id (see subagent_list for ids).",
   "Sends SIGTERM with a SIGKILL fallback. Killing one child of a parallel batch does not affect its siblings.",
-  "Note: only direct children of this session can be killed.",
 ].join("\n");
 
 export const TOOL_DESCRIPTION = [
