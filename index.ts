@@ -25,10 +25,11 @@ import {
   parseDelegationMode,
   resolveDelegationDepthConfig,
 } from "./delegation.js";
-import { renderCall, renderResult } from "./render.js";
+import { formatSubagentList, renderCall, renderResult } from "./render.js";
+import { getSubagent, listSubagents } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
 import { mapConcurrent, runAgent } from "./runner.js";
-import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS, PARALLEL_HEARTBEAT_MS, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
+import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, PARALLEL_HEARTBEAT_MS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
 import { DEFAULT_DELEGATION_MODE, emptyUsage, isResultError, isResultSuccess, type DelegationMode, type SingleResult } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -45,6 +46,10 @@ export default function (pi: ExtensionAPI) {
     resolveDelegationDepthConfig(pi);
 
   let discoveredAgents: AgentConfig[] = [];
+
+  pi.on("session_shutdown", async () => {
+    for (const entry of listSubagents()) entry.kill();
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     if (!canDelegate) return;
@@ -203,6 +208,31 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         }
       }
 
+      if (params.background) {
+        if (hasTasks) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "background: true supports single mode only. Call the tool multiple times to run several background jobs concurrently.",
+              },
+            ],
+            details: makeDetails("parallel")([]),
+            isError: true,
+          };
+        }
+        return executeBackground(
+          params.agent!,
+          params.task!,
+          params.cwd,
+          delegationMode,
+          forkSessionSnapshotJsonl,
+          agents,
+          ctx.cwd,
+          makeDetails,
+        );
+      }
+
       if (params.tasks && params.tasks.length > 0) {
         return executeParallel(
           params.tasks,
@@ -232,6 +262,44 @@ Use single mode for one task, parallel mode when tasks are independent and can r
 
     renderCall: (args, theme) => renderCall(args, theme),
     renderResult: (result, { expanded }, theme) => renderResult(result, expanded, theme),
+  });
+
+  pi.registerTool({
+    name: "subagent_list",
+    label: "List subagents",
+    description: LIST_TOOL_DESCRIPTION,
+    parameters: SubagentListParams,
+
+    async execute() {
+      return {
+        content: [{ type: "text" as const, text: formatSubagentList(listSubagents()) }],
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_kill",
+    label: "Kill subagent",
+    description: KILL_TOOL_DESCRIPTION,
+    parameters: SubagentKillParams,
+
+    async execute(_toolCallId, params) {
+      const entry = getSubagent(params.id);
+      if (!entry) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `No running subagent with id '${params.id}' (it may have already finished).`,
+            },
+          ],
+        };
+      }
+      entry.kill();
+      return {
+        content: [{ type: "text" as const, text: `Killed subagent [${entry.id}] (${entry.agent}).` }],
+      };
+    },
   });
 
   // ---------------------------------------------------------------------------
@@ -277,6 +345,82 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     return {
       content: [{ type: "text" as const, text: getResultSummaryText(result) }],
       details: makeDetails("single")([result]),
+    };
+  }
+
+  async function executeBackground(
+    agentName: string,
+    task: string,
+    cwd: string | undefined,
+    delegationMode: DelegationMode,
+    forkSessionSnapshotJsonl: string | undefined,
+    agents: AgentConfig[],
+    defaultCwd: string,
+    makeDetails: ReturnType<typeof makeDetailsFactory>,
+  ) {
+    let onSpawn: (id: string) => void;
+    const spawned = new Promise<string>((resolve) => {
+      onSpawn = resolve;
+    });
+
+    const runPromise = runAgent({
+      cwd: defaultCwd,
+      agents,
+      agentName,
+      task,
+      taskCwd: cwd,
+      delegationMode,
+      forkSessionSnapshotJsonl,
+      parentDepth: currentDepth,
+      parentAgentStack: ancestorAgentStack,
+      maxDepth,
+      preventCycles,
+      onSpawn: (id) => onSpawn(id),
+      makeDetails: makeDetails("single"),
+    });
+
+    const raced = await Promise.race([
+      spawned.then((id) => ({ kind: "spawned" as const, id })),
+      runPromise.then((r) => ({ kind: "done" as const, r })),
+    ]);
+
+    if (raced.kind === "done") {
+      const r = raced.r;
+      if (isResultError(r)) {
+        return {
+          content: [{ type: "text" as const, text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
+          details: makeDetails("single")([r]),
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: getResultSummaryText(r) }],
+        details: makeDetails("single")([r]),
+      };
+    }
+
+    runPromise.then((result) => {
+      const id = result.registryId ?? raced.id;
+      const status = isResultError(result) ? (result.stopReason || "failed") : "completed";
+      pi.sendMessage(
+        {
+          customType: "subagent_result",
+          content: `Background subagent [${id}] (${result.agent}) ${status}.\n\n${getResultSummaryText(result)}`,
+          display: true,
+          details: makeDetails("single")([result]),
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      );
+    });
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Started background subagent [${raced.id}] (${agentName}). It runs concurrently; the result will be delivered automatically when it finishes. Use subagent_list to check progress or subagent_kill to stop it.`,
+        },
+      ],
+      details: makeDetails("single")([]),
     };
   }
 

@@ -43,6 +43,13 @@ export const SubagentParams = Type.Object({
       default: DEFAULT_DELEGATION_MODE,
     }),
   ),
+  background: Type.Optional(
+    Type.Boolean({
+      description:
+        "Run as a background job (single mode only). The tool returns immediately with a job id; the result is delivered to you automatically when the subagent finishes. Use subagent_list/subagent_kill to manage it. Default: false (blocking).",
+      default: false,
+    }),
+  ),
   confirmProjectAgents: Type.Optional(
     Type.Boolean({
       description: "Whether to prompt the user before running project-local agents. Default: true.",
@@ -56,6 +63,26 @@ export const SubagentParams = Type.Object({
   ),
 });
 
+export const SubagentListParams = Type.Object({});
+
+export const SubagentKillParams = Type.Object({
+  id: Type.String({
+    description: "Registry id of the running subagent to kill (as shown by subagent_list).",
+  }),
+});
+
+export const LIST_TOOL_DESCRIPTION = [
+  "List subagents currently running as direct children of this session.",
+  "Returns each subagent's id (used by subagent_kill), agent name, elapsed time, and task preview.",
+  "Note: only direct children are visible; each delegation depth has its own registry.",
+].join("\n");
+
+export const KILL_TOOL_DESCRIPTION = [
+  "Kill a running subagent by id (see subagent_list for ids).",
+  "Sends SIGTERM with a SIGKILL fallback. Killing one child of a parallel batch does not affect its siblings.",
+  "Note: only direct children of this session can be killed.",
+].join("\n");
+
 export const TOOL_DESCRIPTION = [
   "Delegate work to specialized subagents running in isolated pi processes.",
   "",
@@ -68,6 +95,12 @@ export const TOOL_DESCRIPTION = [
   "                             Best for isolated/reproducible work; lower token/cost and less context leakage.",
   "  mode: \"fork\"            -> child gets current session context + your task prompt.",
   "                             Best for follow-up work that depends on prior context; higher token/cost and may include sensitive context.",
+  "",
+  "Optional background mode (single mode only):",
+  "  background: true -> returns immediately with a job id; the result is delivered",
+  "                      automatically when the subagent finishes. Manage with",
+  "                      subagent_list / subagent_kill. Start multiple background jobs",
+  "                      by calling this tool repeatedly.",
   "",
   'Example single:   { agent: "writer", task: "Rewrite README.md", mode: "spawn" }',
   'Example parallel: { tasks: [{ agent: "writer", task: "..." }, { agent: "tester", task: "..." }], mode: "fork" }',

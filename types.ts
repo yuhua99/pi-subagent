@@ -35,6 +35,7 @@ export interface SingleResult {
 	stopReason?: string;
 	errorMessage?: string;
 	sawAgentEnd?: boolean;
+	registryId?: string;
 }
 
 /** Metadata attached to every tool result for rendering. */

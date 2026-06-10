@@ -6,6 +6,7 @@ import * as os from "node:os";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { getResultSummaryText } from "./runner-events.js";
+import type { TrackedSubagent } from "./registry.js";
 import {
 	type DelegationMode,
 	type DisplayItem,
@@ -145,6 +146,28 @@ function renderDisplayItems(
 	return text.trimEnd();
 }
 
+function formatElapsed(ms: number): string {
+	const s = Math.max(0, Math.floor(ms / 1000));
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ${s % 60}s`;
+	return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+export function formatSubagentList(entries: TrackedSubagent[], now = Date.now()): string {
+	if (entries.length === 0) return "No subagents currently running.";
+	const lines = [`${entries.length} running subagent(s):`];
+	for (const e of entries) {
+		const pid = e.pid !== undefined ? ` (pid ${e.pid})` : "";
+		lines.push("", `[${e.id}] ${e.agent} — running ${formatElapsed(now - e.startedAt)}${pid}`, `  task: ${e.task}`);
+	}
+	return lines.join("\n");
+}
+
+function runningIdBadge(r: SingleResult, theme: { fg: ThemeFg }): string {
+	return r.exitCode === -1 && r.registryId ? theme.fg("dim", ` [${r.registryId}]`) : "";
+}
+
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 	if (r.exitCode === -1) return theme.fg("warning", "⏳");
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
@@ -247,7 +270,7 @@ function renderSingleExpanded(
 	const container = new Container();
 
 	// Header
-	let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
+	let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${runningIdBadge(r, theme)}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	container.addChild(new Text(header, 0, 0));
 	if (error && r.errorMessage) {
@@ -295,7 +318,7 @@ function renderSingleCollapsed(
 	displayItems: DisplayItem[],
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 ): Text {
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
+	let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${runningIdBadge(r, theme)}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
 	if (error && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 
 	if (error && r.errorMessage) {
@@ -376,7 +399,7 @@ function renderParallelExpanded(
 		const finalOutput = getFinalOutput(r.messages);
 
 		container.addChild(new Spacer(1));
-		container.addChild(new Text(`${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`, 0, 0));
+		container.addChild(new Text(`${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${rIcon}`, 0, 0));
 		container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
 
 		for (const item of displayItems) {
@@ -420,7 +443,7 @@ function renderParallelCollapsed(
 	for (const r of details.results) {
 		const rIcon = statusIcon(r, theme);
 		const displayItems = getDisplayItems(r.messages);
-		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
+		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${rIcon}`;
 		if (displayItems.length === 0) {
 			text += `\n${theme.fg(r.exitCode === -1 ? "muted" : isResultError(r) ? "error" : "muted", r.exitCode === -1 ? "(running...)" : getResultSummaryText(r))}`;
 		} else {

@@ -12,6 +12,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AgentConfig } from "./agents.js";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
+import { registerSubagent, unregisterSubagent } from "./registry.js";
 import {
   type DelegationMode,
   type SingleResult,
@@ -160,6 +161,8 @@ export interface RunAgentOptions {
   preventCycles: boolean;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
+  /** Called with the registry id once the child process is spawned. */
+  onSpawn?: (registryId: string) => void;
   /** Streaming update callback. */
   onUpdate?: OnUpdateCallback;
   /** Factory to wrap results into SubagentDetails. */
@@ -185,6 +188,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     maxDepth,
     preventCycles,
     signal,
+    onSpawn,
     onUpdate,
     makeDetails,
   } = opts;
@@ -273,6 +277,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       forkSessionTmpPath,
     );
     let wasAborted = false;
+    let wasKilled = false;
 
     const exitCode = await new Promise<number>((resolve) => {
       const nextDepth = Math.max(0, Math.floor(parentDepth)) + 1;
@@ -329,9 +334,24 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         sigkillTimer.unref();
       };
 
+      const registryId = registerSubagent({
+        agent: agentName,
+        task,
+        pid: proc.pid,
+        startedAt: Date.now(),
+        kill: () => {
+          if (didClose || settled) return;
+          wasKilled = true;
+          terminateChild();
+        },
+      });
+      result.registryId = registryId;
+      onSpawn?.(registryId);
+
       const finish = (code: number) => {
         if (settled) return;
         settled = true;
+        unregisterSubagent(registryId);
         clearSemanticCompletionTimer();
         if (signal && abortHandler) {
           signal.removeEventListener("abort", abortHandler);
@@ -405,7 +425,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     });
 
     result.exitCode = exitCode;
-    return normalizeCompletedResult(result, wasAborted);
+    const normalized = normalizeCompletedResult(result, wasAborted || wasKilled);
+    if (wasKilled && normalized.stopReason === "aborted") {
+      normalized.stopReason = "killed";
+      normalized.errorMessage = "Subagent was killed.";
+      if (normalized.stderr === "Subagent was aborted.") normalized.stderr = "Subagent was killed.";
+    }
+    return normalized;
   } finally {
     cleanupTempDir(promptTmpDir);
     cleanupTempDir(forkSessionTmpDir);
