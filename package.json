@@ -1,6 +1,6 @@
 {
-  "name": "@mjakl/pi-subagent",
-  "version": "2.1.0",
+  "name": "@yuhua99/pi-subagent",
+  "version": "3.0.0",
   "description": "Subagent extension for Pi coding agent. Delegate tasks to specialized agents.",
   "type": "module",
   "main": "index.ts",
@@ -33,12 +33,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mjakl/pi-subagent.git"
+    "url": "git+https://github.com/yuhua99/pi-subagent.git"
   },
   "bugs": {
-    "url": "https://github.com/mjakl/pi-subagent/issues"
+    "url": "https://github.com/yuhua99/pi-subagent/issues"
   },
-  "homepage": "https://github.com/mjakl/pi-subagent#readme",
+  "homepage": "https://github.com/yuhua99/pi-subagent#readme",
   "publishConfig": {
     "access": "public"
   },
