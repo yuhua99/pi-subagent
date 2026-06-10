@@ -4,19 +4,6 @@
   "description": "Subagent extension for Pi coding agent. Delegate tasks to specialized agents.",
   "type": "module",
   "main": "index.ts",
-  "files": [
-    "index.ts",
-    "agents.ts",
-    "runner.ts",
-    "registry.ts",
-    "runner-cli.js",
-    "runner-events.js",
-    "render.ts",
-    "types.ts",
-    "agents/*.md",
-    "README.md",
-    "LICENSE"
-  ],
   "pi": {
     "extensions": [
       "./index.ts"
@@ -24,23 +11,6 @@
   },
   "scripts": {
     "test": "node --test"
-  },
-  "keywords": [
-    "pi",
-    "subagent",
-    "delegation",
-    "pi-package"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/yuhua99/pi-subagent.git"
-  },
-  "bugs": {
-    "url": "https://github.com/yuhua99/pi-subagent/issues"
-  },
-  "homepage": "https://github.com/yuhua99/pi-subagent#readme",
-  "publishConfig": {
-    "access": "public"
   },
   "license": "MIT",
   "devDependencies": {
