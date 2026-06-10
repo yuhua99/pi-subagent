@@ -10,11 +10,13 @@
     ]
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "oxlint"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "oxlint": "^1.69.0",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

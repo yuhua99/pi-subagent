@@ -431,7 +431,7 @@ export async function mapConcurrent<TIn, TOut>(
 ): Promise<TOut[]> {
   if (items.length === 0) return [];
   const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: TOut[] = new Array(items.length);
+  const results: TOut[] = Array.from({ length: items.length });
   let nextIndex = 0;
 
   const worker = async () => {
