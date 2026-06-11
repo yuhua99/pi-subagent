@@ -3,7 +3,6 @@ import { DEFAULT_DELEGATION_MODE } from "./types.js";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
-export const PARALLEL_HEARTBEAT_MS = 1000;
 
 const TaskItem = Type.Object({
   agent: Type.String({
@@ -41,13 +40,6 @@ export const SubagentParams = Type.Object({
       description:
         "Context mode for delegated runs. 'spawn' (default) sends only the task prompt (best for isolated, reproducible runs with lower token/cost and less context leakage). 'fork' adds a snapshot of current session context plus task prompt (best for follow-up work, but usually higher token/cost and may include sensitive context).",
       default: DEFAULT_DELEGATION_MODE,
-    }),
-  ),
-  background: Type.Optional(
-    Type.Boolean({
-      description:
-        "Run as a background job (single mode only). The tool returns immediately with a job id; the result is delivered to you automatically when the subagent finishes. Use subagent_list/subagent_kill to manage it. Default: false (blocking).",
-      default: false,
     }),
   ),
   confirmProjectAgents: Type.Optional(
@@ -94,12 +86,7 @@ export const TOOL_DESCRIPTION = [
   "  mode: \"fork\"            -> child gets current session context + your task prompt.",
   "                             Best for follow-up work that depends on prior context; higher token/cost and may include sensitive context.",
   "",
-  "Optional background mode (single mode only):",
-  "  background: true -> returns immediately with a job id; the result is delivered",
-  "                      automatically when the subagent finishes. Manage with",
-  "                      subagent_list / subagent_kill. Start multiple background jobs",
-  "                      by calling this tool repeatedly.",
-  "",
+
   'Example single:   { agent: "writer", task: "Rewrite README.md", mode: "spawn" }',
   'Example parallel: { tasks: [{ agent: "writer", task: "..." }, { agent: "tester", task: "..." }], mode: "fork" }',
 ].join("\n");

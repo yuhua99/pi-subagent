@@ -29,8 +29,8 @@ import { formatSubagentList, renderCall, renderResult } from "./render.js";
 import { getSubagent, listSubagents } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
 import { mapConcurrent, runAgent } from "./runner.js";
-import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, PARALLEL_HEARTBEAT_MS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
-import { DEFAULT_DELEGATION_MODE, emptyUsage, isResultError, isResultSuccess, type DelegationMode, type SingleResult } from "./types.js";
+import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
+import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
   if (isSubagentChild()) return;
@@ -106,7 +106,7 @@ Delegation is single-level: subagents cannot spawn their own subagents.
     description: TOOL_DESCRIPTION,
     parameters: SubagentParams,
 
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const starterDiscovery = discoverAgentsWithStarter(ctx.cwd);
       const { agents, projectAgentsDir } = starterDiscovery.discovery;
 
@@ -174,31 +174,6 @@ Delegation is single-level: subagents cannot spawn their own subagents.
         }
       }
 
-      if (params.background) {
-        if (hasTasks) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "background: true supports single mode only. Call the tool multiple times to run several background jobs concurrently.",
-              },
-            ],
-            details: makeDetails("parallel")([]),
-            isError: true,
-          };
-        }
-        return executeBackground(
-          params.agent!,
-          params.task!,
-          params.cwd,
-          delegationMode,
-          forkSessionSnapshotJsonl,
-          agents,
-          ctx.cwd,
-          makeDetails,
-        );
-      }
-
       if (params.tasks && params.tasks.length > 0) {
         return executeParallel(
           params.tasks,
@@ -206,8 +181,6 @@ Delegation is single-level: subagents cannot spawn their own subagents.
           forkSessionSnapshotJsonl,
           agents,
           ctx.cwd,
-          signal,
-          onUpdate,
           makeDetails,
         );
       }
@@ -220,8 +193,6 @@ Delegation is single-level: subagents cannot spawn their own subagents.
         forkSessionSnapshotJsonl,
         agents,
         ctx.cwd,
-        signal,
-        onUpdate,
         makeDetails,
       );
     },
@@ -276,44 +247,6 @@ Delegation is single-level: subagents cannot spawn their own subagents.
   // ---------------------------------------------------------------------------
 
   async function executeSingle(
-    agentName: string,
-    task: string,
-    cwd: string | undefined,
-    delegationMode: DelegationMode,
-    forkSessionSnapshotJsonl: string | undefined,
-    agents: AgentConfig[],
-    defaultCwd: string,
-    signal: AbortSignal | undefined,
-    onUpdate: ((partial: any) => void) | undefined,
-    makeDetails: ReturnType<typeof makeDetailsFactory>,
-  ) {
-    const result = await runAgent({
-      cwd: defaultCwd,
-      agents,
-      agentName,
-      task,
-      taskCwd: cwd,
-      delegationMode,
-      forkSessionSnapshotJsonl,
-      signal,
-      onUpdate,
-      makeDetails: makeDetails("single"),
-    });
-
-    if (isResultError(result)) {
-      return {
-        content: [{ type: "text" as const, text: `Agent ${result.stopReason || "failed"}: ${getResultSummaryText(result)}` }],
-        details: makeDetails("single")([result]),
-        isError: true,
-      };
-    }
-    return {
-      content: [{ type: "text" as const, text: getResultSummaryText(result) }],
-      details: makeDetails("single")([result]),
-    };
-  }
-
-  async function executeBackground(
     agentName: string,
     task: string,
     cwd: string | undefined,
@@ -378,7 +311,7 @@ Delegation is single-level: subagents cannot spawn their own subagents.
       content: [
         {
           type: "text" as const,
-          text: `Started background subagent [${raced.id}] (${agentName}). It runs concurrently; the result will be delivered automatically when it finishes. Use subagent_list to check progress or subagent_kill to stop it.`,
+          text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered when it finishes.`,
         },
       ],
       details: makeDetails("single")([]),
@@ -391,8 +324,6 @@ Delegation is single-level: subagents cannot spawn their own subagents.
     forkSessionSnapshotJsonl: string | undefined,
     agents: AgentConfig[],
     defaultCwd: string,
-    signal: AbortSignal | undefined,
-    onUpdate: ((partial: any) => void) | undefined,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
   ) {
     if (tasks.length > MAX_PARALLEL_TASKS) {
@@ -402,70 +333,43 @@ Delegation is single-level: subagents cannot spawn their own subagents.
       };
     }
 
-    const allResults: SingleResult[] = tasks.map((t) => ({
-      agent: t.agent,
-      agentSource: "unknown" as const,
-      task: t.task,
-      exitCode: -1,
-      messages: [],
-      stderr: "",
-      usage: emptyUsage(),
-    }));
-
-    const emitProgress = () => {
-      if (!onUpdate) return;
-      const running = allResults.filter((r) => r.exitCode === -1).length;
-      const done = allResults.filter((r) => r.exitCode !== -1).length;
-      onUpdate({
-        content: [{ type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` }],
-        details: makeDetails("parallel")([...allResults]),
-      });
-    };
-
-    let heartbeat: NodeJS.Timeout | undefined;
-    if (onUpdate) {
-      emitProgress();
-      heartbeat = setInterval(() => {
-        if (allResults.some((r) => r.exitCode === -1)) emitProgress();
-      }, PARALLEL_HEARTBEAT_MS);
-    }
-
-    let results: SingleResult[];
-    try {
-      results = await mapConcurrent(tasks, MAX_CONCURRENCY, async (t, index) => {
-        const result = await runAgent({
-          cwd: defaultCwd,
-          agents,
-          agentName: t.agent,
-          task: t.task,
-          taskCwd: t.cwd,
-          delegationMode,
-          forkSessionSnapshotJsonl,
-          signal,
-          onUpdate: (partial) => {
-            if (partial.details?.results[0]) {
-              allResults[index] = partial.details.results[0];
-              emitProgress();
-            }
-          },
-          makeDetails: makeDetails("parallel"),
-        });
-        allResults[index] = result;
-        emitProgress();
-        return result;
-      });
-    } finally {
-      if (heartbeat) clearInterval(heartbeat);
-    }
-
-    const successCount = results.filter((r) => isResultSuccess(r)).length;
-    const summaries = results.map((r) =>
-      `[${r.agent}] ${isResultError(r) ? "failed" : "completed"}: ${getResultSummaryText(r)}`,
+    const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, (t) =>
+      runAgent({
+        cwd: defaultCwd,
+        agents,
+        agentName: t.agent,
+        task: t.task,
+        taskCwd: t.cwd,
+        delegationMode,
+        forkSessionSnapshotJsonl,
+        makeDetails: makeDetails("parallel"),
+      }),
     );
 
+    batchPromise.then((results) => {
+      const successCount = results.filter((r) => isResultSuccess(r)).length;
+      const summaries = results.map((r) =>
+        `[${r.agent}] ${isResultError(r) ? "failed" : "completed"}: ${getResultSummaryText(r)}`,
+      );
+      pi.sendMessage(
+        {
+          customType: "subagent_result",
+          content: `Parallel subagent batch finished: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
+          display: true,
+          details: makeDetails("parallel")(results),
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      );
+    });
+
     return {
-      content: [{ type: "text" as const, text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
-      details: makeDetails("parallel")(results),
+      content: [
+        {
+          type: "text" as const,
+          text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered when all finish.`,
+        },
+      ],
+      details: makeDetails("parallel")([]),
     };
   }
 }
