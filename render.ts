@@ -146,7 +146,7 @@ function renderDisplayItems(
 	return text.trimEnd();
 }
 
-function formatElapsed(ms: number): string {
+export function formatElapsed(ms: number): string {
 	const s = Math.max(0, Math.floor(ms / 1000));
 	if (s < 60) return `${s}s`;
 	const m = Math.floor(s / 60);

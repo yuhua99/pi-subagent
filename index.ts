@@ -15,6 +15,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgentsWithStarter } from "./agents.js";
+import { registerAgentsCommand } from "./agents_command.js";
 import {
   buildForkSessionSnapshotJsonl,
   confirmProjectAgentsIfNeeded,
@@ -33,6 +34,8 @@ import { DEFAULT_DELEGATION_MODE, emptyUsage, isResultError, isResultSuccess, ty
 
 export default function (pi: ExtensionAPI) {
   if (isSubagentChild()) return;
+
+  registerAgentsCommand(pi);
 
   let discoveredAgents: AgentConfig[] = [];
 
