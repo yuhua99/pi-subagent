@@ -119,7 +119,6 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 
 				await ctx.ui.custom<null>(
 					(tui, theme, _kb, done) => {
-						let scrollFromBottom = 0;
 						let timer: NodeJS.Timeout | undefined;
 
 						const finish = () => {
@@ -152,11 +151,8 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 									transcript.push(...wrapTextWithAnsi(line, innerWidth));
 								}
 
-								const maxScroll = Math.max(0, transcript.length - DETAIL_VIEWPORT_LINES);
-								if (scrollFromBottom > maxScroll) scrollFromBottom = maxScroll;
-								const end = transcript.length - scrollFromBottom;
-								const start = Math.max(0, end - DETAIL_VIEWPORT_LINES);
-								const window = transcript.slice(start, end);
+								const start = Math.max(0, transcript.length - DETAIL_VIEWPORT_LINES);
+								const window = transcript.slice(start);
 
 								const hbar = "─".repeat(Math.max(1, width - 2));
 								const lines: string[] = [];
@@ -169,27 +165,14 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 								} else {
 									if (start > 0) lines.push(box(theme.fg("dim", `... ${start} earlier lines`)));
 									for (const line of window) lines.push(box(line));
-									if (scrollFromBottom > 0) lines.push(box(theme.fg("dim", `... ${scrollFromBottom} more lines below`)));
 								}
-								lines.push(box(theme.fg("dim", "j/k or ↑↓ scroll · x kill · esc back")));
+								lines.push(box(theme.fg("dim", "esc back")));
 								lines.push(theme.fg("border", `╰${hbar}╯`));
 								return lines;
 							},
 							invalidate: () => {},
 							handleInput: (data: string) => {
-								if (data === KEY_ESCAPE) {
-									finish();
-									return;
-								}
-								if (data === "k" || data === KEY_UP) scrollFromBottom += 1;
-								else if (data === "j" || data === KEY_DOWN) scrollFromBottom = Math.max(0, scrollFromBottom - 1);
-								else if (data === "x") {
-									entry.kill();
-									killedIds.add(entry.id);
-									finish();
-									return;
-								}
-								tui.requestRender();
+								if (data === KEY_ESCAPE) finish();
 							},
 						};
 					},
