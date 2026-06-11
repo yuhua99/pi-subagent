@@ -24,6 +24,7 @@ import {
 
 const COLLAPSED_LINE_COUNT = 10;
 const COLLAPSED_PARALLEL_LINE_COUNT = 5;
+const COLLAPSED_TOOLCALL_COUNT = 5;
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -112,39 +113,29 @@ function splitOutputLines(text: string): string[] {
 	return lines;
 }
 
-function countDisplayLines(items: DisplayItem[]): number {
-	let count = 0;
-	for (const item of items) {
-		count += item.type === "text" ? splitOutputLines(item.text).length : 1;
-	}
-	return count;
+function collapsedToolCallText(items: DisplayItem[], theme: { fg: ThemeFg }): string | null {
+	const calls = items.filter((i) => i.type === "toolCall");
+	if (calls.length === 0) return null;
+	const shown = calls.slice(-COLLAPSED_TOOLCALL_COUNT);
+	const skipped = calls.length - shown.length;
+	const lines = shown.map(
+		(c) => theme.fg("muted", "→ ") + formatToolCall(c.name, c.args, theme.fg.bind(theme)),
+	);
+	const prefix = skipped > 0 ? theme.fg("muted", `... ${skipped} earlier tool calls`) + "\n" : "";
+	return prefix + lines.join("\n");
 }
 
-function renderDisplayItems(
-	items: DisplayItem[],
-	expanded: boolean,
+function tailTextLines(
+	text: string,
+	limit: number,
+	color: ThemeColor,
 	theme: { fg: ThemeFg },
-	limit?: number,
 ): string {
-	const lines: string[] = [];
-	for (const item of items) {
-		if (item.type === "text") {
-			for (const line of splitOutputLines(item.text)) {
-				lines.push(theme.fg("toolOutput", line));
-			}
-		} else {
-			lines.push(theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)));
-		}
-	}
-
-	const shouldTail = !expanded && typeof limit === "number";
-	const toShow = shouldTail ? lines.slice(-limit) : lines;
-	const skipped = shouldTail && lines.length > limit ? lines.length - limit : 0;
-
-	let text = "";
-	if (skipped > 0) text += theme.fg("muted", `... ${skipped} earlier lines\n`);
-	text += toShow.join("\n");
-	return text.trimEnd();
+	const lines = splitOutputLines(text);
+	const shown = lines.slice(-limit);
+	const skipped = lines.length - shown.length;
+	const prefix = skipped > 0 ? theme.fg("muted", `... ${skipped} earlier lines`) + "\n" : "";
+	return prefix + shown.map((l) => theme.fg(color, l)).join("\n");
 }
 
 export function formatElapsed(ms: number): string {
@@ -347,13 +338,13 @@ function renderSingleCollapsed(
 
 	if (error && r.errorMessage) {
 		text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-	} else if (displayItems.length === 0) {
-		text += `\n${theme.fg(error ? "error" : "muted", getResultSummaryText(r))}`;
+	} else if (r.exitCode === -1) {
+		text += `\n${collapsedToolCallText(displayItems, theme) ?? theme.fg("muted", "(running...)")}`;
 	} else {
-		text += `\n${renderDisplayItems(displayItems, false, theme, COLLAPSED_LINE_COUNT)}`;
-		if (countDisplayLines(displayItems) > COLLAPSED_LINE_COUNT) {
-			text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-		}
+		const calls = collapsedToolCallText(displayItems, theme);
+		if (calls) text += `\n${calls}`;
+		text += `\n${tailTextLines(getResultSummaryText(r), COLLAPSED_LINE_COUNT, error ? "error" : "toolOutput", theme)}`;
+		if (calls) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 	}
 
 	const usageStr = formatUsage(r.usage, r.model);
@@ -468,10 +459,10 @@ function renderParallelCollapsed(
 		const rIcon = statusIcon(r, theme);
 		const displayItems = getDisplayItems(r.messages);
 		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${rIcon}`;
-		if (displayItems.length === 0) {
-			text += `\n${theme.fg(r.exitCode === -1 ? "muted" : isResultError(r) ? "error" : "muted", r.exitCode === -1 ? "(running...)" : getResultSummaryText(r))}`;
+		if (r.exitCode === -1) {
+			text += `\n${collapsedToolCallText(displayItems, theme) ?? theme.fg("muted", "(running...)")}`;
 		} else {
-			text += `\n${renderDisplayItems(displayItems, false, theme, COLLAPSED_PARALLEL_LINE_COUNT)}`;
+			text += `\n${tailTextLines(getResultSummaryText(r), COLLAPSED_PARALLEL_LINE_COUNT, isResultError(r) ? "error" : "muted", theme)}`;
 		}
 	}
 
