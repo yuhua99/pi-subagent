@@ -323,6 +323,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           wasKilled = true;
           terminateChild();
         },
+        peek: () => result,
       });
       result.registryId = registryId;
       onSpawn?.(registryId);

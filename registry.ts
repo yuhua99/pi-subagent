@@ -3,6 +3,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { SingleResult } from "./types.js";
 
 export interface TrackedSubagent {
 	id: string;
@@ -11,6 +12,7 @@ export interface TrackedSubagent {
 	pid: number | undefined;
 	startedAt: number;
 	kill: () => void;
+	peek: () => SingleResult;
 }
 
 const TASK_PREVIEW_LENGTH = 80;

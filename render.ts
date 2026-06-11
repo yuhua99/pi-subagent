@@ -3,6 +3,7 @@
  */
 
 import * as os from "node:os";
+import type { Message } from "@earendil-works/pi-ai";
 import { getMarkdownTheme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { getResultSummaryText } from "./runner-events.js";
@@ -166,6 +167,29 @@ export function formatSubagentList(entries: TrackedSubagent[], now = Date.now())
 
 function runningIdBadge(r: SingleResult, theme: { fg: ThemeFg }): string {
 	return r.exitCode === -1 && r.registryId ? theme.fg("dim", ` [${r.registryId}]`) : "";
+}
+
+/** Full transcript lines for the /agents detail view: thinking, text, and tool calls. */
+export function transcriptLines(messages: Message[], theme: { fg: ThemeFg }): string[] {
+	const lines: string[] = [];
+	for (const msg of messages) {
+		if (msg.role !== "assistant") continue;
+		if (lines.length > 0) lines.push("");
+		for (const part of msg.content) {
+			if (part.type === "thinking") {
+				for (const line of splitOutputLines(part.thinking)) {
+					lines.push(theme.fg("dim", `✻ ${line}`));
+				}
+			} else if (part.type === "text") {
+				for (const line of splitOutputLines(part.text)) {
+					lines.push(theme.fg("toolOutput", line));
+				}
+			} else if (part.type === "toolCall") {
+				lines.push(theme.fg("muted", "→ ") + formatToolCall(part.name, part.arguments, theme.fg.bind(theme)));
+			}
+		}
+	}
+	return lines;
 }
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
