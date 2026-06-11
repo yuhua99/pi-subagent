@@ -3,7 +3,7 @@
  */
 
 import { DynamicBorder, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type SelectItem, SelectList, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type SelectItem, SelectList, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatElapsed, transcriptLines } from "./render.js";
 import { getSubagent, listSubagents, type TrackedSubagent } from "./registry.js";
 import { isResultError } from "./types.js";
@@ -70,20 +70,23 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 					timer = setInterval(refresh, REFRESH_MS);
 					timer.unref?.();
 
-					const topBorder = new DynamicBorder((s: string) => theme.fg("accent", s));
-					const bottomBorder = new DynamicBorder((s: string) => theme.fg("accent", s));
+					const topBorder = new DynamicBorder((s: string) => theme.fg("border", s));
+					const bottomBorder = new DynamicBorder((s: string) => theme.fg("border", s));
 
 					return {
 						render: (width: number) => {
 							const lines: string[] = [];
 							lines.push(...topBorder.render(width));
-							lines.push(` ${theme.fg("accent", theme.bold(`Running subagents (${entries.length})`))}`);
+							lines.push("");
+							lines.push(theme.fg("muted", `Running subagents (${entries.length})`));
+							lines.push("");
 							if (selectList) {
 								lines.push(...selectList.render(width));
 							} else {
-								lines.push(` ${theme.fg("muted", "No subagents running.")}`);
+								lines.push(theme.fg("muted", "  No subagents running."));
 							}
-							lines.push(` ${theme.fg("dim", "j/k or ↑↓ navigate · enter view · x kill · esc close")}`);
+							lines.push("");
+							lines.push(theme.fg("dim", "enter view · x kill · esc close"));
 							lines.push(...bottomBorder.render(width));
 							return lines;
 						},
@@ -129,7 +132,12 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 
 						return {
 							render: (width: number) => {
-								const border = theme.fg("accent", "─".repeat(Math.max(1, width)));
+								const innerWidth = Math.max(10, width - 4);
+								const box = (line: string) =>
+									theme.fg("border", "│ ") +
+									line +
+									" ".repeat(Math.max(0, innerWidth - visibleWidth(line))) +
+									theme.fg("border", " │");
 								const result = entry.peek();
 								const running = result.exitCode === -1;
 								const icon = running
@@ -141,7 +149,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 
 								const transcript: string[] = [];
 								for (const line of transcriptLines(result.messages, theme)) {
-									transcript.push(...wrapTextWithAnsi(line, Math.max(10, width - 2)));
+									transcript.push(...wrapTextWithAnsi(line, innerWidth));
 								}
 
 								const maxScroll = Math.max(0, transcript.length - DETAIL_VIEWPORT_LINES);
@@ -150,20 +158,21 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 								const start = Math.max(0, end - DETAIL_VIEWPORT_LINES);
 								const window = transcript.slice(start, end);
 
+								const hbar = "─".repeat(Math.max(1, width - 2));
 								const lines: string[] = [];
-								lines.push(border);
-								lines.push(` ${icon} ${theme.fg("accent", theme.bold(`[${entry.id}] ${entry.agent}`))} ${theme.fg("muted", `— ${status}`)}`);
-								lines.push(` ${theme.fg("dim", `task: ${entry.task}`)}`);
-								lines.push(theme.fg("muted", "─".repeat(Math.max(1, width))));
+								lines.push(theme.fg("border", `╭${hbar}╮`));
+								lines.push(box(`${icon} ${theme.fg("accent", theme.bold(`[${entry.id}] ${entry.agent}`))} ${theme.fg("muted", `— ${status}`)}`));
+								lines.push(box(theme.fg("dim", `task: ${entry.task}`)));
+								lines.push(theme.fg("border", `├${hbar}┤`));
 								if (window.length === 0) {
-									lines.push(` ${theme.fg("muted", "(no output yet)")}`);
+									lines.push(box(theme.fg("muted", "(no output yet)")));
 								} else {
-									if (start > 0) lines.push(theme.fg("dim", ` ... ${start} earlier lines`));
-									for (const line of window) lines.push(` ${line}`);
-									if (scrollFromBottom > 0) lines.push(theme.fg("dim", ` ... ${scrollFromBottom} more lines below`));
+									if (start > 0) lines.push(box(theme.fg("dim", `... ${start} earlier lines`)));
+									for (const line of window) lines.push(box(line));
+									if (scrollFromBottom > 0) lines.push(box(theme.fg("dim", `... ${scrollFromBottom} more lines below`)));
 								}
-								lines.push(` ${theme.fg("dim", "j/k or ↑↓ scroll · G tail · x kill · esc back")}`);
-								lines.push(border);
+								lines.push(box(theme.fg("dim", "j/k or ↑↓ scroll · x kill · esc back")));
+								lines.push(theme.fg("border", `╰${hbar}╯`));
 								return lines;
 							},
 							invalidate: () => {},
@@ -174,7 +183,6 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 								}
 								if (data === "k" || data === KEY_UP) scrollFromBottom += 1;
 								else if (data === "j" || data === KEY_DOWN) scrollFromBottom = Math.max(0, scrollFromBottom - 1);
-								else if (data === "G") scrollFromBottom = 0;
 								else if (data === "x") {
 									entry.kill();
 									killedIds.add(entry.id);
