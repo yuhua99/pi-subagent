@@ -236,6 +236,7 @@ Delegation is single-level: subagents cannot spawn their own subagents.
     async execute() {
       return {
         content: [{ type: "text" as const, text: formatSubagentList(listSubagents()) }],
+        details: undefined,
       };
     },
   });
@@ -256,11 +257,13 @@ Delegation is single-level: subagents cannot spawn their own subagents.
               text: `No running subagent with id '${params.id}' (it may have already finished).`,
             },
           ],
+          details: undefined,
         };
       }
       entry.kill();
       return {
         content: [{ type: "text" as const, text: `Killed subagent [${entry.id}] (${entry.agent}).` }],
+        details: undefined,
       };
     },
   });

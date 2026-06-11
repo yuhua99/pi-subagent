@@ -3,7 +3,7 @@
  */
 
 import * as os from "node:os";
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { getResultSummaryText } from "./runner-events.js";
 import type { TrackedSubagent } from "./registry.js";
@@ -61,7 +61,7 @@ function normalizeDelegationMode(raw: unknown): DelegationMode {
 	return raw === "fork" ? "fork" : DEFAULT_DELEGATION_MODE;
 }
 
-type ThemeFg = (color: string, text: string) => string;
+type ThemeFg = (color: ThemeColor, text: string) => string;
 
 function formatToolCall(toolName: string, args: Record<string, unknown>, fg: ThemeFg): string {
 	const pathArg = (args.file_path || args.path || "...") as string;
