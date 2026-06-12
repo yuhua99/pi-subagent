@@ -311,7 +311,7 @@ Delegation is single-level: subagents cannot spawn their own subagents.
       content: [
         {
           type: "text" as const,
-          text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered when it finishes.`,
+          text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered to you automatically as a new message when it finishes. Do NOT wait, poll subagent_list, or sleep. If you have nothing else to do, end your turn now.`,
         },
       ],
       details: makeDetails("single")([]),
@@ -366,7 +366,7 @@ Delegation is single-level: subagents cannot spawn their own subagents.
       content: [
         {
           type: "text" as const,
-          text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered when all finish.`,
+          text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT wait, poll subagent_list, or sleep. If you have nothing else to do, end your turn now.`,
         },
       ],
       details: makeDetails("parallel")([]),
