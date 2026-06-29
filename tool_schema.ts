@@ -1,5 +1,15 @@
 import { Type } from "typebox";
+import type { AgentConfig } from "./agents.js";
 import { DEFAULT_DELEGATION_MODE } from "./types.js";
+
+const SPAWN_MODE_DESCRIPTION =
+  "'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.";
+const FORK_MODE_DESCRIPTION =
+  "'fork': child receives a forked snapshot of current session context plus the task prompt. Best for follow-up tasks that rely on prior context; usually higher token/cost and may include sensitive context.";
+const SINGLE_MODE_EXAMPLE =
+  '{ "agent": "agent-name", "task": "Detailed task...", "mode": "spawn" }';
+const PARALLEL_MODE_EXAMPLE =
+  '{ "tasks": [{ "agent": "agent-name", "task": "..." }, { "agent": "other-agent", "task": "..." }], "mode": "fork" }';
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
@@ -80,13 +90,42 @@ export const TOOL_DESCRIPTION = [
   "  Single mode:   set `agent` and `task` (both required together).",
   "  Parallel mode: set `tasks` array (do NOT also set `agent`/`task`).",
   "",
-  "Optional context mode switch:",
-  "  mode: \"spawn\" (default) -> child gets only your task prompt.",
-  "                             Best for isolated/reproducible work; lower token/cost and less context leakage.",
-  "  mode: \"fork\"            -> child gets current session context + your task prompt.",
-  "                             Best for follow-up work that depends on prior context; higher token/cost and may include sensitive context.",
+  "Optional context mode:",
+  `- ${SPAWN_MODE_DESCRIPTION}`,
+  `- ${FORK_MODE_DESCRIPTION}`,
   "",
-
-  'Example single:   { agent: "writer", task: "Rewrite README.md", mode: "spawn" }',
-  'Example parallel: { tasks: [{ agent: "writer", task: "..." }, { agent: "tester", task: "..." }], mode: "fork" }',
+  `Example single:   ${SINGLE_MODE_EXAMPLE}`,
+  `Example parallel: ${PARALLEL_MODE_EXAMPLE}`,
 ].join("\n");
+
+export function formatSubagentSystemPrompt(agents: AgentConfig[]): string {
+  const agentList = agents.map((a) => `- **${a.name}**: ${a.description}`).join("\n");
+  return `## Available Subagents
+
+The following subagents are available via the \`subagent\` tool:
+
+${agentList}
+
+### How to call the subagent tool
+
+Each subagent runs in an **isolated process**.
+
+Context behavior is controlled by optional 'mode':
+- ${SPAWN_MODE_DESCRIPTION}
+- ${FORK_MODE_DESCRIPTION}
+
+**Single mode** \u2014 delegate one task:
+\`\`\`json
+${SINGLE_MODE_EXAMPLE}
+\`\`\`
+
+**Parallel mode** \u2014 run multiple tasks concurrently (do NOT also set agent/task):
+\`\`\`json
+${PARALLEL_MODE_EXAMPLE}
+\`\`\`
+
+Use single mode for one task, parallel mode when tasks are independent and can run simultaneously.
+
+Delegation is single-level: subagents cannot spawn their own subagents.
+`;
+}

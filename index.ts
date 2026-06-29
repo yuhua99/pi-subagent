@@ -29,7 +29,7 @@ import { formatSubagentList, renderCall, renderResult } from "./render.js";
 import { getSubagent, listSubagents } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
 import { mapConcurrent, runAgent } from "./runner.js";
-import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
+import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
 import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -64,39 +64,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event) => {
     if (discoveredAgents.length === 0) return;
-
-    const agentList = discoveredAgents.map((a) => `- **${a.name}**: ${a.description}`).join("\n");
     return {
-      systemPrompt:
-        event.systemPrompt +
-        `\n\n## Available Subagents
-
-The following subagents are available via the \`subagent\` tool:
-
-${agentList}
-
-### How to call the subagent tool
-
-Each subagent runs in an **isolated process**.
-
-Context behavior is controlled by optional 'mode':
-- 'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.
-- 'fork': child receives a forked snapshot of current session context plus the task prompt. Best for follow-up tasks that rely on prior context; usually higher token/cost and may include sensitive context.
-
-**Single mode** — delegate one task:
-\`\`\`json
-{ "agent": "agent-name", "task": "Detailed task...", "mode": "spawn" }
-\`\`\`
-
-**Parallel mode** — run multiple tasks concurrently (do NOT also set agent/task):
-\`\`\`json
-{ "tasks": [{ "agent": "agent-name", "task": "..." }, { "agent": "other-agent", "task": "..." }], "mode": "fork" }
-\`\`\`
-
-Use single mode for one task, parallel mode when tasks are independent and can run simultaneously.
-
-Delegation is single-level: subagents cannot spawn their own subagents.
-`,
+      systemPrompt: event.systemPrompt + "\n\n" + formatSubagentSystemPrompt(discoveredAgents),
     };
   });
 
