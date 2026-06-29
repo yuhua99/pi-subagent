@@ -42,26 +42,6 @@ export function buildForkSessionSnapshotJsonl(sessionManager: SessionSnapshotSou
   return `${lines.join("\n")}\n`;
 }
 
-export function getRequestedProjectAgents(agents: AgentConfig[], requestedNames: Set<string>): AgentConfig[] {
-  return Array.from(requestedNames)
-    .map((name) => agents.find((a) => a.name === name))
-    .filter((a): a is AgentConfig => a?.source === "project");
-}
-
-export async function confirmProjectAgentsIfNeeded(
-  projectAgents: AgentConfig[],
-  projectAgentsDir: string | null,
-  ctx: { ui: { confirm: (title: string, body: string) => Promise<boolean> } },
-): Promise<boolean> {
-  if (projectAgents.length === 0) return true;
-  const names = projectAgents.map((a) => a.name).join(", ");
-  const dir = projectAgentsDir ?? "(unknown)";
-  return ctx.ui.confirm(
-    "Run project-local agents?",
-    `Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Helpers used in tool execute
 // ---------------------------------------------------------------------------

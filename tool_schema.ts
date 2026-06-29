@@ -52,12 +52,6 @@ export const SubagentParams = Type.Object({
       default: DEFAULT_DELEGATION_MODE,
     }),
   ),
-  confirmProjectAgents: Type.Optional(
-    Type.Boolean({
-      description: "Whether to prompt the user before running project-local agents. Default: true.",
-      default: true,
-    }),
-  ),
   cwd: Type.Optional(
     Type.String({
       description: "Working directory for the agent process (single mode only)",

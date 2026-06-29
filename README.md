@@ -123,7 +123,7 @@ Subagents are defined as Markdown files with YAML frontmatter.
 **User Agents:** `~/.pi/agent/agents/*.md` by default, or `$PI_CODING_AGENT_DIR/agents/*.md` when `PI_CODING_AGENT_DIR` is set
 **Project Agents:** `.pi/agents/*.md`
 
-`PI_CODING_AGENT_DIR` follows Pi's config-dir override semantics: when it is set, the extension uses `$PI_CODING_AGENT_DIR/agents` as the user/global agent directory instead of `~/.pi/agent/agents`. Project agents are still loaded in addition to the active user/global directory, and project agents win on name conflicts. When project agents are requested, Pi will prompt for confirmation before running them.
+`PI_CODING_AGENT_DIR` follows Pi's config-dir override semantics: when it is set, the extension uses `$PI_CODING_AGENT_DIR/agents` as the user/global agent directory instead of `~/.pi/agent/agents`. Project agents are still loaded in addition to the active user/global directory, and project agents win on name conflicts.
 
 #### Starter Agent
 
@@ -268,7 +268,6 @@ Parallel: 3/3 succeeded
 - **Depth + Cycle Guards** — Depth limiting and ancestry-cycle checks prevent runaway recursive delegation by default.
 - **Streaming Updates** — Watch subagent progress in real-time as tool calls and outputs stream in.
 - **Rich TUI Rendering** — Collapsed/expanded views with usage stats, tool call previews, and markdown output.
-- **Security Confirmation** — Project-local agents require explicit user approval before execution.
 
 ## Project Structure
 

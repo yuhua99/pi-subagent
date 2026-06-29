@@ -18,9 +18,7 @@ import { type AgentConfig, discoverAgentsWithStarter } from "./agents.js";
 import { registerAgentsCommand } from "./agents_command.js";
 import {
   buildForkSessionSnapshotJsonl,
-  confirmProjectAgentsIfNeeded,
   formatAgentNames,
-  getRequestedProjectAgents,
   isSubagentChild,
   makeDetailsFactory,
   parseDelegationMode,
@@ -110,37 +108,6 @@ export default function (pi: ExtensionAPI) {
           content: [{ type: "text", text: `Invalid parameters. Provide exactly one invocation shape.\nAvailable agents: ${formatAgentNames(agents)}` }],
           details: makeDetails("single")([]),
         };
-      }
-
-      const requested = new Set<string>();
-      if (params.tasks) for (const t of params.tasks) requested.add(t.agent);
-      if (params.agent) requested.add(params.agent);
-
-      const requestedProjectAgents = getRequestedProjectAgents(agents, requested);
-      const shouldConfirmProjectAgents = params.confirmProjectAgents ?? true;
-      if (requestedProjectAgents.length > 0 && shouldConfirmProjectAgents) {
-        if (ctx.hasUI) {
-          const approved = await confirmProjectAgentsIfNeeded(requestedProjectAgents, projectAgentsDir, ctx);
-          if (!approved) {
-            return {
-              content: [{ type: "text", text: "Canceled: project-local agents not approved." }],
-              details: makeDetails(hasTasks ? "parallel" : "single")([]),
-            };
-          }
-        } else {
-          const names = requestedProjectAgents.map((a) => a.name).join(", ");
-          const dir = projectAgentsDir ?? "(unknown)";
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Blocked: project-local agent confirmation is required in non-UI mode.\nAgents: ${names}\nSource: ${dir}\n\nRe-run with confirmProjectAgents: false only if this repository is trusted.`,
-              },
-            ],
-            details: makeDetails(hasTasks ? "parallel" : "single")([]),
-            isError: true,
-          };
-        }
       }
 
       if (params.tasks && params.tasks.length > 0) {
