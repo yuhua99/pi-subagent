@@ -22,8 +22,6 @@ import {
 	isResultSuccess,
 } from "./types.js";
 
-const COLLAPSED_LINE_COUNT = 10;
-const COLLAPSED_PARALLEL_LINE_COUNT = 5;
 const COLLAPSED_TOOLCALL_COUNT = 5;
 
 // ---------------------------------------------------------------------------
@@ -123,19 +121,6 @@ function collapsedToolCallText(items: DisplayItem[], theme: { fg: ThemeFg }): st
 	);
 	const prefix = skipped > 0 ? theme.fg("muted", `... ${skipped} earlier tool calls`) + "\n" : "";
 	return prefix + lines.join("\n");
-}
-
-function tailTextLines(
-	text: string,
-	limit: number,
-	color: ThemeColor,
-	theme: { fg: ThemeFg },
-): string {
-	const lines = splitOutputLines(text);
-	const shown = lines.slice(-limit);
-	const skipped = lines.length - shown.length;
-	const prefix = skipped > 0 ? theme.fg("muted", `... ${skipped} earlier lines`) + "\n" : "";
-	return prefix + shown.map((l) => theme.fg(color, l)).join("\n");
 }
 
 export function formatElapsed(ms: number): string {
@@ -338,13 +323,14 @@ function renderSingleCollapsed(
 
 	if (error && r.errorMessage) {
 		text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
+	} else if (error) {
+		const fallback = r.stopReason
+			? `Error: ${r.stopReason}`
+			: `Error (exit ${r.exitCode})`;
+		text += `\n${theme.fg("error", fallback)}`;
 	} else if (r.exitCode === -1) {
+		text += `\n${theme.fg("dim", truncate(r.task, 80))}`;
 		text += `\n${collapsedToolCallText(displayItems, theme) ?? theme.fg("muted", "(running...)")}`;
-	} else {
-		const calls = collapsedToolCallText(displayItems, theme);
-		if (calls) text += `\n${calls}`;
-		text += `\n${tailTextLines(getResultSummaryText(r), COLLAPSED_LINE_COUNT, error ? "error" : "toolOutput", theme)}`;
-		if (calls) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 	}
 
 	const usageStr = formatUsage(r.usage, r.model);
@@ -386,7 +372,6 @@ function renderParallelResult(
 		icon,
 		status,
 		isRunning,
-		expanded,
 		theme,
 	);
 }
@@ -450,27 +435,32 @@ function renderParallelCollapsed(
 	icon: string,
 	status: string,
 	isRunning: boolean,
-	expanded: boolean,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 ): Text {
 	let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}${theme.fg("muted", ` [${delegationMode}]`)}`;
 
 	for (const r of details.results) {
 		const rIcon = statusIcon(r, theme);
-		const displayItems = getDisplayItems(r.messages);
 		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${rIcon}`;
 		if (r.exitCode === -1) {
-			text += `\n${collapsedToolCallText(displayItems, theme) ?? theme.fg("muted", "(running...)")}`;
-		} else {
-			text += `\n${tailTextLines(getResultSummaryText(r), COLLAPSED_PARALLEL_LINE_COUNT, isResultError(r) ? "error" : "muted", theme)}`;
+			text += `\n${theme.fg("dim", truncate(r.task, 80))}`;
 		}
+		if (isResultError(r)) {
+			const msg = r.errorMessage
+				? `Error: ${r.errorMessage}`
+				: r.stopReason
+					? `Error: ${r.stopReason}`
+					: `Error (exit ${r.exitCode})`;
+			text += `\n${theme.fg("error", msg)}`;
+		}
+		const taskUsage = formatUsage(r.usage, r.model);
+		if (taskUsage) text += `\n${theme.fg("dim", taskUsage)}`;
 	}
 
 	if (!isRunning) {
 		const totalUsage = formatUsage(aggregateUsage(details.results));
 		if (totalUsage) text += `\n\n${theme.fg("dim", `Total: ${totalUsage}`)}`;
 	}
-	if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 
 	return new Text(text, 0, 0);
 }

@@ -28,7 +28,7 @@ import { getSubagent, listSubagents } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
 import { mapConcurrent, runAgent } from "./runner.js";
 import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
-import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
+import { DEFAULT_DELEGATION_MODE, emptyUsage, isResultError, isResultSuccess, type DelegationMode, type SingleResult } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
   if (isSubagentChild()) return;
@@ -250,7 +250,9 @@ export default function (pi: ExtensionAPI) {
           text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered to you automatically as a new message when it finishes. Do NOT wait, poll subagent_list, or sleep. If you have nothing else to do, end your turn now.`,
         },
       ],
-      details: makeDetails("single")([]),
+      details: makeDetails("single")([
+        makeRunningPlaceholder(agentName, task, agents, raced.id),
+      ]),
     };
   }
 
@@ -305,7 +307,27 @@ export default function (pi: ExtensionAPI) {
           text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT wait, poll subagent_list, or sleep. If you have nothing else to do, end your turn now.`,
         },
       ],
-      details: makeDetails("parallel")([]),
+      details: makeDetails("parallel")(
+        tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents)),
+      ),
     };
   }
+}
+
+function makeRunningPlaceholder(
+  agentName: string,
+  task: string,
+  agents: AgentConfig[],
+  registryId?: string,
+): SingleResult {
+  return {
+    agent: agentName,
+    agentSource: agents.find((a) => a.name === agentName)?.source ?? "unknown",
+    task,
+    exitCode: -1,
+    messages: [],
+    stderr: "",
+    usage: emptyUsage(),
+    registryId,
+  };
 }
