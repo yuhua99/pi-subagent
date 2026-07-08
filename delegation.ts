@@ -1,5 +1,6 @@
 import type { AgentConfig } from "./agents.js";
-import { DEFAULT_DELEGATION_MODE, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.js";
+import { markCompleted, registerSubagent, unregisterSubagent } from "./registry.js";
+import { DEFAULT_DELEGATION_MODE, emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -58,4 +59,64 @@ export function makeDetailsFactory(projectAgentsDir: string | null, delegationMo
 
 export function formatAgentNames(agents: AgentConfig[]): string {
   return agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder lifecycle
+// ---------------------------------------------------------------------------
+
+export function makeRunningPlaceholder(
+  agentName: string,
+  task: string,
+  agents: AgentConfig[],
+  registryId?: string,
+): SingleResult {
+  return {
+    agent: agentName,
+    agentSource: agents.find((a) => a.name === agentName)?.source ?? "unknown",
+    task,
+    exitCode: -1,
+    messages: [],
+    stderr: "",
+    usage: emptyUsage(),
+    registryId,
+  };
+}
+
+export function failedPlaceholderResult(
+  placeholder: SingleResult,
+  stopReason: "killed" | "error",
+  message: string,
+): SingleResult {
+  return {
+    ...placeholder,
+    exitCode: 1,
+    stopReason,
+    errorMessage: message,
+    stderr: message,
+  };
+}
+
+export function reserveParallelPlaceholders(
+  tasks: Array<{ agent: string; task: string }>,
+  agents: AgentConfig[],
+): { placeholders: SingleResult[]; killedResults: Array<SingleResult | undefined> } {
+  const placeholders = tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents));
+  const killedResults: Array<SingleResult | undefined> = tasks.map(() => undefined);
+  placeholders.forEach((p, i) => {
+    p.registryId = registerSubagent({
+      agent: p.agent,
+      task: p.task,
+      pid: undefined,
+      startedAt: Date.now(),
+      kill: () => {
+        const r = failedPlaceholderResult(p, "killed", "Subagent was killed before it started.");
+        killedResults[i] = r;
+        unregisterSubagent(p.registryId!);
+        markCompleted(p.registryId!, r);
+      },
+      peek: () => p,
+    });
+  });
+  return { placeholders, killedResults };
 }

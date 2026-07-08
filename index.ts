@@ -18,17 +18,25 @@ import { type AgentConfig, discoverAgentsWithStarter } from "./agents.js";
 import { registerAgentsCommand } from "./agents_command.js";
 import {
   buildForkSessionSnapshotJsonl,
+  failedPlaceholderResult,
   formatAgentNames,
   isSubagentChild,
   makeDetailsFactory,
+  makeRunningPlaceholder,
   parseDelegationMode,
+  reserveParallelPlaceholders,
 } from "./delegation.js";
 import { formatSubagentList, renderCall, renderResult } from "./render.js";
-import { getSubagent, listSubagents } from "./registry.js";
+import { getSubagent, listSubagents, markCompleted, notifyProgress, unregisterSubagent } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
-import { mapConcurrent, runAgent } from "./runner.js";
+import { mapConcurrent, runAgent, type RunAgentOptions } from "./runner.js";
 import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
-import { DEFAULT_DELEGATION_MODE, emptyUsage, isResultError, isResultSuccess, type DelegationMode, type SingleResult } from "./types.js";
+import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
+
+const notifyProgressOnUpdate: RunAgentOptions["onUpdate"] = (partial) => {
+  const id = partial.details?.results?.[0]?.registryId;
+  if (id) notifyProgress(id);
+};
 
 export default function (pi: ExtensionAPI) {
   if (isSubagentChild()) return;
@@ -133,8 +141,8 @@ export default function (pi: ExtensionAPI) {
       );
     },
 
-    renderCall: (args, theme) => renderCall(args, theme),
-    renderResult: (result, { expanded }, theme) => renderResult(result, expanded, theme),
+    renderCall: (args, theme, context) => renderCall(args, theme, context),
+    renderResult: (result, { expanded }, theme, context) => renderResult(result, expanded, theme, context),
   });
 
   pi.registerTool({
@@ -206,6 +214,7 @@ export default function (pi: ExtensionAPI) {
       delegationMode,
       forkSessionSnapshotJsonl,
       onSpawn: (id) => onSpawn(id),
+      onUpdate: notifyProgressOnUpdate,
       makeDetails: makeDetails("single"),
     });
 
@@ -216,6 +225,7 @@ export default function (pi: ExtensionAPI) {
 
     if (raced.kind === "done") {
       const r = raced.r;
+      if (r.registryId) markCompleted(r.registryId, r);
       if (isResultError(r)) {
         return {
           content: [{ type: "text" as const, text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
@@ -232,11 +242,12 @@ export default function (pi: ExtensionAPI) {
     runPromise.then((result) => {
       const id = result.registryId ?? raced.id;
       const status = isResultError(result) ? (result.stopReason || "failed") : "completed";
+      markCompleted(id, result);
       pi.sendMessage(
         {
           customType: "subagent_result",
           content: `Background subagent [${id}] (${result.agent}) ${status}.\n\n${getResultSummaryText(result)}`,
-          display: true,
+          display: false,
           details: makeDetails("single")([result]),
         },
         { triggerTurn: true, deliverAs: "steer" },
@@ -271,18 +282,34 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, (t) =>
-      runAgent({
-        cwd: defaultCwd,
-        agents,
-        agentName: t.agent,
-        task: t.task,
-        taskCwd: t.cwd,
-        delegationMode,
-        forkSessionSnapshotJsonl,
-        makeDetails: makeDetails("parallel"),
-      }),
-    );
+    const { placeholders, killedResults } = reserveParallelPlaceholders(tasks, agents);
+
+    const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, async (t, i) => {
+      const killed = killedResults[i];
+      if (killed) return killed;
+      try {
+        const r = await runAgent({
+          cwd: defaultCwd,
+          agents,
+          agentName: t.agent,
+          task: t.task,
+          taskCwd: t.cwd,
+          delegationMode,
+          forkSessionSnapshotJsonl,
+          reservedRegistryId: placeholders[i].registryId,
+          onUpdate: notifyProgressOnUpdate,
+          makeDetails: makeDetails("parallel"),
+        });
+        markCompleted(r.registryId ?? placeholders[i].registryId!, r);
+        return r;
+      } catch (err) {
+        unregisterSubagent(placeholders[i].registryId!);
+        const message = err instanceof Error ? err.message : String(err);
+        const r = failedPlaceholderResult(placeholders[i], "error", message);
+        markCompleted(placeholders[i].registryId!, r);
+        return r;
+      }
+    });
 
     batchPromise.then((results) => {
       const successCount = results.filter((r) => isResultSuccess(r)).length;
@@ -293,7 +320,7 @@ export default function (pi: ExtensionAPI) {
         {
           customType: "subagent_result",
           content: `Parallel subagent batch finished: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
-          display: true,
+          display: false,
           details: makeDetails("parallel")(results),
         },
         { triggerTurn: true, deliverAs: "steer" },
@@ -307,27 +334,8 @@ export default function (pi: ExtensionAPI) {
           text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT wait, poll subagent_list, or sleep. If you have nothing else to do, end your turn now.`,
         },
       ],
-      details: makeDetails("parallel")(
-        tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents)),
-      ),
+      details: makeDetails("parallel")(placeholders),
     };
   }
 }
 
-function makeRunningPlaceholder(
-  agentName: string,
-  task: string,
-  agents: AgentConfig[],
-  registryId?: string,
-): SingleResult {
-  return {
-    agent: agentName,
-    agentSource: agents.find((a) => a.name === agentName)?.source ?? "unknown",
-    task,
-    exitCode: -1,
-    messages: [],
-    stderr: "",
-    usage: emptyUsage(),
-    registryId,
-  };
-}

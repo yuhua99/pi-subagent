@@ -7,7 +7,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import { getMarkdownTheme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { getResultSummaryText } from "./runner-events.js";
-import type { TrackedSubagent } from "./registry.js";
+import { resolveLiveResult, type ResolvedResult, type TrackedSubagent } from "./registry.js";
 import {
 	type DelegationMode,
 	type DisplayItem,
@@ -23,6 +23,38 @@ import {
 } from "./types.js";
 
 const COLLAPSED_TOOLCALL_COUNT = 5;
+const STALE_FINISHED_MSG = "finished (result delivered separately)";
+
+export type RenderContext = {
+	state: Record<string, any>;
+	invalidate: () => void;
+};
+
+type ResolvedRow = ResolvedResult & { original: SingleResult };
+
+function publishHeader(
+	context: RenderContext | undefined,
+	icon: string,
+	badge = "",
+): void {
+	if (!context) return;
+	if (context.state.headerIcon === icon && context.state.headerBadge === badge) return;
+	context.state.headerIcon = icon;
+	context.state.headerBadge = badge;
+	queueMicrotask(context.invalidate);
+}
+
+function staleRowHeader(
+	original: SingleResult,
+	theme: { fg: ThemeFg },
+): string {
+	return (
+		theme.fg("muted", "─── ") +
+		theme.fg("accent", original.agent) +
+		runningIdBadge(original, theme) +
+		` ${theme.fg("dim", "◌")}`
+	);
+}
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -177,15 +209,23 @@ function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 // renderCall — shown while the tool is being invoked
 // ---------------------------------------------------------------------------
 
-export function renderCall(args: Record<string, any>, theme: { fg: ThemeFg; bold: (s: string) => string }): Text {
+export function renderCall(
+	args: Record<string, any>,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+	context?: Pick<RenderContext, "state">,
+): Text {
 	const delegationMode = normalizeDelegationMode(args.mode);
 	const modeBadge = theme.fg("muted", ` [${delegationMode}]`);
+	const headerIcon = typeof context?.state.headerIcon === "string" ? `${context.state.headerIcon} ` : "";
+	const headerBadge = typeof context?.state.headerBadge === "string" ? context.state.headerBadge : "";
 
 	if (args.tasks && args.tasks.length > 0) {
 		let text =
+			headerIcon +
 			theme.fg("toolTitle", theme.bold("subagent ")) +
 			theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
-			modeBadge;
+			modeBadge +
+			headerBadge;
 		for (const t of args.tasks.slice(0, 3)) {
 			text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${truncate(t.task, 40)}`)}`;
 		}
@@ -195,23 +235,26 @@ export function renderCall(args: Record<string, any>, theme: { fg: ThemeFg; bold
 
 	// Single mode
 	const agentName = args.agent || "...";
-	const preview = args.task ? truncate(args.task, 60) : "...";
-	let text =
+	const text =
+		headerIcon +
 		theme.fg("toolTitle", theme.bold("subagent ")) +
 		theme.fg("accent", agentName) +
-		modeBadge;
-	text += `\n  ${theme.fg("dim", preview)}`;
+		modeBadge +
+		headerBadge;
 	return new Text(text, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
-// renderResult — shown after the tool completes
+// renderResult — shown after the tool completes, and also while it is still
+// running: renders live/stale state and publishes header icon/badge back
+// into `context.state` so the collapsed tool-call header stays in sync.
 // ---------------------------------------------------------------------------
 
 export function renderResult(
 	result: { content: Array<{ type: string; text?: string }>; details?: unknown },
 	expanded: boolean,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
+	context?: RenderContext,
 ): Container | Text {
 	const details = result.details as SubagentDetails | undefined;
 	if (!details || details.results.length === 0) {
@@ -223,9 +266,9 @@ export function renderResult(
 		(details as Partial<SubagentDetails>).delegationMode,
 	);
 	if (details.mode === "single") {
-		return renderSingleResult(details.results[0], delegationMode, expanded, theme);
+		return renderSingleResult(details.results[0], delegationMode, expanded, theme, context);
 	}
-	return renderParallelResult(details, delegationMode, expanded, theme);
+	return renderParallelResult(details, delegationMode, expanded, theme, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,13 +276,20 @@ export function renderResult(
 // ---------------------------------------------------------------------------
 
 function renderSingleResult(
-	r: SingleResult,
+	original: SingleResult,
 	delegationMode: DelegationMode,
 	expanded: boolean,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
+	context?: RenderContext,
 ): Container | Text {
+	const { result: r, stale } = resolveLiveResult(original, context?.invalidate);
+	const icon = stale ? theme.fg("dim", "◌") : statusIcon(r, theme);
+	const badge = stale ? "" : runningIdBadge(r, theme);
+	publishHeader(context, icon, badge);
+	if (stale) {
+		return new Text(theme.fg("dim", STALE_FINISHED_MSG), 0, 0);
+	}
 	const error = isResultError(r);
-	const icon = statusIcon(r, theme);
 	const displayItems = getDisplayItems(r.messages);
 	const finalOutput = getFinalOutput(r.messages);
 
@@ -247,20 +297,18 @@ function renderSingleResult(
 		return renderSingleExpanded(
 			r,
 			delegationMode,
-			icon,
 			error,
 			displayItems,
 			finalOutput,
 			theme,
 		);
 	}
-	return renderSingleCollapsed(r, delegationMode, icon, error, displayItems, theme);
+	return renderSingleCollapsed(r, error, displayItems, theme);
 }
 
 function renderSingleExpanded(
 	r: SingleResult,
 	delegationMode: DelegationMode,
-	icon: string,
 	error: boolean,
 	displayItems: DisplayItem[],
 	finalOutput: string,
@@ -270,7 +318,7 @@ function renderSingleExpanded(
 	const container = new Container();
 
 	// Header
-	let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${runningIdBadge(r, theme)}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
+	let header = `${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	container.addChild(new Text(header, 0, 0));
 	if (error && r.errorMessage) {
@@ -312,30 +360,30 @@ function renderSingleExpanded(
 
 function renderSingleCollapsed(
 	r: SingleResult,
-	delegationMode: DelegationMode,
-	icon: string,
 	error: boolean,
 	displayItems: DisplayItem[],
-	theme: { fg: ThemeFg; bold: (s: string) => string },
-): Text {
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${runningIdBadge(r, theme)}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
-	if (error && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+	theme: { fg: ThemeFg },
+): Container | Text {
+	const lines: string[] = [];
+	if (error && r.stopReason) lines.push(theme.fg("error", `[${r.stopReason}]`));
 
 	if (error && r.errorMessage) {
-		text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
+		lines.push(theme.fg("error", `Error: ${r.errorMessage}`));
 	} else if (error) {
 		const fallback = r.stopReason
 			? `Error: ${r.stopReason}`
 			: `Error (exit ${r.exitCode})`;
-		text += `\n${theme.fg("error", fallback)}`;
+		lines.push(theme.fg("error", fallback));
 	} else if (r.exitCode === -1) {
-		text += `\n${theme.fg("dim", truncate(r.task, 80))}`;
-		text += `\n${collapsedToolCallText(displayItems, theme) ?? theme.fg("muted", "(running...)")}`;
+		const calls = collapsedToolCallText(displayItems, theme);
+		if (calls) lines.push(calls);
 	}
 
 	const usageStr = formatUsage(r.usage, r.model);
-	if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
-	return new Text(text, 0, 0);
+	if (usageStr) lines.push(theme.fg("dim", usageStr));
+
+	if (lines.length === 0) return new Container();
+	return new Text(lines.join("\n"), 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -347,39 +395,48 @@ function renderParallelResult(
 	delegationMode: DelegationMode,
 	expanded: boolean,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
+	context?: RenderContext,
 ): Container | Text {
-	const running = details.results.filter((r) => r.exitCode === -1).length;
-	const successCount = details.results.filter((r) => isResultSuccess(r)).length;
-	const failCount = details.results.filter((r) => isResultError(r)).length;
+	const resolved: ResolvedRow[] = details.results.map((r) => ({
+		original: r,
+		...resolveLiveResult(r, context?.invalidate),
+	}));
+	const liveResults = resolved.filter((x) => !x.stale).map((x) => x.result);
+	const total = details.results.length;
+	const staleCount = resolved.filter((x) => x.stale).length;
+	const allStale = total > 0 && staleCount === total;
+	const running = resolved.filter((x) => !x.stale && x.result.exitCode === -1).length;
+	const successCount = resolved.filter((x) => !x.stale && isResultSuccess(x.result)).length;
+	const failCount = resolved.filter((x) => !x.stale && isResultError(x.result)).length;
 	const isRunning = running > 0;
+	const liveTotal = total - staleCount;
 
-	const icon = isRunning
-		? theme.fg("warning", "⏳")
-		: failCount > 0
-			? theme.fg("warning", "◐")
-			: theme.fg("success", "✓");
+	const icon = allStale
+		? theme.fg("dim", "◌")
+		: isRunning
+			? theme.fg("warning", "⏳")
+			: failCount > 0
+				? theme.fg("warning", "◐")
+				: theme.fg("success", "✓");
 
-	const status = isRunning
-		? `${successCount + failCount}/${details.results.length} done, ${running} running`
-		: `${successCount}/${details.results.length} tasks`;
+	const status = allStale
+		? `${total} task(s) finished (results delivered separately)`
+		: isRunning
+			? `${successCount + failCount}/${liveTotal} done, ${running} running`
+			: `${successCount}/${liveTotal} tasks`;
+
+	publishHeader(context, icon);
 
 	if (expanded && !isRunning) {
-		return renderParallelExpanded(details, delegationMode, icon, status, theme);
+		return renderParallelExpanded(resolved, liveResults, delegationMode, status, theme);
 	}
-	return renderParallelCollapsed(
-		details,
-		delegationMode,
-		icon,
-		status,
-		isRunning,
-		theme,
-	);
+	return renderParallelCollapsed(resolved, liveResults, status, isRunning, theme);
 }
 
 function renderParallelExpanded(
-	details: SubagentDetails,
+	resolved: ResolvedRow[],
+	liveResults: SingleResult[],
 	delegationMode: DelegationMode,
-	icon: string,
 	status: string,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 ): Container {
@@ -387,13 +444,24 @@ function renderParallelExpanded(
 	const container = new Container();
 	container.addChild(
 		new Text(
-			`${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}${theme.fg("muted", ` [${delegationMode}]`)}`,
+			`${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}${theme.fg("muted", ` [${delegationMode}]`)}`,
 			0,
 			0,
 		),
 	);
 
-	for (const r of details.results) {
+	for (const { original, result: r, stale } of resolved) {
+		if (stale) {
+			container.addChild(new Spacer(1));
+			container.addChild(
+				new Text(
+					`${staleRowHeader(original, theme)}${theme.fg("dim", ` ${STALE_FINISHED_MSG}`)}`,
+					0,
+					0,
+				),
+			);
+			continue;
+		}
 		const rIcon = statusIcon(r, theme);
 		const displayItems = getDisplayItems(r.messages);
 		const finalOutput = getFinalOutput(r.messages);
@@ -420,7 +488,7 @@ function renderParallelExpanded(
 		if (taskUsage) container.addChild(new Text(theme.fg("dim", taskUsage), 0, 0));
 	}
 
-	const totalUsage = formatUsage(aggregateUsage(details.results));
+	const totalUsage = formatUsage(aggregateUsage(liveResults));
 	if (totalUsage) {
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("dim", `Total: ${totalUsage}`), 0, 0));
@@ -430,16 +498,20 @@ function renderParallelExpanded(
 }
 
 function renderParallelCollapsed(
-	details: SubagentDetails,
-	delegationMode: DelegationMode,
-	icon: string,
+	resolved: ResolvedRow[],
+	liveResults: SingleResult[],
 	status: string,
 	isRunning: boolean,
-	theme: { fg: ThemeFg; bold: (s: string) => string },
+	theme: { fg: ThemeFg },
 ): Text {
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}${theme.fg("muted", ` [${delegationMode}]`)}`;
+	let text = theme.fg("accent", status);
 
-	for (const r of details.results) {
+	for (const { original, result: r, stale } of resolved) {
+		if (stale) {
+			text += `\n\n${staleRowHeader(original, theme)}`;
+			text += `\n${theme.fg("dim", STALE_FINISHED_MSG)}`;
+			continue;
+		}
 		const rIcon = statusIcon(r, theme);
 		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${rIcon}`;
 		if (r.exitCode === -1) {
@@ -458,7 +530,7 @@ function renderParallelCollapsed(
 	}
 
 	if (!isRunning) {
-		const totalUsage = formatUsage(aggregateUsage(details.results));
+		const totalUsage = formatUsage(aggregateUsage(liveResults));
 		if (totalUsage) text += `\n\n${theme.fg("dim", `Total: ${totalUsage}`)}`;
 	}
 

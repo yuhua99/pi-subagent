@@ -13,7 +13,7 @@ import type { AgentConfig } from "./agents.js";
 import { SUBAGENT_CHILD_ENV } from "./delegation.js";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
-import { registerSubagent, unregisterSubagent } from "./registry.js";
+import { getSubagent, registerSubagent, unregisterSubagent, updateSubagent } from "./registry.js";
 import {
   type DelegationMode,
   type SingleResult,
@@ -156,6 +156,8 @@ export interface RunAgentOptions {
   onUpdate?: OnUpdateCallback;
   /** Factory to wrap results into SubagentDetails. */
   makeDetails: (results: SingleResult[]) => SubagentDetails;
+  /** Pre-reserved registry id; when set, runner updates that entry instead of registering a new one. */
+  reservedRegistryId?: string;
 }
 
 /**
@@ -176,11 +178,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     onSpawn,
     onUpdate,
     makeDetails,
+    reservedRegistryId,
   } = opts;
 
   const agent = agents.find((a) => a.name === agentName);
   if (!agent) {
     const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
+    if (reservedRegistryId) unregisterSubagent(reservedRegistryId);
     return {
       agent: agentName,
       agentSource: "unknown",
@@ -189,6 +193,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       messages: [],
       stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
       usage: emptyUsage(),
+      registryId: reservedRegistryId,
     };
   }
 
@@ -196,6 +201,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     delegationMode === "fork" &&
     (!forkSessionSnapshotJsonl || !forkSessionSnapshotJsonl.trim())
   ) {
+    if (reservedRegistryId) unregisterSubagent(reservedRegistryId);
     return {
       agent: agentName,
       agentSource: agent.source,
@@ -209,6 +215,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       stopReason: "error",
       errorMessage:
         "Cannot run in fork mode: missing parent session snapshot context.",
+      registryId: reservedRegistryId,
     };
   }
 
@@ -313,18 +320,34 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         sigkillTimer.unref();
       };
 
-      const registryId = registerSubagent({
-        agent: agentName,
-        task,
-        pid: proc.pid,
-        startedAt: Date.now(),
-        kill: () => {
-          if (didClose || settled) return;
+      const killFn = () => {
+        if (didClose || settled) return;
+        wasKilled = true;
+        terminateChild();
+      };
+      let registryId: string;
+      if (reservedRegistryId) {
+        registryId = reservedRegistryId;
+        updateSubagent(reservedRegistryId, {
+          pid: proc.pid,
+          startedAt: Date.now(),
+          kill: killFn,
+          peek: () => result,
+        });
+        if (!getSubagent(reservedRegistryId)) {
           wasKilled = true;
           terminateChild();
-        },
-        peek: () => result,
-      });
+        }
+      } else {
+        registryId = registerSubagent({
+          agent: agentName,
+          task,
+          pid: proc.pid,
+          startedAt: Date.now(),
+          kill: killFn,
+          peek: () => result,
+        });
+      }
       result.registryId = registryId;
       onSpawn?.(registryId);
 
