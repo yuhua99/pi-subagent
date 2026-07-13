@@ -22,7 +22,6 @@ import {
 	isResultSuccess,
 } from "./types.js";
 
-const COLLAPSED_TOOLCALL_COUNT = 5;
 const STALE_FINISHED_MSG = "finished (result delivered separately)";
 
 export type RenderContext = {
@@ -143,18 +142,6 @@ function splitOutputLines(text: string): string[] {
 	return lines;
 }
 
-function collapsedToolCallText(items: DisplayItem[], theme: { fg: ThemeFg }): string | null {
-	const calls = items.filter((i) => i.type === "toolCall");
-	if (calls.length === 0) return null;
-	const shown = calls.slice(-COLLAPSED_TOOLCALL_COUNT);
-	const skipped = calls.length - shown.length;
-	const lines = shown.map(
-		(c) => theme.fg("muted", "→ ") + formatToolCall(c.name, c.args, theme.fg.bind(theme)),
-	);
-	const prefix = skipped > 0 ? theme.fg("muted", `... ${skipped} earlier tool calls`) + "\n" : "";
-	return prefix + lines.join("\n");
-}
-
 export function formatElapsed(ms: number): string {
 	const s = Math.max(0, Math.floor(ms / 1000));
 	if (s < 60) return `${s}s`;
@@ -220,16 +207,12 @@ export function renderCall(
 	const headerBadge = typeof context?.state.headerBadge === "string" ? context.state.headerBadge : "";
 
 	if (args.tasks && args.tasks.length > 0) {
-		let text =
+		const text =
 			headerIcon +
 			theme.fg("toolTitle", theme.bold("subagent ")) +
 			theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
 			modeBadge +
 			headerBadge;
-		for (const t of args.tasks.slice(0, 3)) {
-			text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${truncate(t.task, 40)}`)}`;
-		}
-		if (args.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
 		return new Text(text, 0, 0);
 	}
 
@@ -266,7 +249,7 @@ export function renderResult(
 		(details as Partial<SubagentDetails>).delegationMode,
 	);
 	if (details.mode === "single") {
-		return renderSingleResult(details.results[0], delegationMode, expanded, theme, context);
+		return renderSingleResult(details.results[0], expanded, theme, context);
 	}
 	return renderParallelResult(details, delegationMode, expanded, theme, context);
 }
@@ -277,7 +260,6 @@ export function renderResult(
 
 function renderSingleResult(
 	original: SingleResult,
-	delegationMode: DelegationMode,
 	expanded: boolean,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 	context?: RenderContext,
@@ -290,25 +272,21 @@ function renderSingleResult(
 		return new Text(theme.fg("dim", STALE_FINISHED_MSG), 0, 0);
 	}
 	const error = isResultError(r);
-	const displayItems = getDisplayItems(r.messages);
-	const finalOutput = getFinalOutput(r.messages);
 
 	if (expanded) {
 		return renderSingleExpanded(
 			r,
-			delegationMode,
 			error,
-			displayItems,
-			finalOutput,
+			getDisplayItems(r.messages),
+			getFinalOutput(r.messages),
 			theme,
 		);
 	}
-	return renderSingleCollapsed(r, error, displayItems, theme);
+	return renderSingleCollapsed(r, error, theme);
 }
 
 function renderSingleExpanded(
 	r: SingleResult,
-	delegationMode: DelegationMode,
 	error: boolean,
 	displayItems: DisplayItem[],
 	finalOutput: string,
@@ -317,16 +295,17 @@ function renderSingleExpanded(
 	const mdTheme = getMarkdownTheme();
 	const container = new Container();
 
-	// Header
-	let header = `${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource}, ${delegationMode})`)}`;
-	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-	container.addChild(new Text(header, 0, 0));
+	if (error && r.stopReason) {
+		container.addChild(new Text(theme.fg("error", `[${r.stopReason}]`), 0, 0));
+	}
 	if (error && r.errorMessage) {
 		container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 	}
+	if (error && (r.stopReason || r.errorMessage)) {
+		container.addChild(new Spacer(1));
+	}
 
 	// Task
-	container.addChild(new Spacer(1));
 	container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
 	container.addChild(new Text(theme.fg("dim", r.task), 0, 0));
 
@@ -361,7 +340,6 @@ function renderSingleExpanded(
 function renderSingleCollapsed(
 	r: SingleResult,
 	error: boolean,
-	displayItems: DisplayItem[],
 	theme: { fg: ThemeFg },
 ): Container | Text {
 	const lines: string[] = [];
@@ -374,13 +352,7 @@ function renderSingleCollapsed(
 			? `Error: ${r.stopReason}`
 			: `Error (exit ${r.exitCode})`;
 		lines.push(theme.fg("error", fallback));
-	} else if (r.exitCode === -1) {
-		const calls = collapsedToolCallText(displayItems, theme);
-		if (calls) lines.push(calls);
 	}
-
-	const usageStr = formatUsage(r.usage, r.model);
-	if (usageStr) lines.push(theme.fg("dim", usageStr));
 
 	if (lines.length === 0) return new Container();
 	return new Text(lines.join("\n"), 0, 0);
@@ -427,10 +399,10 @@ function renderParallelResult(
 
 	publishHeader(context, icon);
 
-	if (expanded && !isRunning) {
+	if (expanded) {
 		return renderParallelExpanded(resolved, liveResults, delegationMode, status, theme);
 	}
-	return renderParallelCollapsed(resolved, liveResults, status, isRunning, theme);
+	return renderParallelCollapsed(resolved, theme);
 }
 
 function renderParallelExpanded(
@@ -499,40 +471,25 @@ function renderParallelExpanded(
 
 function renderParallelCollapsed(
 	resolved: ResolvedRow[],
-	liveResults: SingleResult[],
-	status: string,
-	isRunning: boolean,
 	theme: { fg: ThemeFg },
 ): Text {
-	let text = theme.fg("accent", status);
+	const lines: string[] = [];
 
 	for (const { original, result: r, stale } of resolved) {
 		if (stale) {
-			text += `\n\n${staleRowHeader(original, theme)}`;
-			text += `\n${theme.fg("dim", STALE_FINISHED_MSG)}`;
+			lines.push(`${staleRowHeader(original, theme)} ${theme.fg("dim", STALE_FINISHED_MSG)}`);
 			continue;
 		}
-		const rIcon = statusIcon(r, theme);
-		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${rIcon}`;
-		if (r.exitCode === -1) {
-			text += `\n${theme.fg("dim", truncate(r.task, 80))}`;
-		}
+		lines.push(`${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)}`);
 		if (isResultError(r)) {
 			const msg = r.errorMessage
 				? `Error: ${r.errorMessage}`
 				: r.stopReason
 					? `Error: ${r.stopReason}`
 					: `Error (exit ${r.exitCode})`;
-			text += `\n${theme.fg("error", msg)}`;
+			lines.push(theme.fg("error", msg));
 		}
-		const taskUsage = formatUsage(r.usage, r.model);
-		if (taskUsage) text += `\n${theme.fg("dim", taskUsage)}`;
 	}
 
-	if (!isRunning) {
-		const totalUsage = formatUsage(aggregateUsage(liveResults));
-		if (totalUsage) text += `\n\n${theme.fg("dim", `Total: ${totalUsage}`)}`;
-	}
-
-	return new Text(text, 0, 0);
+	return new Text(lines.join("\n"), 0, 0);
 }
