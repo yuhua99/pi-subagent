@@ -14,7 +14,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type AgentConfig, discoverAgentsWithStarter } from "./agents.js";
+import { type AgentConfig, discoverAgents } from "./agents.js";
 import { registerAgentsCommand } from "./agents_command.js";
 import {
   buildForkSessionSnapshotJsonl,
@@ -50,18 +50,10 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    const starterDiscovery = discoverAgentsWithStarter(ctx.cwd);
-    discoveredAgents = starterDiscovery.discovery.agents;
+    discoveredAgents = discoverAgents(ctx.cwd, "both").agents;
 
     if (ctx.hasUI) {
-      if (starterDiscovery.createdAgentPath) {
-        ctx.ui.notify(
-          `Created starter subagent "explorer" at:\n${starterDiscovery.createdAgentPath}\n\nEdit this file or add more agents in the same directory to customize delegation.`,
-          "info",
-        );
-      } else if (starterDiscovery.error && discoveredAgents.length === 0) {
-        ctx.ui.notify(`No subagents found. ${starterDiscovery.error}`, "info");
-      } else if (discoveredAgents.length > 0) {
+      if (discoveredAgents.length > 0) {
         const list = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`).join("\n");
         ctx.ui.notify(`Found ${discoveredAgents.length} subagent(s):\n${list}`, "info");
       }
@@ -82,8 +74,7 @@ export default function (pi: ExtensionAPI) {
     parameters: SubagentParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const starterDiscovery = discoverAgentsWithStarter(ctx.cwd);
-      const { agents, projectAgentsDir } = starterDiscovery.discovery;
+      const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 
       const delegationMode = parseDelegationMode(params.mode);
       if (!delegationMode) {
