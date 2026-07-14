@@ -46,28 +46,9 @@ export interface SubagentDetails {
 	results: SingleResult[];
 }
 
-/** A display-friendly representation of a message part. */
-export type DisplayItem =
-	| { type: "text"; text: string }
-	| { type: "toolCall"; name: string; args: Record<string, unknown> };
-
 /** Create an empty UsageStats object. */
 export function emptyUsage(): UsageStats {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
-}
-
-/** Sum usage across multiple results. */
-export function aggregateUsage(results: SingleResult[]): UsageStats {
-	const total = emptyUsage();
-	for (const r of results) {
-		total.input += r.usage.input;
-		total.output += r.usage.output;
-		total.cacheRead += r.usage.cacheRead;
-		total.cacheWrite += r.usage.cacheWrite;
-		total.cost += r.usage.cost;
-		total.turns += r.usage.turns;
-	}
-	return total;
 }
 
 /** Whether the child emitted a final assistant text response. */
@@ -134,21 +115,4 @@ export function normalizeCompletedResult(result: SingleResult, wasAborted: boole
 /** Extract the last assistant text from a message history. */
 export function getFinalOutput(messages: Message[]): string {
 	return getFinalAssistantText(messages);
-}
-
-/** Extract all display-worthy items from a message history. */
-export function getDisplayItems(messages: Message[]): DisplayItem[] {
-	const items: DisplayItem[] = [];
-	for (const msg of messages) {
-		if (msg.role === "assistant") {
-			for (const part of msg.content) {
-				if (part.type === "text") {
-					items.push({ type: "text", text: part.text });
-				} else if (part.type === "toolCall") {
-					items.push({ type: "toolCall", name: part.name, args: part.arguments });
-				}
-			}
-		}
-	}
-	return items;
 }

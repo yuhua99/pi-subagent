@@ -142,7 +142,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall: (args, theme, context) => renderCall(args, theme, context),
-    renderResult: (result, { expanded }, theme, context) => renderResult(result, expanded, theme, context),
+    renderResult: (result, _options, theme, context) => renderResult(result, theme, context),
   });
 
   pi.registerTool({
