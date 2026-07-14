@@ -4,13 +4,12 @@
 
 import { DynamicBorder, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type SelectItem, SelectList, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatElapsed, transcriptLines } from "./render.js";
+import { formatElapsed, formatUsage, transcriptLines } from "./render.js";
 import { getSubagent, listSubagents, type TrackedSubagent } from "./registry.js";
 import { isResultError } from "./types.js";
 
 const REFRESH_MS = 1000;
 const MAX_VISIBLE = 10;
-const DETAIL_VIEWPORT_LINES = 20;
 const KEY_UP = "\x1b[A";
 const KEY_DOWN = "\x1b[B";
 const KEY_ESCAPE = "\x1b";
@@ -146,27 +145,52 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 										: theme.fg("success", "✓");
 								const status = running ? formatElapsed(Date.now() - entry.startedAt) : "finished";
 
-								const transcript: string[] = [];
-								for (const line of transcriptLines(result.messages, theme)) {
-									transcript.push(...wrapTextWithAnsi(line, innerWidth));
+								const bodyRows = Math.max(3, Math.floor(tui.terminal.rows * 0.8) - 6);
+								const taskWidth = Math.max(5, Math.floor(innerWidth * 0.3));
+								const transcriptWidth = Math.max(1, innerWidth - taskWidth - 3);
+
+								const taskWrapped = wrapTextWithAnsi(theme.fg("dim", entry.task), taskWidth);
+								const taskCol = taskWrapped.slice(0, bodyRows);
+								const taskOverflow = taskWrapped.length - taskCol.length;
+								if (taskOverflow > 0) {
+									taskCol[taskCol.length - 1] = theme.fg("dim", `... ${taskOverflow + 1} more lines`);
 								}
 
-								const start = Math.max(0, transcript.length - DETAIL_VIEWPORT_LINES);
-								const window = transcript.slice(start);
+								const transcript: string[] = [];
+								for (const line of transcriptLines(result.messages, theme)) {
+									transcript.push(...wrapTextWithAnsi(line, transcriptWidth));
+								}
+
+								const start = Math.max(0, transcript.length - bodyRows);
+								const transcriptCol = transcript.slice(start + (start > 0 ? 1 : 0));
+								if (transcriptCol.length === 0) {
+									transcriptCol.push(theme.fg("muted", "(no output yet)"));
+								} else if (start > 0) {
+									transcriptCol.unshift(theme.fg("dim", `... ${start + 1} earlier lines`));
+								}
+
+								const pad = (line: string, w: number) =>
+									line + " ".repeat(Math.max(0, w - visibleWidth(line)));
+								const sep = ` ${theme.fg("border", "│")} `;
+								const rows = bodyRows;
+
+								const usage = formatUsage(result.usage, result.model);
+								const escText = "esc back";
+								const footerGap = Math.max(1, innerWidth - escText.length - usage.length);
+								const footer = usage
+									? theme.fg("dim", escText) + " ".repeat(footerGap) + theme.fg("dim", usage)
+									: theme.fg("dim", escText);
 
 								const hbar = "─".repeat(Math.max(1, width - 2));
 								const lines: string[] = [];
 								lines.push(theme.fg("border", `╭${hbar}╮`));
 								lines.push(box(`${icon} ${theme.fg("accent", theme.bold(`[${entry.id}] ${entry.agent}`))} ${theme.fg("muted", `— ${status}`)}`));
-								lines.push(box(theme.fg("dim", `task: ${entry.task}`)));
 								lines.push(theme.fg("border", `├${hbar}┤`));
-								if (window.length === 0) {
-									lines.push(box(theme.fg("muted", "(no output yet)")));
-								} else {
-									if (start > 0) lines.push(box(theme.fg("dim", `... ${start} earlier lines`)));
-									for (const line of window) lines.push(box(line));
+								for (let i = 0; i < rows; i++) {
+									lines.push(box(pad(taskCol[i] ?? "", taskWidth) + sep + (transcriptCol[i] ?? "")));
 								}
-								lines.push(box(theme.fg("dim", "esc back")));
+								lines.push(theme.fg("border", `├${hbar}┤`));
+								lines.push(box(footer));
 								lines.push(theme.fg("border", `╰${hbar}╯`));
 								return lines;
 							},
@@ -176,7 +200,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 							},
 						};
 					},
-					{ overlay: true, overlayOptions: { width: "80%" } },
+					{ overlay: true, overlayOptions: { width: "90%" } },
 				);
 			}
 		},

@@ -13,6 +13,7 @@ import {
 	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
+	type UsageStats,
 	DEFAULT_DELEGATION_MODE,
 	isResultError,
 } from "./types.js";
@@ -53,6 +54,26 @@ function staleRowHeader(
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
+
+function formatTokens(count: number): string {
+	if (count < 1000) return count.toString();
+	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+	if (count < 1000000) return `${Math.round(count / 1000)}k`;
+	return `${(count / 1000000).toFixed(1)}M`;
+}
+
+export function formatUsage(usage: Partial<UsageStats>, model?: string): string {
+	const parts: string[] = [];
+	if (usage.turns) parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
+	if (usage.input) parts.push(`↑${formatTokens(usage.input)}`);
+	if (usage.output) parts.push(`↓${formatTokens(usage.output)}`);
+	if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`);
+	if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
+	if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
+	if (usage.contextTokens && usage.contextTokens > 0) parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
+	if (model) parts.push(model);
+	return parts.join(" ");
+}
 
 function truncate(text: string, maxLen: number): string {
 	return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
