@@ -79,15 +79,25 @@ export function processPiEvent(event, result) {
   if (!event || typeof event !== "object") return false;
 
   switch (event.type) {
+    case "message_update":
+      result.partialMessage = event.message;
+      return "stream";
+
     case "message_end":
-      return addAssistantMessage(result, event.message);
+      addAssistantMessage(result, event.message);
+      result.partialMessage = undefined;
+      return "status";
 
     case "turn_end":
-      return addAssistantMessage(result, event.message);
+      addAssistantMessage(result, event.message);
+      result.partialMessage = undefined;
+      return "status";
 
     case "agent_end":
       result.sawAgentEnd = true;
-      return addAssistantMessages(result, event.messages);
+      addAssistantMessages(result, event.messages);
+      result.partialMessage = undefined;
+      return "status";
 
     default:
       return false;

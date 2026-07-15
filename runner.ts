@@ -8,18 +8,15 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AgentConfig } from "./agents.js";
 import { SUBAGENT_CHILD_ENV } from "./delegation.js";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
-import { getSubagent, registerSubagent, unregisterSubagent, updateSubagent } from "./registry.js";
+import { getRun, notifyStatus, notifyStream, registerRun, updateRun } from "./registry.js";
 import {
   type DelegationMode,
   type SingleResult,
-  type SubagentDetails,
   emptyUsage,
-  getFinalOutput,
   normalizeCompletedResult,
 } from "./types.js";
 
@@ -27,8 +24,6 @@ const isWindows = process.platform === "win32";
 const SIGKILL_TIMEOUT_MS = 5000;
 const AGENT_END_GRACE_MS = 250;
 const PI_OFFLINE_ENV = "PI_OFFLINE";
-
-type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
 // ---------------------------------------------------------------------------
 // Process helpers
@@ -152,10 +147,6 @@ export interface RunAgentOptions {
   signal?: AbortSignal;
   /** Called with the registry id once the child process is spawned. */
   onSpawn?: (registryId: string) => void;
-  /** Streaming update callback. */
-  onUpdate?: OnUpdateCallback;
-  /** Factory to wrap results into SubagentDetails. */
-  makeDetails: (results: SingleResult[]) => SubagentDetails;
   /** Pre-reserved registry id; when set, runner updates that entry instead of registering a new one. */
   reservedRegistryId?: string;
 }
@@ -176,15 +167,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     forkSessionSnapshotJsonl,
     signal,
     onSpawn,
-    onUpdate,
-    makeDetails,
     reservedRegistryId,
   } = opts;
 
   const agent = agents.find((a) => a.name === agentName);
   if (!agent) {
     const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
-    if (reservedRegistryId) unregisterSubagent(reservedRegistryId);
     return {
       agent: agentName,
       agentSource: "unknown",
@@ -201,7 +189,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     delegationMode === "fork" &&
     (!forkSessionSnapshotJsonl || !forkSessionSnapshotJsonl.trim())
   ) {
-    if (reservedRegistryId) unregisterSubagent(reservedRegistryId);
     return {
       agent: agentName,
       agentSource: agent.source,
@@ -228,18 +215,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     stderr: "",
     usage: emptyUsage(),
     model: agent.model,
-  };
-
-  const emitUpdate = () => {
-    onUpdate?.({
-      content: [
-        {
-          type: "text",
-          text: getFinalOutput(result.messages) || "(running...)",
-        },
-      ],
-      details: makeDetails([result]),
-    });
   };
 
   // Write system prompt to temp file if needed
@@ -328,25 +303,25 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       let registryId: string;
       if (reservedRegistryId) {
         registryId = reservedRegistryId;
-        updateSubagent(reservedRegistryId, {
+        updateRun(reservedRegistryId, {
           pid: proc.pid,
           startedAt: Date.now(),
           kill: killFn,
-          peek: () => result,
+          result,
         });
-        if (!getSubagent(reservedRegistryId)) {
+        if (!getRun(reservedRegistryId)) {
           wasKilled = true;
           terminateChild();
         }
       } else {
-        registryId = registerSubagent({
+        registryId = registerRun({
           agent: agentName,
           task,
           pid: proc.pid,
           startedAt: Date.now(),
           kill: killFn,
-          peek: () => result,
-        });
+          result,
+        }).id;
       }
       result.registryId = registryId;
       onSpawn?.(registryId);
@@ -354,7 +329,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       const finish = (code: number) => {
         if (settled) return;
         settled = true;
-        unregisterSubagent(registryId);
         clearSemanticCompletionTimer();
         if (signal && abortHandler) {
           signal.removeEventListener("abort", abortHandler);
@@ -363,7 +337,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       };
 
       const flushLine = (line: string) => {
-        if (processPiJsonLine(line, result)) emitUpdate();
+        const kind = processPiJsonLine(line, result);
+        if (kind && result.registryId) {
+          if (kind === "status") notifyStatus(result.registryId);
+          else if (kind === "stream") notifyStream(result.registryId);
+        }
         maybeFinishFromAgentEnd();
       };
 

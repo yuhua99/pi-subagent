@@ -1,32 +1,47 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	getSubagent,
-	listSubagents,
-	registerSubagent,
-	unregisterSubagent,
+	bindRowInvalidator,
+	completeRun,
+	getLiveStatus,
+	getRun,
+	listRuns,
+	notifyStatus,
+	notifyStream,
+	registerRun,
+	resolveLiveResult,
+	updateRun,
 } from "../registry.ts";
 
-function cleanup() {
-	for (const e of listSubagents()) unregisterSubagent(e.id);
+function makeResult(overrides = {}) {
+	return {
+		agent: "a",
+		agentSource: "user",
+		task: "t",
+		exitCode: -1,
+		messages: [],
+		stderr: "",
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+		...overrides,
+	};
 }
 
-test("register returns a 4-hex id and list shows the entry", () => {
+function cleanup() {
+	for (const e of listRuns()) completeRun(e.id, e.result);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test("registerRun returns a run with a 4-hex id and stores the full task", () => {
 	cleanup();
-	const id = registerSubagent({ agent: "scout", task: "find things", pid: 123, startedAt: 1, kill: () => {} });
-	assert.match(id, /^[0-9a-f]{4}$/);
-	const list = listSubagents();
+	const long = "x".repeat(200);
+	const run = registerRun({ agent: "scout", task: long, pid: 123, startedAt: 1, kill: () => {}, result: makeResult() });
+	assert.match(run.id, /^[0-9a-f]{4}$/);
+	assert.equal(run.task, long);
+	const list = listRuns();
 	assert.equal(list.length, 1);
 	assert.equal(list[0].agent, "scout");
 	assert.equal(list[0].pid, 123);
-	cleanup();
-});
-
-test("task preview is truncated to 80 chars + ellipsis", () => {
-	cleanup();
-	const long = "x".repeat(200);
-	const id = registerSubagent({ agent: "a", task: long, pid: undefined, startedAt: 0, kill: () => {} });
-	assert.equal(getSubagent(id).task, `${"x".repeat(80)}...`);
 	cleanup();
 });
 
@@ -34,25 +49,132 @@ test("ids are unique across concurrent entries", () => {
 	cleanup();
 	const ids = new Set();
 	for (let i = 0; i < 50; i++) {
-		ids.add(registerSubagent({ agent: "a", task: "t", pid: i, startedAt: 0, kill: () => {} }));
+		ids.add(registerRun({ agent: "a", task: "t", pid: i, startedAt: 0, kill: () => {}, result: makeResult() }).id);
 	}
 	assert.equal(ids.size, 50);
-	assert.equal(listSubagents().length, 50);
+	assert.equal(listRuns().length, 50);
 	cleanup();
 });
 
-test("kill invokes the registered closure; unregister removes the entry", () => {
+test("kill closure fires; getRun returns undefined after completeRun", () => {
 	cleanup();
 	let killed = false;
-	const id = registerSubagent({ agent: "a", task: "t", pid: 1, startedAt: 0, kill: () => { killed = true; } });
-	getSubagent(id).kill();
+	const run = registerRun({ agent: "a", task: "t", pid: 1, startedAt: 0, kill: () => { killed = true; }, result: makeResult() });
+	getRun(run.id).kill();
 	assert.equal(killed, true);
-	unregisterSubagent(id);
-	assert.equal(getSubagent(id), undefined);
-	assert.equal(listSubagents().length, 0);
+	completeRun(run.id, makeResult({ exitCode: 0 }));
+	assert.equal(getRun(run.id), undefined);
+	assert.equal(listRuns().length, 0);
 });
 
-test("getSubagent returns undefined for unknown id", () => {
+test("getRun returns undefined for unknown id", () => {
 	cleanup();
-	assert.equal(getSubagent("zzzz"), undefined);
+	assert.equal(getRun("zzzz"), undefined);
+});
+
+test("updateRun replaces result reference", () => {
+	cleanup();
+	const first = makeResult();
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: first });
+	const second = makeResult({ exitCode: 0 });
+	updateRun(run.id, { result: second, pid: 42 });
+	assert.equal(getRun(run.id).result, second);
+	assert.equal(getRun(run.id).pid, 42);
+	cleanup();
+});
+
+test("completeRun fires status subscribers exactly once then clears them", () => {
+	cleanup();
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let calls = 0;
+	run.onStatus(() => { calls++; });
+	completeRun(run.id, makeResult({ exitCode: 0 }));
+	assert.equal(calls, 1);
+	notifyStatus(run.id);
+	assert.equal(calls, 1);
+});
+
+test("onStatus and onStream unsubscribe works", async () => {
+	cleanup();
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let s = 0, m = 0;
+	const off1 = run.onStatus(() => { s++; });
+	const off2 = run.onStream(() => { m++; });
+	notifyStatus(run.id);
+	assert.equal(s, 1);
+	off1();
+	off2();
+	notifyStatus(run.id);
+	assert.equal(s, 1);
+	notifyStream(run.id);
+	await new Promise((r) => setTimeout(r, 40));
+	assert.equal(m, 0);
+	cleanup();
+});
+
+test("notifyStream coalesces rapid notifies into one callback", async () => {
+	cleanup();
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let calls = 0;
+	run.onStream(() => { calls++; });
+	notifyStream(run.id);
+	notifyStream(run.id);
+	notifyStream(run.id);
+	assert.equal(calls, 0);
+	await sleep(40);
+	assert.equal(calls, 1);
+	cleanup();
+});
+
+test("completeRun cancels a pending stream notification", async () => {
+	cleanup();
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let calls = 0;
+	run.onStream(() => { calls++; });
+	notifyStream(run.id);
+	completeRun(run.id, makeResult({ exitCode: 0 }));
+	await sleep(40);
+	assert.equal(calls, 0);
+});
+
+test("bindRowInvalidator: single-slot, fired by notifyStatus and by completeRun", () => {
+	cleanup();
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let a = 0, b = 0;
+	bindRowInvalidator(run.id, () => { a++; });
+	bindRowInvalidator(run.id, () => { b++; });
+	notifyStatus(run.id);
+	assert.equal(a, 0);
+	assert.equal(b, 1);
+	completeRun(run.id, makeResult({ exitCode: 0 }));
+	assert.equal(b, 2);
+});
+
+test("resolveLiveResult is pure — accepts only one argument", () => {
+	cleanup();
+	assert.equal(resolveLiveResult.length, 1);
+	const live = makeResult();
+	assert.deepEqual(resolveLiveResult(live), { result: live, stale: false });
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult({ exitCode: 0, agent: "done" }) });
+	const placeholder = makeResult({ registryId: run.id });
+	const resolved = resolveLiveResult(placeholder);
+	assert.equal(resolved.stale, false);
+	assert.equal(resolved.result.agent, "done");
+	cleanup();
+});
+
+test("getLiveStatus returns completed/running/stale correctly", () => {
+	cleanup();
+	assert.equal(getLiveStatus("zzzz").kind, "stale");
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	assert.equal(getLiveStatus(run.id).kind, "running");
+	completeRun(run.id, makeResult({ exitCode: 0 }));
+	assert.equal(getLiveStatus(run.id).kind, "completed");
+});
+
+test("completeRun works even when id is not in running (early-error path)", () => {
+	cleanup();
+	const r = makeResult({ exitCode: 1 });
+	completeRun("dead", r);
+	assert.equal(getLiveStatus("dead").kind, "completed");
 });

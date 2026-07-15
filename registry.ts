@@ -1,83 +1,131 @@
 /**
- * In-memory registry of running subagent processes, cached completed
- * results, and per-subagent render invalidators used to notify the TUI
- * when live state changes.
+ * In-memory registry of subagent runs, keyed by short id. Each run exposes
+ * a canonical live `result` object plus status/stream subscribers used to
+ * notify observers (TUI, popup, transcript views) of state changes.
+ *
+ * Completed runs are cached briefly so late lookups still resolve.
  */
 
 import { randomBytes } from "node:crypto";
 import type { SingleResult } from "./types.js";
 
-export interface TrackedSubagent {
+export interface SubagentRun {
 	id: string;
 	agent: string;
 	task: string;
 	pid: number | undefined;
 	startedAt: number;
+	result: SingleResult;
 	kill: () => void;
-	peek: () => SingleResult;
+	onStatus(fn: () => void): () => void;
+	onStream(fn: () => void): () => void;
 }
 
-const TASK_PREVIEW_LENGTH = 80;
-const MAX_COMPLETED = 50;
+interface RunState extends SubagentRun {
+	statusSubs: Set<() => void>;
+	streamSubs: Set<() => void>;
+	rowInvalidate?: () => void;
+	streamTimer?: ReturnType<typeof setTimeout>;
+}
 
-const running = new Map<string, TrackedSubagent>();
-const invalidators = new Map<string, () => void>();
+const MAX_COMPLETED = 50;
+const STREAM_COALESCE_MS = 16;
+
+const running = new Map<string, RunState>();
 const completed = new Map<string, SingleResult>();
 
 function generateId(): string {
 	let id: string;
 	do {
 		id = randomBytes(2).toString("hex");
-	} while (running.has(id) || completed.has(id) || invalidators.has(id));
+	} while (running.has(id) || completed.has(id));
 	return id;
 }
 
-export function registerSubagent(entry: Omit<TrackedSubagent, "id">): string {
+export function registerRun(
+	init: Omit<SubagentRun, "id" | "onStatus" | "onStream">,
+): SubagentRun {
 	const id = generateId();
-	const task =
-		entry.task.length > TASK_PREVIEW_LENGTH
-			? `${entry.task.slice(0, TASK_PREVIEW_LENGTH)}...`
-			: entry.task;
-	running.set(id, { ...entry, task, id });
-	return id;
+	const statusSubs = new Set<() => void>();
+	const streamSubs = new Set<() => void>();
+	const state: RunState = {
+		...init,
+		id,
+		statusSubs,
+		streamSubs,
+		onStatus(fn) {
+			statusSubs.add(fn);
+			return () => statusSubs.delete(fn);
+		},
+		onStream(fn) {
+			streamSubs.add(fn);
+			return () => streamSubs.delete(fn);
+		},
+	};
+	running.set(id, state);
+	return state;
 }
 
-export function updateSubagent(
+export function updateRun(
 	id: string,
-	patch: Partial<Pick<TrackedSubagent, "pid" | "startedAt" | "kill" | "peek">>,
+	patch: Partial<Pick<SubagentRun, "pid" | "startedAt" | "kill" | "result">>,
 ): void {
 	const entry = running.get(id);
 	if (entry) Object.assign(entry, patch);
 }
 
-export function unregisterSubagent(id: string): void {
-	running.delete(id);
-}
-
-export function getSubagent(id: string): TrackedSubagent | undefined {
+export function getRun(id: string): SubagentRun | undefined {
 	return running.get(id);
 }
 
-export function listSubagents(): TrackedSubagent[] {
+export function listRuns(): SubagentRun[] {
 	return [...running.values()];
 }
 
-export function registerInvalidator(id: string, fn: () => void): void {
-	invalidators.set(id, fn);
+export function bindRowInvalidator(id: string, fn: () => void): void {
+	const entry = running.get(id);
+	if (entry) entry.rowInvalidate = fn;
 }
 
-export function notifyProgress(id: string): void {
-	invalidators.get(id)?.();
+export function notifyStatus(id: string): void {
+	const entry = running.get(id);
+	if (!entry) return;
+	entry.rowInvalidate?.();
+	for (const fn of entry.statusSubs) fn();
 }
 
-export function markCompleted(id: string, result: SingleResult): void {
+export function notifyStream(id: string): void {
+	const entry = running.get(id);
+	if (!entry) return;
+	if (entry.streamTimer) return;
+	const timer = setTimeout(() => {
+		const cur = running.get(id);
+		if (!cur) return;
+		cur.streamTimer = undefined;
+		for (const fn of cur.streamSubs) fn();
+	}, STREAM_COALESCE_MS);
+	timer.unref?.();
+	entry.streamTimer = timer;
+}
+
+export function completeRun(id: string, result: SingleResult): void {
 	completed.set(id, result);
 	while (completed.size > MAX_COMPLETED) {
 		completed.delete(completed.keys().next().value!);
 	}
-	const fn = invalidators.get(id);
-	invalidators.delete(id);
-	fn?.();
+	const entry = running.get(id);
+	if (entry) {
+		if (entry.streamTimer) {
+			clearTimeout(entry.streamTimer);
+			entry.streamTimer = undefined;
+		}
+		entry.rowInvalidate?.();
+		for (const fn of entry.statusSubs) fn();
+		entry.statusSubs.clear();
+		entry.streamSubs.clear();
+		entry.rowInvalidate = undefined;
+		running.delete(id);
+	}
 }
 
 export function getLiveStatus(
@@ -89,7 +137,7 @@ export function getLiveStatus(
 	const done = completed.get(id);
 	if (done) return { kind: "completed", result: done };
 	const entry = running.get(id);
-	if (entry) return { kind: "running", result: entry.peek() };
+	if (entry) return { kind: "running", result: entry.result };
 	return { kind: "stale" };
 }
 
@@ -99,19 +147,12 @@ export interface ResolvedResult {
 }
 
 /**
- * Resolves a placeholder result to its live/completed state.
- *
- * Side effect: while the subagent is still running, also registers
- * `invalidate` under the placeholder's `registryId` so the TUI is
- * notified on progress and completion.
+ * Resolves a placeholder result to its live/completed state. Pure — has no
+ * side effects on the registry.
  */
-export function resolveLiveResult(
-	r: SingleResult,
-	invalidate?: () => void,
-): ResolvedResult {
+export function resolveLiveResult(r: SingleResult): ResolvedResult {
 	if (r.exitCode !== -1 || !r.registryId) return { result: r, stale: false };
 	const status = getLiveStatus(r.registryId);
 	if (status.kind === "stale") return { result: r, stale: true };
-	if (status.kind === "running" && invalidate) registerInvalidator(r.registryId, invalidate);
 	return { result: status.result, stale: false };
 }

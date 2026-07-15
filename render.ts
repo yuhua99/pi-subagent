@@ -5,10 +5,9 @@
  */
 
 import * as os from "node:os";
-import type { Message } from "@earendil-works/pi-ai";
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { resolveLiveResult, type ResolvedResult, type TrackedSubagent } from "./registry.js";
+import { bindRowInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.js";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -75,7 +74,7 @@ export function formatUsage(usage: Partial<UsageStats>, model?: string): string 
 	return parts.join(" ");
 }
 
-function truncate(text: string, maxLen: number): string {
+export function truncate(text: string, maxLen: number): string {
 	return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
 }
 
@@ -88,7 +87,7 @@ function normalizeDelegationMode(raw: unknown): DelegationMode {
 	return raw === "fork" ? "fork" : DEFAULT_DELEGATION_MODE;
 }
 
-type ThemeFg = (color: ThemeColor, text: string) => string;
+export type ThemeFg = (color: ThemeColor, text: string) => string;
 
 function formatToolCall(toolName: string, args: Record<string, unknown>, fg: ThemeFg): string {
 	const pathArg = (args.file_path || args.path || "...") as string;
@@ -96,7 +95,9 @@ function formatToolCall(toolName: string, args: Record<string, unknown>, fg: The
 	switch (toolName) {
 		case "bash": {
 			const cmd = (args.command as string) || "...";
-			return fg("muted", "$ ") + fg("toolOutput", truncate(cmd, 60));
+			return splitOutputLines(cmd)
+				.map((line, i) => (i === 0 ? fg("muted", "$ ") : "  ") + fg("toolOutput", line))
+				.join("\n");
 		}
 		case "read": {
 			let text = fg("accent", shortenPath(pathArg));
@@ -124,7 +125,7 @@ function formatToolCall(toolName: string, args: Record<string, unknown>, fg: The
 		case "grep":
 			return fg("muted", "grep ") + fg("accent", `/${(args.pattern || "") as string}/`) + fg("dim", ` in ${shortenPath((args.path || ".") as string)}`);
 		default:
-			return fg("accent", toolName) + fg("dim", ` ${truncate(JSON.stringify(args), 50)}`);
+			return fg("accent", toolName) + fg("dim", ` ${JSON.stringify(args)}`);
 	}
 }
 
@@ -146,12 +147,12 @@ export function formatElapsed(ms: number): string {
 	return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-export function formatSubagentList(entries: TrackedSubagent[], now = Date.now()): string {
+export function formatSubagentList(entries: SubagentRun[], now = Date.now()): string {
 	if (entries.length === 0) return "No subagents currently running.";
 	const lines: string[] = [`${entries.length} running subagent(s):`];
 	for (const e of entries) {
 		const pid = e.pid !== undefined ? ` (pid ${e.pid})` : "";
-		lines.push("", `[${e.id}] ${e.agent} — running ${formatElapsed(now - e.startedAt)}${pid}`, `  task: ${e.task}`);
+		lines.push("", `[${e.id}] ${e.agent} — running ${formatElapsed(now - e.startedAt)}${pid}`, `  task: ${truncate(e.task, 80)}`);
 	}
 	return lines.join("\n");
 }
@@ -160,23 +161,27 @@ function runningIdBadge(r: SingleResult, theme: { fg: ThemeFg }): string {
 	return r.exitCode === -1 && r.registryId ? theme.fg("dim", ` [${r.registryId}]`) : "";
 }
 
-/** Full transcript lines for the /agents detail view: thinking, text, and tool calls. */
-export function transcriptLines(messages: Message[], theme: { fg: ThemeFg }): string[] {
+/** Full transcript lines for the /agents detail view: thinking, text, and tool calls. Appends `partialMessage` when present to render live streaming output. */
+export function transcriptLines(r: Pick<SingleResult, "messages" | "partialMessage">, theme: { fg: ThemeFg }): string[] {
 	const lines: string[] = [];
+	const messages = r.partialMessage ? [...r.messages, r.partialMessage] : r.messages;
 	for (const msg of messages) {
 		if (msg.role !== "assistant") continue;
 		if (lines.length > 0) lines.push("");
 		for (const part of msg.content) {
 			if (part.type === "thinking") {
 				for (const line of splitOutputLines(part.thinking)) {
-					lines.push(theme.fg("dim", `✻ ${line}`));
+					lines.push(theme.fg("dim", line));
 				}
 			} else if (part.type === "text") {
 				for (const line of splitOutputLines(part.text)) {
 					lines.push(theme.fg("toolOutput", line));
 				}
 			} else if (part.type === "toolCall") {
-				lines.push(theme.fg("muted", "→ ") + formatToolCall(part.name, part.arguments, theme.fg.bind(theme)));
+				const call = theme.fg("muted", "→ ") + formatToolCall(part.name, part.arguments, theme.fg.bind(theme));
+				for (const line of splitOutputLines(call)) {
+					lines.push(line);
+				}
 			}
 		}
 	}
@@ -270,7 +275,10 @@ function renderSingleResult(
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 	context?: RenderContext,
 ): Container | Text {
-	const { result: r, stale } = resolveLiveResult(original, context?.invalidate);
+	const { result: r, stale } = resolveLiveResult(original);
+	if (!stale && r.exitCode === -1 && r.registryId && context) {
+		bindRowInvalidator(r.registryId, context.invalidate);
+	}
 	const icon = stale ? theme.fg("dim", "◌") : statusIcon(r, theme);
 	const badge = stale ? "" : runningIdBadge(r, theme);
 	publishHeader(context, icon, badge);
@@ -292,10 +300,13 @@ function renderParallelResult(
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 	context?: RenderContext,
 ): Container | Text {
-	const resolved: ResolvedRow[] = details.results.map((r) => ({
-		original: r,
-		...resolveLiveResult(r, context?.invalidate),
-	}));
+	const resolved: ResolvedRow[] = details.results.map((r) => {
+		const res = resolveLiveResult(r);
+		if (!res.stale && res.result.exitCode === -1 && res.result.registryId && context) {
+			bindRowInvalidator(res.result.registryId, context.invalidate);
+		}
+		return { original: r, ...res };
+	});
 	const total = details.results.length;
 	const staleCount = resolved.filter((x) => x.stale).length;
 	const allStale = total > 0 && staleCount === total;

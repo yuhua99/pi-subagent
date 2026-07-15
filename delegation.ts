@@ -1,5 +1,5 @@
 import type { AgentConfig } from "./agents.js";
-import { markCompleted, registerSubagent, unregisterSubagent } from "./registry.js";
+import { completeRun, registerRun } from "./registry.js";
 import { DEFAULT_DELEGATION_MODE, emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ export function reserveParallelPlaceholders(
   const placeholders = tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents));
   const killedResults: Array<SingleResult | undefined> = tasks.map(() => undefined);
   placeholders.forEach((p, i) => {
-    p.registryId = registerSubagent({
+    p.registryId = registerRun({
       agent: p.agent,
       task: p.task,
       pid: undefined,
@@ -112,11 +112,10 @@ export function reserveParallelPlaceholders(
       kill: () => {
         const r = failedPlaceholderResult(p, "killed", "Subagent was killed before it started.");
         killedResults[i] = r;
-        unregisterSubagent(p.registryId!);
-        markCompleted(p.registryId!, r);
+        completeRun(p.registryId!, r);
       },
-      peek: () => p,
-    });
+      result: p,
+    }).id;
   });
   return { placeholders, killedResults };
 }

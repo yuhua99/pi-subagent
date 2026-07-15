@@ -27,16 +27,11 @@ import {
   reserveParallelPlaceholders,
 } from "./delegation.js";
 import { formatSubagentList, renderCall, renderResult } from "./render.js";
-import { getSubagent, listSubagents, markCompleted, notifyProgress, unregisterSubagent } from "./registry.js";
+import { completeRun, getRun, listRuns } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
-import { mapConcurrent, runAgent, type RunAgentOptions } from "./runner.js";
+import { mapConcurrent, runAgent } from "./runner.js";
 import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
 import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
-
-const notifyProgressOnUpdate: RunAgentOptions["onUpdate"] = (partial) => {
-  const id = partial.details?.results?.[0]?.registryId;
-  if (id) notifyProgress(id);
-};
 
 export default function (pi: ExtensionAPI) {
   if (isSubagentChild()) return;
@@ -46,7 +41,7 @@ export default function (pi: ExtensionAPI) {
   let discoveredAgents: AgentConfig[] = [];
 
   pi.on("session_shutdown", async () => {
-    for (const entry of listSubagents()) entry.kill();
+    for (const entry of listRuns()) entry.kill();
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -144,7 +139,7 @@ export default function (pi: ExtensionAPI) {
 
     async execute() {
       return {
-        content: [{ type: "text" as const, text: formatSubagentList(listSubagents()) }],
+        content: [{ type: "text" as const, text: formatSubagentList(listRuns()) }],
         details: undefined,
       };
     },
@@ -157,7 +152,7 @@ export default function (pi: ExtensionAPI) {
     parameters: SubagentKillParams,
 
     async execute(_toolCallId, params) {
-      const entry = getSubagent(params.id);
+      const entry = getRun(params.id);
       if (!entry) {
         return {
           content: [
@@ -205,8 +200,6 @@ export default function (pi: ExtensionAPI) {
       delegationMode,
       forkSessionSnapshotJsonl,
       onSpawn: (id) => onSpawn(id),
-      onUpdate: notifyProgressOnUpdate,
-      makeDetails: makeDetails("single"),
     });
 
     const raced = await Promise.race([
@@ -216,7 +209,7 @@ export default function (pi: ExtensionAPI) {
 
     if (raced.kind === "done") {
       const r = raced.r;
-      if (r.registryId) markCompleted(r.registryId, r);
+      if (r.registryId) completeRun(r.registryId, r);
       if (isResultError(r)) {
         return {
           content: [{ type: "text" as const, text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
@@ -233,13 +226,26 @@ export default function (pi: ExtensionAPI) {
     runPromise.then((result) => {
       const id = result.registryId ?? raced.id;
       const status = isResultError(result) ? (result.stopReason || "failed") : "completed";
-      markCompleted(id, result);
+      completeRun(id, result);
       pi.sendMessage(
         {
           customType: "subagent_result",
           content: `Background subagent [${id}] (${result.agent}) ${status}.\n\n${getResultSummaryText(result)}`,
           display: false,
           details: makeDetails("single")([result]),
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      );
+    }, (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      const r = failedPlaceholderResult(makeRunningPlaceholder(agentName, task, agents, raced.id), "error", message);
+      completeRun(raced.id, r);
+      pi.sendMessage(
+        {
+          customType: "subagent_result",
+          content: `Background subagent [${raced.id}] (${agentName}) failed: ${message}`,
+          display: false,
+          details: makeDetails("single")([r]),
         },
         { triggerTurn: true, deliverAs: "steer" },
       );
@@ -288,16 +294,13 @@ export default function (pi: ExtensionAPI) {
           delegationMode,
           forkSessionSnapshotJsonl,
           reservedRegistryId: placeholders[i].registryId,
-          onUpdate: notifyProgressOnUpdate,
-          makeDetails: makeDetails("parallel"),
         });
-        markCompleted(r.registryId ?? placeholders[i].registryId!, r);
+        completeRun(r.registryId ?? placeholders[i].registryId!, r);
         return r;
       } catch (err) {
-        unregisterSubagent(placeholders[i].registryId!);
         const message = err instanceof Error ? err.message : String(err);
         const r = failedPlaceholderResult(placeholders[i], "error", message);
-        markCompleted(placeholders[i].registryId!, r);
+        completeRun(placeholders[i].registryId!, r);
         return r;
       }
     });
@@ -313,6 +316,22 @@ export default function (pi: ExtensionAPI) {
           content: `Parallel subagent batch finished: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
           display: false,
           details: makeDetails("parallel")(results),
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      );
+    }, (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      for (const p of placeholders) {
+        if (p.registryId && getRun(p.registryId)) {
+          completeRun(p.registryId, failedPlaceholderResult(p, "error", message));
+        }
+      }
+      pi.sendMessage(
+        {
+          customType: "subagent_result",
+          content: `Parallel subagent batch failed: ${message}`,
+          display: false,
+          details: makeDetails("parallel")(placeholders),
         },
         { triggerTurn: true, deliverAs: "steer" },
       );

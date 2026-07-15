@@ -36,6 +36,7 @@ export interface SingleResult {
 	errorMessage?: string;
 	sawAgentEnd?: boolean;
 	registryId?: string;
+	partialMessage?: Message;
 }
 
 /** Metadata attached to every tool result for rendering. */
@@ -76,6 +77,7 @@ export function isResultError(r: SingleResult): boolean {
 
 /** Reconcile process exit status with semantic completion observed from Pi's event stream. */
 export function normalizeCompletedResult(result: SingleResult, wasAborted: boolean): SingleResult {
+	result.partialMessage = undefined;
 	const hasSemanticSuccess = hasSemanticCompletion(result);
 
 	if (wasAborted) {
