@@ -5,8 +5,8 @@
 import { DynamicBorder, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type SelectItem, SelectList, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatElapsed, formatUsage, transcriptLines, truncate, type ThemeFg } from "./render.js";
-import { getRun, listRuns, type SubagentRun } from "./registry.js";
-import { isResultError } from "./types.js";
+import { getRun, listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "./registry.js";
+import { isResultError, type SingleResult } from "./types.js";
 
 const REFRESH_MS = 1000;
 const MAX_VISIBLE = 10;
@@ -15,6 +15,17 @@ const KEY_DOWN = "\x1b[B";
 const KEY_LEFT = "\x1b[D";
 const KEY_RIGHT = "\x1b[C";
 const KEY_ESCAPE = "\x1b";
+
+interface DetailEntry {
+	id: string;
+	agent: string;
+	task: string;
+	startedAt: number;
+	finishedAt?: number;
+	result: SingleResult;
+	onStatus?: (fn: () => void) => () => void;
+	onStream?: (fn: () => void) => () => void;
+}
 
 function paneView(
 	lines: string[],
@@ -36,12 +47,32 @@ function paneView(
 	return view;
 }
 
-function toItems(entries: SubagentRun[], now: number): SelectItem[] {
-	return entries.map((e) => ({
-		value: e.id,
-		label: `[${e.id}] ${e.agent} — ${formatElapsed(now - e.startedAt)}${e.pid !== undefined ? ` (pid ${e.pid})` : ""}`,
-		description: truncate(e.task, 80),
-	}));
+function runningLabel(e: SubagentRun, now: number): string {
+	return `⏳ [${e.id}] ${e.agent} — ${formatElapsed(now - e.startedAt)}`;
+}
+
+function completedLabel(e: CompletedRun): string {
+	const duration = formatElapsed(e.finishedAt - e.startedAt);
+	const cost = e.result.usage.cost;
+	const costSuffix = cost > 0 ? ` · $${cost.toFixed(3)}` : "";
+	const icon = isResultError(e.result) ? "✗" : "✓";
+	const abortedSuffix = e.result.stopReason === "aborted" ? " · aborted" : "";
+	return `${icon} [${e.id}] ${e.agent} — ${duration}${costSuffix}${abortedSuffix}`;
+}
+
+function toItems(running: SubagentRun[], completed: CompletedRun[], now: number): SelectItem[] {
+	return [
+		...running.map((e) => ({
+			value: e.id,
+			label: runningLabel(e, now),
+			description: truncate(e.task, 80),
+		})),
+		...completed.map((e) => ({
+			value: e.id,
+			label: completedLabel(e),
+			description: truncate(e.task, 80),
+		})),
+	];
 }
 
 export function registerAgentsCommand(pi: ExtensionAPI) {
@@ -54,7 +85,8 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 
 			while (true) {
 				const selectedId = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-					let entries: SubagentRun[] = [];
+					let runningEntries: SubagentRun[] = [];
+					let completedEntries: CompletedRun[] = [];
 					let selectList: SelectList | null = null;
 					let timer: NodeJS.Timeout | undefined;
 
@@ -72,16 +104,23 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 					};
 
 					const refresh = () => {
-						const next = listRuns().filter((e) => !killedIds.has(e.id));
+						const nextRunning = listRuns().filter((e) => !killedIds.has(e.id));
+						const nextCompleted = listCompletedRuns();
 						const prevId = selectList?.getSelectedItem()?.value;
-						entries = next;
-						if (next.length === 0) {
+						runningEntries = nextRunning;
+						completedEntries = nextCompleted;
+						const allIds = [...nextRunning.map((e) => e.id), ...nextCompleted.map((e) => e.id)];
+						if (allIds.length === 0) {
 							selectList = null;
 						} else {
-							selectList = new SelectList(toItems(next, Date.now()), Math.min(next.length, MAX_VISIBLE), listTheme);
+							selectList = new SelectList(
+								toItems(nextRunning, nextCompleted, Date.now()),
+								Math.min(allIds.length, MAX_VISIBLE),
+								listTheme,
+							);
 							selectList.onCancel = () => finish(null);
 							selectList.onSelect = (item) => finish(item.value);
-							const idx = next.findIndex((e) => e.id === prevId);
+							const idx = allIds.findIndex((id) => id === prevId);
 							if (idx >= 0) selectList.setSelectedIndex(idx);
 						}
 						tui.requestRender();
@@ -99,7 +138,12 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 							const lines: string[] = [];
 							lines.push(...topBorder.render(width));
 							lines.push("");
-							lines.push(theme.fg("muted", `Running subagents (${entries.length})`));
+							lines.push(
+								theme.fg(
+									"muted",
+									`Subagents — ${runningEntries.length} running · ${completedEntries.length} completed`,
+								),
+							);
 							lines.push("");
 							if (selectList) {
 								lines.push(...selectList.render(width));
@@ -120,7 +164,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 							if (!selectList) return;
 							if (data === "x") {
 								const selected = selectList.getSelectedItem();
-								if (selected) {
+								if (selected && getRun(selected.value)) {
 									getRun(selected.value)?.kill();
 									killedIds.add(selected.value);
 									refresh();
@@ -135,14 +179,35 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 				});
 
 				if (!selectedId) return;
-				const entry = getRun(selectedId);
-				if (!entry) continue;
+
+				const run = getRun(selectedId);
+				const completed = run ? undefined : listCompletedRuns().find((e) => e.id === selectedId);
+				if (!run && !completed) continue;
+
+				const entry: DetailEntry = run
+					? {
+							id: run.id,
+							agent: run.agent,
+							task: run.task,
+							startedAt: run.startedAt,
+							result: run.result,
+							onStatus: (fn) => run.onStatus(fn),
+							onStream: (fn) => run.onStream(fn),
+						}
+					: {
+							id: completed!.id,
+							agent: completed!.agent,
+							task: completed!.task,
+							startedAt: completed!.startedAt,
+							finishedAt: completed!.finishedAt,
+							result: completed!.result,
+						};
 
 				await ctx.ui.custom<null>(
 					(tui, theme, _kb, done) => {
 						let timer: NodeJS.Timeout | undefined;
-						const unsubStatus = entry.onStatus(() => tui.requestRender());
-						const unsubStream = entry.onStream(() => tui.requestRender());
+						const unsubStatus = entry.onStatus?.(() => tui.requestRender());
+						const unsubStream = entry.onStream?.(() => tui.requestRender());
 
 						let activePane: "task" | "transcript" = "transcript";
 						let taskScroll = 0;
@@ -151,31 +216,45 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 						let lastTranscriptMax = 0;
 
 						const finish = () => {
-							unsubStatus();
-							unsubStream();
+							unsubStatus?.();
+							unsubStream?.();
 							if (timer) clearInterval(timer);
 							done(null);
 						};
 
-						timer = setInterval(() => tui.requestRender(), REFRESH_MS);
-						timer.unref?.();
+						if (entry.onStatus || entry.onStream) {
+							timer = setInterval(() => tui.requestRender(), REFRESH_MS);
+							timer.unref?.();
+						}
 
 						return {
 							render: (width: number) => {
+								const live = getRun(entry.id);
+								const done = live ? undefined : listCompletedRuns().find((e) => e.id === entry.id);
+								const result = live?.result ?? done?.result ?? entry.result;
+								const finishedAt = done?.finishedAt ?? entry.finishedAt;
+								if (result.exitCode !== -1 && timer) {
+									clearInterval(timer);
+									timer = undefined;
+								}
 								const innerWidth = Math.max(10, width - 4);
 								const box = (line: string) =>
 									theme.fg("border", "│ ") +
 									line +
 									" ".repeat(Math.max(0, innerWidth - visibleWidth(line))) +
 									theme.fg("border", " │");
-								const result = entry.result;
 								const running = result.exitCode === -1;
 								const icon = running
 									? theme.fg("warning", "⏳")
 									: isResultError(result)
 										? theme.fg("error", "✗")
 										: theme.fg("success", "✓");
-								const status = running ? formatElapsed(Date.now() - entry.startedAt) : "finished";
+								const startedAt = live?.startedAt ?? entry.startedAt;
+								const status = running
+									? formatElapsed(Date.now() - startedAt)
+									: finishedAt !== undefined
+										? formatElapsed(finishedAt - startedAt)
+										: "finished";
 
 								const bodyRows = Math.max(3, Math.floor(tui.terminal.rows * 0.8) - 6);
 								const taskWidth = Math.max(5, Math.floor(innerWidth * 0.3));

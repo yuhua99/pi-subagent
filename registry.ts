@@ -9,6 +9,15 @@
 import { randomBytes } from "node:crypto";
 import type { SingleResult } from "./types.js";
 
+export interface CompletedRun {
+	id: string;
+	agent: string;
+	task: string;
+	startedAt: number;
+	finishedAt: number;
+	result: SingleResult;
+}
+
 export interface SubagentRun {
 	id: string;
 	agent: string;
@@ -32,7 +41,7 @@ const MAX_COMPLETED = 50;
 const STREAM_COALESCE_MS = 16;
 
 const running = new Map<string, RunState>();
-const completed = new Map<string, SingleResult>();
+const completed = new Map<string, CompletedRun>();
 
 function generateId(): string {
 	let id: string;
@@ -109,11 +118,19 @@ export function notifyStream(id: string): void {
 }
 
 export function completeRun(id: string, result: SingleResult): void {
-	completed.set(id, result);
+	const entry = running.get(id);
+	const finishedAt = Date.now();
+	completed.set(id, {
+		id,
+		agent: entry?.agent ?? result.agent,
+		task: entry?.task ?? result.task,
+		startedAt: entry?.startedAt ?? finishedAt,
+		finishedAt,
+		result,
+	});
 	while (completed.size > MAX_COMPLETED) {
 		completed.delete(completed.keys().next().value!);
 	}
-	const entry = running.get(id);
 	if (entry) {
 		if (entry.streamTimer) {
 			clearTimeout(entry.streamTimer);
@@ -128,6 +145,10 @@ export function completeRun(id: string, result: SingleResult): void {
 	}
 }
 
+export function listCompletedRuns(): CompletedRun[] {
+	return [...completed.values()].reverse();
+}
+
 export function getLiveStatus(
 	id: string,
 ):
@@ -135,7 +156,7 @@ export function getLiveStatus(
 	| { kind: "running"; result: SingleResult }
 	| { kind: "stale" } {
 	const done = completed.get(id);
-	if (done) return { kind: "completed", result: done };
+	if (done) return { kind: "completed", result: done.result };
 	const entry = running.get(id);
 	if (entry) return { kind: "running", result: entry.result };
 	return { kind: "stale" };
