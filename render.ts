@@ -219,7 +219,7 @@ export function renderCall(
 	context?: Pick<RenderContext, "state">,
 ): Text {
 	const delegationMode = normalizeDelegationMode(args.mode);
-	const modeBadge = theme.fg("muted", ` [${delegationMode}]`);
+	const modeBadge = delegationMode === "fork" ? theme.fg("muted", " [fork]") : "";
 	const headerIcon = typeof context?.state.headerIcon === "string" ? `${context.state.headerIcon} ` : "";
 	const headerBadge = typeof context?.state.headerBadge === "string" ? context.state.headerBadge : "";
 
