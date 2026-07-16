@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { buildPiArgs } from "../runner.ts";
 import { isResultError, isResultSuccess, normalizeCompletedResult } from "../types.ts";
 
 function makeResult(overrides = {}) {
@@ -118,4 +119,84 @@ test("running results are neither success nor error", () => {
 
   assert.equal(isResultSuccess(result), false);
   assert.equal(isResultError(result), false);
+});
+
+function makeBuildOptions(overrides = {}) {
+  const { agent = {}, inherited = {}, ...options } = overrides;
+  return {
+    agent: {
+      name: "oracle",
+      description: "",
+      source: "user",
+      systemPrompt: "Persona",
+      ...agent,
+    },
+    personaPromptPath: "/tmp/persona.md",
+    task: "repro",
+    delegationMode: "spawn",
+    forkSessionPath: null,
+    parentSystemPromptPath: null,
+    inherited: {
+      extensionArgs: [],
+      alwaysProxy: [],
+      fallbackModel: undefined,
+      fallbackThinking: undefined,
+      fallbackTools: undefined,
+      fallbackNoTools: false,
+      ...inherited,
+    },
+    ...options,
+  };
+}
+
+test("buildPiArgs uses the persona append prompt in spawn mode", () => {
+  const args = buildPiArgs(makeBuildOptions());
+
+  assert.equal(args.includes("--no-session"), true);
+  assert.deepEqual(args.slice(-3), ["--append-system-prompt", "/tmp/persona.md", "Task: repro"]);
+  assert.equal(args.includes("--system-prompt"), false);
+});
+
+test("buildPiArgs aligns fork mode with the parent prompt", () => {
+  const args = buildPiArgs(makeBuildOptions({
+    delegationMode: "fork",
+    forkSessionPath: "/tmp/fork.jsonl",
+    parentSystemPromptPath: "/tmp/parent.md",
+    inherited: {
+      alwaysProxy: ["--provider", "test", "--system-prompt", "old.md", "--verbose"],
+    },
+  }));
+
+  assert.equal(args.includes("--append-system-prompt"), false);
+  assert.equal(args.includes("old.md"), false);
+  assert.deepEqual(args.slice(-5), [
+    "--system-prompt",
+    "/tmp/parent.md",
+    "--no-context-files",
+    "--no-skills",
+    "Task instructions:\n\nPersona\n\nTask: repro",
+  ]);
+  assert.equal(args.includes("--session"), true);
+  assert.equal(args[args.indexOf("--session") + 1], "/tmp/fork.jsonl");
+});
+
+test("buildPiArgs ignores agent tools and thinking overrides in fork mode", () => {
+  const args = buildPiArgs(makeBuildOptions({
+    delegationMode: "fork",
+    agent: { tools: ["read"], thinking: "high" },
+    inherited: { fallbackTools: "read,bash" },
+  }));
+
+  assert.equal(args.includes("--tools"), true);
+  assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
+  assert.equal(args.includes("read"), false);
+  assert.equal(args.includes("--thinking"), false);
+});
+
+test("buildPiArgs degrades fork mode without a parent prompt", () => {
+  const args = buildPiArgs(makeBuildOptions({ delegationMode: "fork" }));
+
+  assert.equal(args.includes("--system-prompt"), false);
+  assert.equal(args.includes("--no-context-files"), false);
+  assert.equal(args.includes("--no-skills"), false);
 });

@@ -19,6 +19,21 @@ function runInject(basePrompt, block) {
   );
 }
 
+function runStrip(prompt) {
+  const moduleUrl = pathToFileURL(path.join(process.cwd(), "prompt_injection.ts")).href;
+  const script = `
+    import { stripCwdTail } from ${JSON.stringify(moduleUrl)};
+    process.stdout.write(JSON.stringify(stripCwdTail(${JSON.stringify(prompt)})));
+  `;
+
+  return JSON.parse(
+    execFileSync("node", ["--experimental-strip-types", "--input-type=module", "-e", script], {
+      env: process.env,
+      encoding: "utf-8",
+    }),
+  );
+}
+
 test("inserts the block before the last current working directory marker", () => {
   const prompt = "Stable prefix\nCurrent working directory: /tmp/project";
   assert.equal(
@@ -37,4 +52,19 @@ test("uses the last marker when it appears earlier in the prompt", () => {
     runInject(prompt, "Injected policy"),
     "Earlier\nCurrent working directory: old\nMore\n\nInjected policy\nCurrent working directory: new",
   );
+});
+
+test("strips a trailing current working directory marker", () => {
+  const prompt = "Stable prefix\nCurrent working directory: /some/path";
+  assert.equal(runStrip(prompt), "Stable prefix");
+});
+
+test("preserves a marker that is not at the prompt tail", () => {
+  const prompt = "Stable prefix\nCurrent working directory: /some/path\nMore content";
+  assert.equal(runStrip(prompt), prompt);
+});
+
+test("preserves a prompt without a current working directory marker", () => {
+  const prompt = "Stable prompt";
+  assert.equal(runStrip(prompt), prompt);
 });

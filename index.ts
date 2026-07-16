@@ -21,6 +21,7 @@ import {
   failedPlaceholderResult,
   formatAgentNames,
   isSubagentChild,
+  isSubagentForkChild,
   makeDetailsFactory,
   makeRunningPlaceholder,
   parseDelegationMode,
@@ -35,6 +36,10 @@ import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTIO
 import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
+  if (isSubagentForkChild()) {
+    registerForkChildStubs(pi);
+    return;
+  }
   if (isSubagentChild()) return;
 
   registerAgentsCommand(pi);
@@ -107,6 +112,8 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
+      const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
+
       const hasTasks = (params.tasks?.length ?? 0) > 0;
       const hasSingle = Boolean(params.agent && params.task);
       if (Number(hasTasks) + Number(hasSingle) !== 1) {
@@ -121,6 +128,7 @@ export default function (pi: ExtensionAPI) {
           params.tasks,
           delegationMode,
           forkSessionSnapshotJsonl,
+          parentSystemPrompt,
           agents,
           ctx.cwd,
           makeDetails,
@@ -133,6 +141,7 @@ export default function (pi: ExtensionAPI) {
         params.cwd,
         delegationMode,
         forkSessionSnapshotJsonl,
+        parentSystemPrompt,
         agents,
         ctx.cwd,
         makeDetails,
@@ -194,6 +203,7 @@ export default function (pi: ExtensionAPI) {
     cwd: string | undefined,
     delegationMode: DelegationMode,
     forkSessionSnapshotJsonl: string | undefined,
+    parentSystemPrompt: string | undefined,
     agents: AgentConfig[],
     defaultCwd: string,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
@@ -211,6 +221,7 @@ export default function (pi: ExtensionAPI) {
       taskCwd: cwd,
       delegationMode,
       forkSessionSnapshotJsonl,
+      parentSystemPrompt,
       onSpawn: (id) => onSpawn(id),
     });
 
@@ -280,6 +291,7 @@ export default function (pi: ExtensionAPI) {
     tasks: Array<{ agent: string; task: string; cwd?: string }>,
     delegationMode: DelegationMode,
     forkSessionSnapshotJsonl: string | undefined,
+    parentSystemPrompt: string | undefined,
     agents: AgentConfig[],
     defaultCwd: string,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
@@ -305,6 +317,7 @@ export default function (pi: ExtensionAPI) {
           taskCwd: t.cwd,
           delegationMode,
           forkSessionSnapshotJsonl,
+          parentSystemPrompt,
           reservedRegistryId: placeholders[i].registryId,
         });
         completeRun(r.registryId ?? placeholders[i].registryId!, r);
@@ -359,5 +372,49 @@ export default function (pi: ExtensionAPI) {
       details: makeDetails("parallel")(placeholders),
     };
   }
+}
+
+function registerForkChildStubs(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "subagent",
+    label: "Subagent",
+    description: TOOL_DESCRIPTION,
+    parameters: SubagentParams,
+    async execute() {
+      return {
+        content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
+        details: undefined,
+        isError: true,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_list",
+    label: "List subagents",
+    description: LIST_TOOL_DESCRIPTION,
+    parameters: SubagentListParams,
+    async execute() {
+      return {
+        content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
+        details: undefined,
+        isError: true,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_kill",
+    label: "Kill subagent",
+    description: KILL_TOOL_DESCRIPTION,
+    parameters: SubagentKillParams,
+    async execute() {
+      return {
+        content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
+        details: undefined,
+        isError: true,
+      };
+    },
+  });
 }
 

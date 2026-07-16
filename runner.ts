@@ -8,17 +8,18 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentConfig } from "./agents.js";
-import { SUBAGENT_CHILD_ENV } from "./delegation.js";
+import type { AgentConfig } from "./agents.ts";
+import { SUBAGENT_CHILD_ENV, SUBAGENT_FORK_ENV } from "./delegation.ts";
+import { stripCwdTail } from "./prompt_injection.ts";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
-import { getRun, notifyStatus, notifyStream, registerRun, updateRun } from "./registry.js";
+import { getRun, notifyStatus, notifyStream, registerRun, updateRun } from "./registry.ts";
 import {
   type DelegationMode,
   type SingleResult,
   emptyUsage,
   normalizeCompletedResult,
-} from "./types.js";
+} from "./types.ts";
 
 const isWindows = process.platform === "win32";
 const SIGKILL_TIMEOUT_MS = 5000;
@@ -48,10 +49,11 @@ function resolvePiSpawn(): { command: string; prefixArgs: string[] } {
 function writePromptToTempFile(
   agentName: string,
   prompt: string,
+  filePrefix: string,
 ): { dir: string; filePath: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-"));
   const safeName = agentName.replace(/[^\w.-]+/g, "_");
-  const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
+  const filePath = path.join(tmpDir, `${filePrefix}-${safeName}.md`);
   fs.writeFileSync(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
   return { dir: tmpDir, filePath };
 }
@@ -82,18 +84,43 @@ function cleanupTempDir(dir: string | null): void {
 
 const inheritedCliArgs = parseInheritedCliArgs(process.argv);
 
-function buildPiArgs(
-  agent: AgentConfig,
-  systemPromptPath: string | null,
-  task: string,
-  delegationMode: DelegationMode,
-  forkSessionPath: string | null,
-): string[] {
+export interface BuildPiArgsOptions {
+  agent: AgentConfig;
+  personaPromptPath: string | null;
+  task: string;
+  delegationMode: DelegationMode;
+  forkSessionPath: string | null;
+  parentSystemPromptPath: string | null;
+  inherited: ReturnType<typeof parseInheritedCliArgs>;
+}
+
+export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
+  const {
+    agent,
+    personaPromptPath,
+    task,
+    delegationMode,
+    forkSessionPath,
+    parentSystemPromptPath,
+    inherited,
+  } = opts;
+  const alwaysProxy: string[] = [];
+  for (let i = 0; i < inherited.alwaysProxy.length; i++) {
+    if (
+      delegationMode === "fork" &&
+      parentSystemPromptPath &&
+      inherited.alwaysProxy[i] === "--system-prompt"
+    ) {
+      i++;
+      continue;
+    }
+    alwaysProxy.push(inherited.alwaysProxy[i]);
+  }
   const args: string[] = [
     "--mode",
     "json",
-    ...inheritedCliArgs.extensionArgs,
-    ...inheritedCliArgs.alwaysProxy,
+    ...inherited.extensionArgs,
+    ...alwaysProxy,
     "-p",
   ];
 
@@ -103,24 +130,53 @@ function buildPiArgs(
     args.push("--session", forkSessionPath);
   }
 
-  const model = agent.model ?? inheritedCliArgs.fallbackModel;
+  const model = agent.model ?? inherited.fallbackModel;
   if (model) args.push("--model", model);
 
-  const thinking = agent.thinking ?? inheritedCliArgs.fallbackThinking;
-  if (thinking) args.push("--thinking", thinking);
+  if (delegationMode === "spawn") {
+    const thinking = agent.thinking ?? inherited.fallbackThinking;
+    if (thinking) args.push("--thinking", thinking);
+  } else {
+    if (agent.thinking !== undefined) {
+      console.warn(
+        'pi-subagent: fork mode ignores agent "thinking" override (must match parent for cache alignment)',
+      );
+    }
+    if (inherited.fallbackThinking) args.push("--thinking", inherited.fallbackThinking);
+  }
 
-  if (agent.tools && agent.tools.length > 0) {
-    args.push("--tools", agent.tools.join(","));
-  } else if (agent.tools === undefined) {
-    if (inheritedCliArgs.fallbackTools !== undefined) {
-      args.push("--tools", inheritedCliArgs.fallbackTools);
-    } else if (inheritedCliArgs.fallbackNoTools) {
+  if (delegationMode === "spawn") {
+    if (agent.tools && agent.tools.length > 0) {
+      args.push("--tools", agent.tools.join(","));
+    } else if (agent.tools === undefined) {
+      if (inherited.fallbackTools !== undefined) {
+        args.push("--tools", inherited.fallbackTools);
+      } else if (inherited.fallbackNoTools) {
+        args.push("--no-tools");
+      }
+    }
+  } else {
+    if (agent.tools !== undefined) {
+      console.warn(
+        'pi-subagent: fork mode ignores agent "tools" override (must match parent for cache alignment)',
+      );
+    }
+    if (inherited.fallbackTools !== undefined) {
+      args.push("--tools", inherited.fallbackTools);
+    } else if (inherited.fallbackNoTools) {
       args.push("--no-tools");
     }
   }
 
-  if (systemPromptPath) args.push("--append-system-prompt", systemPromptPath);
-  args.push(`Task: ${task}`);
+  if (delegationMode === "spawn") {
+    if (personaPromptPath) args.push("--append-system-prompt", personaPromptPath);
+  } else if (parentSystemPromptPath) {
+    args.push("--system-prompt", parentSystemPromptPath, "--no-context-files", "--no-skills");
+  }
+  const message = delegationMode === "fork" && agent.systemPrompt.trim()
+    ? `Task instructions:\n\n${agent.systemPrompt.trim()}\n\nTask: ${task}`
+    : `Task: ${task}`;
+  args.push(message);
   return args;
 }
 
@@ -143,6 +199,8 @@ export interface RunAgentOptions {
   delegationMode: DelegationMode;
   /** Serialized parent session snapshot used when delegationMode is "fork". */
   forkSessionSnapshotJsonl?: string;
+  /** Parent's effective system prompt, forwarded to fork children for cache alignment. */
+  parentSystemPrompt?: string;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
   /** Called with the registry id once the child process is spawned. */
@@ -165,6 +223,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     taskCwd,
     delegationMode,
     forkSessionSnapshotJsonl,
+    parentSystemPrompt,
     signal,
     onSpawn,
     reservedRegistryId,
@@ -220,10 +279,22 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   // Write system prompt to temp file if needed
   let promptTmpDir: string | null = null;
   let promptTmpPath: string | null = null;
-  if (agent.systemPrompt.trim()) {
-    const tmp = writePromptToTempFile(agent.name, agent.systemPrompt);
+  if (delegationMode === "spawn" && agent.systemPrompt.trim()) {
+    const tmp = writePromptToTempFile(agent.name, agent.systemPrompt, "prompt");
     promptTmpDir = tmp.dir;
     promptTmpPath = tmp.filePath;
+  }
+
+  let parentPromptTmpDir: string | null = null;
+  let parentPromptTmpPath: string | null = null;
+  if (delegationMode === "fork" && parentSystemPrompt?.trim()) {
+    const tmp = writePromptToTempFile(
+      agent.name,
+      stripCwdTail(parentSystemPrompt),
+      "parent-prompt",
+    );
+    parentPromptTmpDir = tmp.dir;
+    parentPromptTmpPath = tmp.filePath;
   }
 
   // Write forked session snapshot if needed
@@ -236,13 +307,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   }
 
   try {
-    const piArgs = buildPiArgs(
+    const piArgs = buildPiArgs({
       agent,
-      promptTmpPath,
+      personaPromptPath: promptTmpPath,
       task,
       delegationMode,
-      forkSessionTmpPath,
-    );
+      forkSessionPath: forkSessionTmpPath,
+      parentSystemPromptPath: parentPromptTmpPath,
+      inherited: inheritedCliArgs,
+    });
     let wasAborted = false;
     let wasKilled = false;
 
@@ -255,6 +328,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         env: {
           ...process.env,
           [SUBAGENT_CHILD_ENV]: "1",
+          ...(delegationMode === "fork" ? { [SUBAGENT_FORK_ENV]: "1" } : {}),
           [PI_OFFLINE_ENV]: "1",
         },
       });
@@ -415,6 +489,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     return normalized;
   } finally {
     cleanupTempDir(promptTmpDir);
+    cleanupTempDir(parentPromptTmpDir);
     cleanupTempDir(forkSessionTmpDir);
   }
 }
