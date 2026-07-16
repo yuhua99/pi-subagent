@@ -78,10 +78,7 @@ Delegate independent work to the most appropriate specialized agent.
 ```
 
 - **`spawn`** (default) — child gets only `Task: ...`; put all needed context in `task`
-- **`fork`** — session branch snapshot + task; better for follow-ups, higher cost / possible leakage. Forks are cache-aligned: the child rebuilds the parent’s exact request prefix (same system prompt, tool schemas, and forked message history), enabling provider prompt caching such as Anthropic prefix caching. If alignment conditions do not hold, behavior remains correct but the request is a cache miss.
-  - The parent’s effective system prompt is forwarded with `--system-prompt`, `--no-context-files`, and `--no-skills`. The agent persona is not appended to it in fork mode; it is prepended to the task message instead.
-  - Agent `tools` and `thinking` overrides are ignored with a warning because they must match the parent for prefix identity. Agent `model` is respected; a different model results in a cache miss.
-  - Fork children register stub `subagent`, `subagent_list`, and `subagent_kill` tools with identical schemas so the tool prefix matches the parent. Calling them returns an error because delegation is single-level.
+- **`fork`** — session branch snapshot + task; better for follow-ups, higher cost / possible leakage. Cache-aligned: the child rebuilds the parent's request prefix (system prompt, tool schemas, history) to hit the provider prompt cache; misalignment only costs a cache miss. Agent `tools`/`thinking` are ignored (persona moves into the task message); `model` is respected.
 
 Each child is a separate `pi` process (`PI_SUBAGENT=1`). The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
 

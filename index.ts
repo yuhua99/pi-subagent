@@ -36,6 +36,9 @@ import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTIO
 import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
+  // Fork children register schema-identical stub tools instead of returning
+  // early: the parent's cached request prefix includes these tool schemas, so
+  // omitting them would diverge the tool segment and forfeit the prompt cache.
   if (isSubagentForkChild()) {
     registerForkChildStubs(pi);
     return;
