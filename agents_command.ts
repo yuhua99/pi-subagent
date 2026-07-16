@@ -53,24 +53,31 @@ function runningLabel(e: SubagentRun, now: number): string {
 
 function completedLabel(e: CompletedRun): string {
 	const duration = formatElapsed(e.finishedAt - e.startedAt);
-	const cost = e.result.usage.cost;
-	const costSuffix = cost > 0 ? ` · $${cost.toFixed(3)}` : "";
 	const icon = isResultError(e.result) ? "✗" : "✓";
 	const abortedSuffix = e.result.stopReason === "aborted" ? " · aborted" : "";
-	return `${icon} [${e.id}] ${e.agent} — ${duration}${costSuffix}${abortedSuffix}`;
+	return `${icon} [${e.id}] ${e.agent} — ${duration}${abortedSuffix}`;
 }
 
 function toItems(running: SubagentRun[], completed: CompletedRun[], now: number): SelectItem[] {
+	const runningLabels = running.map((e) => ({ entry: e, base: runningLabel(e, now) }));
+	const completedLabels = completed.map((e) => ({ entry: e, base: completedLabel(e) }));
+	const baseWidth = Math.max(
+		0,
+		...runningLabels.map((e) => visibleWidth(e.base)),
+		...completedLabels.map((e) => visibleWidth(e.base)),
+	);
+	const padBase = (base: string) => base + " ".repeat(baseWidth - visibleWidth(base));
+
 	return [
-		...running.map((e) => ({
-			value: e.id,
-			label: runningLabel(e, now),
-			description: truncate(e.task, 80),
+		...runningLabels.map(({ entry, base }) => ({
+			value: entry.id,
+			label: padBase(base),
+			description: truncate(entry.task, 80),
 		})),
-		...completed.map((e) => ({
-			value: e.id,
-			label: completedLabel(e),
-			description: truncate(e.task, 80),
+		...completedLabels.map(({ entry, base }) => ({
+			value: entry.id,
+			label: `${padBase(base)}${entry.result.usage.cost > 0 ? `  $${entry.result.usage.cost.toFixed(3)}` : ""}`,
+			description: truncate(entry.task, 80),
 		})),
 	];
 }
@@ -113,10 +120,13 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 						if (allIds.length === 0) {
 							selectList = null;
 						} else {
+							const items = toItems(nextRunning, nextCompleted, Date.now());
+							const maxPrimaryColumnWidth = Math.max(0, ...items.map((item) => visibleWidth(item.label))) + 2;
 							selectList = new SelectList(
-								toItems(nextRunning, nextCompleted, Date.now()),
+								items,
 								Math.min(allIds.length, MAX_VISIBLE),
 								listTheme,
+								{ maxPrimaryColumnWidth },
 							);
 							selectList.onCancel = () => finish(null);
 							selectList.onSelect = (item) => finish(item.value);
