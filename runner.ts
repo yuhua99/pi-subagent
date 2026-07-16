@@ -104,18 +104,33 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     parentSystemPromptPath,
     inherited,
   } = opts;
+  const fork = delegationMode === "fork";
+
+  // Fork children must keep the parent's request prefix for cache alignment,
+  // so agent-level overrides that would change it are ignored.
+  if (fork && agent.thinking !== undefined) {
+    console.warn(
+      'pi-subagent: fork mode ignores agent "thinking" override (must match parent for cache alignment)',
+    );
+  }
+  if (fork && agent.tools !== undefined) {
+    console.warn(
+      'pi-subagent: fork mode ignores agent "tools" override (must match parent for cache alignment)',
+    );
+  }
+  const agentThinking = fork ? undefined : agent.thinking;
+  const agentTools = fork ? undefined : agent.tools;
+
+  const stripInheritedSystemPrompt = fork && parentSystemPromptPath !== null;
   const alwaysProxy: string[] = [];
   for (let i = 0; i < inherited.alwaysProxy.length; i++) {
-    if (
-      delegationMode === "fork" &&
-      parentSystemPromptPath &&
-      inherited.alwaysProxy[i] === "--system-prompt"
-    ) {
+    if (stripInheritedSystemPrompt && inherited.alwaysProxy[i] === "--system-prompt") {
       i++;
       continue;
     }
     alwaysProxy.push(inherited.alwaysProxy[i]);
   }
+
   const args: string[] = [
     "--mode",
     "json",
@@ -124,7 +139,7 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     "-p",
   ];
 
-  if (delegationMode === "spawn") {
+  if (!fork) {
     args.push("--no-session");
   } else if (forkSessionPath) {
     args.push("--session", forkSessionPath);
@@ -133,34 +148,12 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
   const model = agent.model ?? inherited.fallbackModel;
   if (model) args.push("--model", model);
 
-  if (delegationMode === "spawn") {
-    const thinking = agent.thinking ?? inherited.fallbackThinking;
-    if (thinking) args.push("--thinking", thinking);
-  } else {
-    if (agent.thinking !== undefined) {
-      console.warn(
-        'pi-subagent: fork mode ignores agent "thinking" override (must match parent for cache alignment)',
-      );
-    }
-    if (inherited.fallbackThinking) args.push("--thinking", inherited.fallbackThinking);
-  }
+  const thinking = agentThinking ?? inherited.fallbackThinking;
+  if (thinking) args.push("--thinking", thinking);
 
-  if (delegationMode === "spawn") {
-    if (agent.tools && agent.tools.length > 0) {
-      args.push("--tools", agent.tools.join(","));
-    } else if (agent.tools === undefined) {
-      if (inherited.fallbackTools !== undefined) {
-        args.push("--tools", inherited.fallbackTools);
-      } else if (inherited.fallbackNoTools) {
-        args.push("--no-tools");
-      }
-    }
-  } else {
-    if (agent.tools !== undefined) {
-      console.warn(
-        'pi-subagent: fork mode ignores agent "tools" override (must match parent for cache alignment)',
-      );
-    }
+  if (agentTools && agentTools.length > 0) {
+    args.push("--tools", agentTools.join(","));
+  } else if (agentTools === undefined) {
     if (inherited.fallbackTools !== undefined) {
       args.push("--tools", inherited.fallbackTools);
     } else if (inherited.fallbackNoTools) {
@@ -168,12 +161,13 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     }
   }
 
-  if (delegationMode === "spawn") {
+  if (!fork) {
     if (personaPromptPath) args.push("--append-system-prompt", personaPromptPath);
   } else if (parentSystemPromptPath) {
     args.push("--system-prompt", parentSystemPromptPath, "--no-context-files", "--no-skills");
   }
-  const message = delegationMode === "fork" && agent.systemPrompt.trim()
+
+  const message = fork && agent.systemPrompt.trim()
     ? `Task instructions:\n\n${agent.systemPrompt.trim()}\n\nTask: ${task}`
     : `Task: ${task}`;
   args.push(message);
