@@ -20,6 +20,7 @@ export type AgentScope = "user" | "project" | "both";
 export interface AgentConfig {
 	name: string;
 	description: string;
+	role?: "orchestrator";
 	tools?: string[];
 	model?: string;
 	thinking?: string;
@@ -30,6 +31,7 @@ export interface AgentConfig {
 
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
+	orchestrator: AgentConfig | null;
 	projectAgentsDir: string | null;
 }
 
@@ -79,20 +81,34 @@ function parseAgentFile(filePath: string, source: "user" | "project"): AgentConf
 	const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
 	if (!name || !description) return null;
 
+	let role: "orchestrator" | undefined;
+	if (frontmatter.role !== undefined) {
+		if (typeof frontmatter.role === "string" && frontmatter.role.trim() === "orchestrator") {
+			role = "orchestrator";
+		} else {
+			console.warn(`[pi-subagent] Ignoring invalid role field in "${filePath}". Expected "orchestrator".`);
+		}
+	}
+
+	const isOrchestrator = role === "orchestrator";
+	if (isOrchestrator && (frontmatter.model !== undefined || frontmatter.tools !== undefined || frontmatter.thinking !== undefined)) {
+		console.warn(`[pi-subagent] Ignoring model/tools/thinking on orchestrator file "${filePath}".`);
+	}
+
 	let tools: string[] | undefined;
-	if (typeof frontmatter.tools === "string") {
+	if (!isOrchestrator && typeof frontmatter.tools === "string") {
 		const parsedTools = frontmatter.tools
 			.split(",")
 			.map((t) => t.trim())
 			.filter(Boolean);
 		if (parsedTools.length > 0) tools = parsedTools;
-	} else if (Array.isArray(frontmatter.tools)) {
+	} else if (!isOrchestrator && Array.isArray(frontmatter.tools)) {
 		const parsedTools = frontmatter.tools
 			.filter((t): t is string => typeof t === "string")
 			.map((t) => t.trim())
 			.filter(Boolean);
 		if (parsedTools.length > 0) tools = parsedTools;
-	} else if (frontmatter.tools !== undefined) {
+	} else if (!isOrchestrator && frontmatter.tools !== undefined) {
 		console.warn(
 			`[pi-subagent] Ignoring invalid tools field in "${filePath}". Expected a comma-separated string or string array.`,
 		);
@@ -101,9 +117,10 @@ function parseAgentFile(filePath: string, source: "user" | "project"): AgentConf
 	return {
 		name,
 		description,
+		role,
 		tools,
-		model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
-		thinking: typeof frontmatter.thinking === "string" ? frontmatter.thinking : undefined,
+		model: !isOrchestrator && typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+		thinking: !isOrchestrator && typeof frontmatter.thinking === "string" ? frontmatter.thinking : undefined,
 		systemPrompt: body,
 		source,
 		filePath,
@@ -137,6 +154,13 @@ function mergeAgents(...groups: AgentConfig[][]): AgentConfig[] {
 	return Array.from(agentMap.values());
 }
 
+function selectOrchestrator(candidates: AgentConfig[], dir: string): AgentConfig | null {
+	if (candidates.length > 1) {
+		console.warn(`[pi-subagent] Multiple orchestrator files found in ${dir}; using "${candidates[0].filePath}".`);
+	}
+	return candidates[0] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -150,17 +174,30 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 	const userAgentsDir = getUserAgentsDir();
 	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
-	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userAgentsDir, "user");
-	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");
+	const userConfigs = scope === "project" ? [] : loadAgentsFromDir(userAgentsDir, "user");
+	const projectConfigs = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");
+	const userOrchestrator = selectOrchestrator(
+		userConfigs.filter((agent) => agent.role === "orchestrator"),
+		userAgentsDir,
+	);
+	const projectOrchestrator = projectAgentsDir
+		? selectOrchestrator(
+			projectConfigs.filter((agent) => agent.role === "orchestrator"),
+			projectAgentsDir,
+		)
+		: null;
+	const userAgents = userConfigs.filter((agent) => agent.role === undefined);
+	const projectAgents = projectConfigs.filter((agent) => agent.role === undefined);
 
 	if (scope === "user") {
-		return { agents: userAgents, projectAgentsDir };
+		return { agents: userAgents, orchestrator: userOrchestrator, projectAgentsDir };
 	}
 	if (scope === "project") {
-		return { agents: projectAgents, projectAgentsDir };
+		return { agents: projectAgents, orchestrator: projectOrchestrator, projectAgentsDir };
 	}
 	return {
 		agents: mergeAgents(userAgents, projectAgents),
+		orchestrator: projectOrchestrator ?? userOrchestrator,
 		projectAgentsDir,
 	};
 }

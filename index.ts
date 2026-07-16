@@ -27,6 +27,7 @@ import {
   reserveParallelPlaceholders,
 } from "./delegation.js";
 import { formatSubagentList, renderCall, renderResult } from "./render.js";
+import { injectIntoSystemPrompt } from "./prompt_injection.js";
 import { completeRun, getRun, listRuns } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
 import { mapConcurrent, runAgent } from "./runner.js";
@@ -39,26 +40,37 @@ export default function (pi: ExtensionAPI) {
   registerAgentsCommand(pi);
 
   let discoveredAgents: AgentConfig[] = [];
+  let discoveredOrchestrator: AgentConfig | null = null;
 
   pi.on("session_shutdown", async () => {
     for (const entry of listRuns()) entry.kill();
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    discoveredAgents = discoverAgents(ctx.cwd, "both").agents;
+    const discovery = discoverAgents(ctx.cwd, "both");
+    discoveredAgents = discovery.agents;
+    discoveredOrchestrator = discovery.orchestrator;
 
-    if (ctx.hasUI) {
-      if (discoveredAgents.length > 0) {
-        const list = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`).join("\n");
-        ctx.ui.notify(`Found ${discoveredAgents.length} subagent(s):\n${list}`, "info");
+    if (ctx.hasUI && (discoveredAgents.length > 0 || discoveredOrchestrator)) {
+      const lines = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`);
+      if (discoveredOrchestrator) {
+        lines.push(`  - ${discoveredOrchestrator.name} (${discoveredOrchestrator.source}, orchestrator)`);
       }
+      const header = discoveredAgents.length > 0
+        ? `Found ${discoveredAgents.length} subagent(s):`
+        : "Found orchestrator:";
+      ctx.ui.notify(`${header}\n${lines.join("\n")}`, "info");
     }
   });
 
   pi.on("before_agent_start", async (event) => {
-    if (discoveredAgents.length === 0) return;
+    const parts: string[] = [];
+    const orchestratorPrompt = discoveredOrchestrator?.systemPrompt.trim();
+    if (orchestratorPrompt) parts.push(orchestratorPrompt);
+    if (discoveredAgents.length > 0) parts.push(formatSubagentSystemPrompt(discoveredAgents));
+    if (parts.length === 0) return undefined;
     return {
-      systemPrompt: event.systemPrompt + "\n\n" + formatSubagentSystemPrompt(discoveredAgents),
+      systemPrompt: injectIntoSystemPrompt(event.systemPrompt, parts.join("\n\n")),
     };
   });
 

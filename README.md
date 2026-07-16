@@ -12,6 +12,7 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 - **Single-level only** — children cannot nest further subagents
 - **`/agents`** — live status and transcript preview in the TUI
 - **`subagent_list` / `subagent_kill`** — inspect or stop running children
+- **Orchestrator file** — main-agent-only delegation policy via `role: orchestrator`
 
 ## Install
 
@@ -44,11 +45,29 @@ You are an expert technical writer. Improve clarity and conciseness.
 | ----- | -------- | ----- |
 | `name` | yes | Exact id used in tool calls |
 | `description` | yes | Shown to the main agent for routing |
+| `role` | no | `orchestrator` marks the file as main-agent-only policy; not callable |
 | `model` | no | Optional `provider/model`; else parent default |
 | `thinking` | no | `off` … `xhigh` (same as `--thinking`) |
 | `tools` | no | Built-ins only; default `read,bash,edit,write` |
 
 Body is **appended** to Pi’s system prompt. Built-ins: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`. Sample: `agents/oracle.md`.
+
+## Orchestrator
+
+An agent definition with `role: orchestrator` is main-agent-only delegation policy, not a callable subagent. Its body is injected into the main agent’s system prompt; children do not receive it because the extension is disabled in child processes.
+
+```markdown
+---
+name: delegation-policy
+description: Delegation and orchestration rules
+role: orchestrator
+---
+Delegate independent work to the most appropriate specialized agent.
+```
+
+- Project orchestrators override user orchestrators; multiple files in one scope use the alphabetically first file, with a warning.
+- `name` and `description` remain required. `model`, `tools`, and `thinking` are ignored, with a warning.
+- The orchestrator body and subagent catalog are inserted just before `Current working directory:` to keep the stable prompt prefix provider-cache-friendly. The orchestrator and agent catalog are snapshotted at session start; changes require `/reload` or a new session.
 
 ## Usage
 

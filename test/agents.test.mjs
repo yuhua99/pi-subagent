@@ -14,6 +14,19 @@ function writeAgent(dir, name, description = `${name} description`) {
   );
 }
 
+function writeConfiguredAgent(dir, name, fields = {}) {
+  fs.mkdirSync(dir, { recursive: true });
+  const frontmatter = {
+    name,
+    description: `${name} description`,
+    ...fields,
+  };
+  fs.writeFileSync(
+    path.join(dir, `${name}.md`),
+    `---\n${Object.entries(frontmatter).map(([key, value]) => `${key}: ${value}`).join("\n")}\n---\n\nYou are ${name}.\n`,
+  );
+}
+
 function createTestableAgentsModule() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-agents-"));
   const stubPath = path.join(tmpDir, "pi-coding-agent-stub.mjs");
@@ -120,6 +133,96 @@ test("project agents override the active user config directory", () => {
     assert.equal(byName.get("shared")?.source, "project");
     assert.equal(byName.get("global-only")?.source, "user");
     assert.equal(byName.has("home-only"), false);
+  } finally {
+    cleanup();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("orchestrator files are excluded from callable agents", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-agents-fixture-"));
+  const configDir = path.join(tmpDir, "config");
+  const { moduleUrl, cleanup } = createTestableAgentsModule();
+  writeAgent(path.join(configDir, "agents"), "callable");
+  writeConfiguredAgent(path.join(configDir, "agents"), "policy", { role: "orchestrator" });
+
+  try {
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
+    assert.deepEqual(discovery.agents.map((agent) => agent.name), ["callable"]);
+    assert.equal(discovery.orchestrator.name, "policy");
+  } finally {
+    cleanup();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("project orchestrator overrides user orchestrator", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-agents-fixture-"));
+  const configDir = path.join(tmpDir, "config");
+  const projectDir = path.join(tmpDir, "project");
+  const { moduleUrl, cleanup } = createTestableAgentsModule();
+  writeConfiguredAgent(path.join(configDir, "agents"), "user-policy", { role: "orchestrator" });
+  writeConfiguredAgent(path.join(projectDir, ".pi", "agents"), "project-policy", { role: "orchestrator" });
+
+  try {
+    const discovery = runDiscoverAgents(moduleUrl, projectDir, "both", { PI_CODING_AGENT_DIR: configDir });
+    assert.equal(discovery.orchestrator.name, "project-policy");
+    assert.equal(discovery.orchestrator.source, "project");
+  } finally {
+    cleanup();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("the first alphabetical orchestrator wins within a scope", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-agents-fixture-"));
+  const configDir = path.join(tmpDir, "config");
+  const { moduleUrl, cleanup } = createTestableAgentsModule();
+  writeConfiguredAgent(path.join(configDir, "agents"), "z-policy", { role: "orchestrator" });
+  writeConfiguredAgent(path.join(configDir, "agents"), "a-policy", { role: "orchestrator" });
+
+  try {
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
+    assert.equal(discovery.orchestrator.name, "a-policy");
+  } finally {
+    cleanup();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("an invalid role value leaves the agent callable", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-agents-fixture-"));
+  const configDir = path.join(tmpDir, "config");
+  const { moduleUrl, cleanup } = createTestableAgentsModule();
+  writeConfiguredAgent(path.join(configDir, "agents"), "ordinary", { role: "worker" });
+
+  try {
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
+    assert.deepEqual(discovery.agents.map((agent) => agent.name), ["ordinary"]);
+    assert.equal(discovery.agents[0].role, undefined);
+    assert.equal(discovery.orchestrator, null);
+  } finally {
+    cleanup();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("orchestrator model, tools, and thinking are dropped", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-agents-fixture-"));
+  const configDir = path.join(tmpDir, "config");
+  const { moduleUrl, cleanup } = createTestableAgentsModule();
+  writeConfiguredAgent(path.join(configDir, "agents"), "policy", {
+    role: "orchestrator",
+    model: "provider/model",
+    tools: "read,write",
+    thinking: "high",
+  });
+
+  try {
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
+    assert.equal(discovery.orchestrator.model, undefined);
+    assert.equal(discovery.orchestrator.tools, undefined);
+    assert.equal(discovery.orchestrator.thinking, undefined);
   } finally {
     cleanup();
     fs.rmSync(tmpDir, { recursive: true, force: true });
