@@ -74,10 +74,6 @@ export function formatUsage(usage: Partial<UsageStats>, model?: string): string 
 	return parts.join(" ");
 }
 
-export function truncate(text: string, maxLen: number): string {
-	return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-}
-
 function shortenPath(p: string): string {
 	const home = os.homedir();
 	return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
@@ -151,8 +147,7 @@ export function formatSubagentList(entries: SubagentRun[], now = Date.now()): st
 	if (entries.length === 0) return "No subagents currently running.";
 	const lines: string[] = [`${entries.length} running subagent(s):`];
 	for (const e of entries) {
-		const pid = e.pid !== undefined ? ` (pid ${e.pid})` : "";
-		lines.push("", `[${e.id}] ${e.agent} — running ${formatElapsed(now - e.startedAt)}${pid}`, `  task: ${truncate(e.task, 80)}`);
+		lines.push(`[${e.id}] ${e.agent} — running ${formatElapsed(now - e.startedAt)}`);
 	}
 	return lines.join("\n");
 }
@@ -190,7 +185,13 @@ export function transcriptLines(r: Pick<SingleResult, "messages" | "partialMessa
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 	if (r.exitCode === -1) return theme.fg("warning", "⏳");
+	if (r.stopReason === "killed") return theme.fg("warning", "■");
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+}
+
+function killedBody(r: SingleResult, theme: { fg: ThemeFg }): Text {
+	const message = r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
+	return new Text(theme.fg("warning", message), 0, 0);
 }
 
 function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): Container | Text {
@@ -285,6 +286,9 @@ function renderSingleResult(
 	if (stale) {
 		return new Text(theme.fg("dim", STALE_FINISHED_MSG), 0, 0);
 	}
+	if (r.stopReason === "killed") {
+		return killedBody(r, theme);
+	}
 	if (isResultError(r)) {
 		return singleErrorBody(r, theme);
 	}
@@ -331,7 +335,10 @@ function renderParallelResult(
 			continue;
 		}
 		lines.push(`${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)}`);
-		if (isResultError(r)) {
+		if (r.stopReason === "killed") {
+			const msg = r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
+			lines.push(theme.fg("warning", msg));
+		} else if (isResultError(r)) {
 			const msg = r.errorMessage
 				? `Error: ${r.errorMessage}`
 				: r.stopReason
