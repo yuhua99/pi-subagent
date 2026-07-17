@@ -4,7 +4,7 @@
 
 import { DynamicBorder, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type SelectItem, SelectList, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatElapsed, formatUsage, transcriptLines, truncate, type ThemeFg } from "./render.js";
+import { formatElapsed, formatUsage, transcriptLines, type ThemeFg } from "./render.js";
 import { getRun, listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "./registry.js";
 import { isResultError, type SingleResult } from "./types.js";
 
@@ -72,12 +72,12 @@ function toItems(running: SubagentRun[], completed: CompletedRun[], now: number)
 		...runningLabels.map(({ entry, base }) => ({
 			value: entry.id,
 			label: padBase(base),
-			description: truncate(entry.task, 80),
+			description: entry.task,
 		})),
 		...completedLabels.map(({ entry, base }) => ({
 			value: entry.id,
 			label: `${padBase(base)}${entry.result.usage.cost > 0 ? `  $${entry.result.usage.cost.toFixed(3)}` : ""}`,
-			description: truncate(entry.task, 80),
+			description: entry.task,
 		})),
 	];
 }
