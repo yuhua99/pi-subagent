@@ -1,92 +1,49 @@
 # AGENTS.md
 
+Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/agents` command to the Pi coding agent. TypeScript runs directly — no build step. Entry point: `index.ts` (declared in `package.json` under `pi.extensions`).
+
+## Invariants
+
+- Single-level delegation: children run with `PI_SUBAGENT=1` (plus `PI_SUBAGENT_FORK=1` in fork mode). Spawn children must not register any extension tools; fork children must register schema-identical stub tools instead of returning early — omitting them diverges the tool segment and forfeits the parent's prompt cache (see `index.ts`).
+- Fork mode must keep the child's system prompt and tool schemas aligned with the parent for cache reuse; `buildPiArgs` in `runner.ts` owns this and ignores per-agent overrides in fork mode.
+- Tests import `.ts` files directly under `node --test` (Node type stripping). Do not use runtime TS syntax (enums, namespaces, parameter properties) and do not introduce a build step.
+
 ## Architecture contract
 
-Keep the repository organized by ownership. Do not create catch-all modules.
+One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `common.ts`, `shared.ts`); use domain names.
 
-Source layout:
+- `index.ts` — entry point: tool registration and event wiring only
+- `agents.ts` — agent discovery and Markdown/frontmatter parsing
+- `agents_command.ts` — `/agents` command UI (run list + transcript popup)
+- `delegation.ts` — delegation mode, child-env markers, fork session snapshots, placeholder results
+- `registry.ts` — in-memory run registry and status/stream subscriptions
+- `runner.ts` — child process execution: `buildPiArgs`, `runAgent`, concurrency
+- `runner-cli.js` — inheriting selected parent CLI flags into children
+- `runner-events.js` — Pi JSON-mode event parsing and result summarizing
+- `render.ts` — TUI rendering for tool rows; rich detail belongs in `/agents`, not tool rows
+- `tool_schema.ts` — TypeBox tool schemas and tool descriptions
+- `prompt_injection.ts` — system prompt injection helpers
+- `types.ts` — shared types and small helpers only; no I/O, no spawning
+- `agents/` — bundled agent definitions (`*.md`)
+- `test/` — `node --test` suites (`*.test.mjs`) and fixtures
 
-- `index.ts` — extension entry point and tool registration only
-- `agents.ts` — agent discovery and parsing only
-- `runner.ts` — subagent process execution only
-- `render.ts` — TUI rendering for tool calls and results only
-- `types.ts` — shared types and small helpers only
-- `README.md` — user-facing docs
+Keep source files under ~600 LOC; split by ownership before adding more logic.
 
-Boundary rules:
-
-- `index.ts` should not contain discovery logic, process execution, or rendering.
-- `agents.ts` should not spawn processes or render output.
-- `runner.ts` should not parse agent definitions or format TUI output.
-- `render.ts` should not know about agent discovery, process execution, or business logic.
-- `types.ts` should not perform I/O, spawn processes, or contain large logic blocks.
-
-## No junk drawers
-
-Do not create generic dumping grounds.
-
-Avoid names like:
-
-- `utils.ts`
-- `helpers.ts`
-- `common.ts`
-- `misc.ts`
-- `shared.ts`
-
-Prefer domain names that encode ownership:
-
-- `delegation.ts`
-- `depth_guard.ts`
-- `agent_resolution.ts`
-- `tool_schema.ts`
-
-## File size
-
-- Source files should target under ~600 LOC.
-- If a file approaches ~600 LOC, split by ownership before adding more logic.
-
-## Repository setup
-
-- Requirements: Bun
-- Install dependencies:
+## Quality gates
 
 ```bash
 bun install
+bun run lint    # oxlint
+bun run test    # node --test
 ```
 
-- Check what would be published:
-
-```bash
-bun pm pack --dry-run
-npm publish --dry-run --access public
-```
-
-## Local validation
-
-- This package is a Pi extension (entry point: `index.ts`).
-- Quick manual check with local package:
-
-```bash
-pi -e .
-```
+Manual check as a local extension: `pi -e .`
+Publish check: `bun pm pack --dry-run`
 
 ## Commit format
 
-Use `<type>: <imperative summary>`, sentence case.
+`<type>: <imperative summary>`, sentence case. Types: `feat`, `fix`, `refactor`, `docs`, `chore`.
 
-Allowed types: `feat`, `fix`, `refactor`, `docs`, `chore`.
+Examples: `feat: add cache-aligned fork mode`, `fix: hide spawn mode badge on subagent tool rows`.
 
-Examples:
-
-- `feat: add depth-limited subagent delegation`
-- `fix: preserve agent context on fork mode`
-- `refactor: move process execution to runner`
-- `docs: document tool registration contract`
-- `chore: scope npm package name`
-
-Keep commits focused. One logical change per commit. Avoid vague messages like `update`, `cleanup`, or `wip`.
-
-## Release
-
-- Package name: `@mjakl/pi-subagent`
-- For doc/code changes on npm, publish a new version (`npm version patch|minor|major`), then publish.
+One logical change per commit. No vague messages (`update`, `cleanup`, `wip`).
