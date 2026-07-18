@@ -118,31 +118,7 @@ The following subagents are available via the \`subagent\` tool:
 
 ${agentList}
 
-### How to call the subagent tool
-
-Each subagent runs in an **isolated process**.
-
-Context behavior is controlled by optional 'mode' for new runs:
-- ${SPAWN_MODE_DESCRIPTION}
-- ${FORK_MODE_DESCRIPTION}
-
-**Single mode** — delegate one task:
-\`\`\`json
-${SINGLE_MODE_EXAMPLE}
-\`\`\`
-
-**Parallel mode** — run multiple tasks concurrently (do NOT also set agent/task):
-\`\`\`json
-${PARALLEL_MODE_EXAMPLE}
-\`\`\`
-
-**Resume mode** — continue a completed run's native session (do NOT set agent/tasks/mode/cwd):
-\`\`\`json
-${RESUME_MODE_EXAMPLE}
-\`\`\`
-
-Use single mode for one task, parallel mode when tasks are independent and can run simultaneously. Use resume mode only for a successfully completed run from this parent Pi session.
-
+Follow the subagent tool description for invocation shapes and context modes.
 Delegation is single-level: subagents cannot spawn their own subagents.
 `;
 }
