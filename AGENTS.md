@@ -6,6 +6,7 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 
 - Single-level delegation: children run with `PI_SUBAGENT=1` (plus `PI_SUBAGENT_FORK=1` in fork mode). Spawn children register no extension tools; fork children must register schema-identical stub tools instead of returning early, or the parent's prompt cache is forfeited.
 - Fork mode keeps the child's system prompt and tool schemas byte-aligned with the parent for cache reuse; `buildPiArgs` in `runner.ts` owns this and ignores per-agent overrides.
+- Resume only targets a successfully completed run from the same parent Pi session whose session JSONL still exists; it creates a new run ID, preserves lineage, and allows only one concurrent resume per lineage.
 - Tests import `.ts` files directly under `node --test` (Node type stripping). Do not use runtime TS syntax (enums, namespaces, parameter properties) and do not introduce a build step.
 
 ## Architecture contract
