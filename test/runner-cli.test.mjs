@@ -52,11 +52,12 @@ test("forwards safe parent CLI flags and captures fallback model settings", () =
 
 test("resolves relative extension paths against the parent cwd", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-cli-"));
-  const extensionDir = path.join(tmpDir, "local-extension");
-  fs.mkdirSync(extensionDir);
+  const extensionPath = path.join(tmpDir, "local-extension");
+  fs.mkdirSync(extensionPath);
 
   const previousCwd = process.cwd();
   process.chdir(tmpDir);
+  const extensionDir = path.join(process.cwd(), "local-extension");
 
   try {
     const parsed = parseInheritedCliArgs([
@@ -86,7 +87,6 @@ test("resolves inherited relative resource paths against the parent cwd", () => 
   const skillPath = path.join(tmpDir, "skills", "research", "SKILL.md");
   const promptPath = path.join(tmpDir, "prompts", "review.md");
   const themePath = path.join(tmpDir, "themes", "custom.json");
-  const sessionDir = path.join(tmpDir, ".sessions", "nested");
 
   fs.mkdirSync(path.dirname(skillPath), { recursive: true });
   fs.mkdirSync(path.dirname(promptPath), { recursive: true });
@@ -97,6 +97,10 @@ test("resolves inherited relative resource paths against the parent cwd", () => 
 
   const previousCwd = process.cwd();
   process.chdir(tmpDir);
+  const expectedSkillPath = path.join(process.cwd(), "skills", "research", "SKILL.md");
+  const expectedPromptPath = path.join(process.cwd(), "prompts", "review.md");
+  const expectedThemePath = path.join(process.cwd(), "themes", "custom.json");
+  const expectedSessionDir = path.join(process.cwd(), ".sessions", "nested");
 
   try {
     const parsed = parseInheritedCliArgs([
@@ -120,17 +124,17 @@ test("resolves inherited relative resource paths against the parent cwd", () => 
 
     assert.deepEqual(parsed.alwaysProxy, [
       "--skill",
-      skillPath,
+      expectedSkillPath,
       "--prompt-template",
-      promptPath,
+      expectedPromptPath,
       "--theme",
       "dark",
       "--theme",
       "my-org/dark",
       "--theme",
-      themePath,
+      expectedThemePath,
       "--session-dir",
-      sessionDir,
+      expectedSessionDir,
       "--system-prompt",
       "You are helpful",
     ]);
