@@ -14,6 +14,7 @@ import { stripCwdTail } from "./prompt_injection.ts";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
 import { getRun, notifyStatus, notifyStream, registerRun, updateRun } from "./registry.ts";
+import { createManagedResumeSessionFile, createManagedSessionFile } from "./session_files.ts";
 import {
   type DelegationMode,
   type SingleResult,
@@ -25,8 +26,6 @@ const isWindows = process.platform === "win32";
 const SIGKILL_TIMEOUT_MS = 5000;
 const AGENT_END_GRACE_MS = 250;
 const PI_OFFLINE_ENV = "PI_OFFLINE";
-const managedSessionDirs = new Set<string>();
-const managedSessionPaths = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Process helpers
@@ -60,54 +59,12 @@ function writePromptToTempFile(
   return { dir: tmpDir, filePath };
 }
 
-function createManagedSessionFile(
-  agentName: string,
-  sessionJsonl?: string,
-): { dir: string; filePath: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-"));
-  const safeName = agentName.replace(/[^\w.-]+/g, "_");
-  const filePath = path.join(dir, `session-${safeName}.jsonl`);
-  managedSessionDirs.add(dir);
-  managedSessionPaths.add(filePath);
-  if (sessionJsonl !== undefined) {
-    fs.writeFileSync(filePath, sessionJsonl, { encoding: "utf-8", mode: 0o600 });
-  }
-  return { dir, filePath };
-}
-
-export function createManagedResumeSessionFile(agentName: string, sessionPath: string): string {
-  const sessionJsonl = fs.readFileSync(sessionPath, "utf-8");
-  return createManagedSessionFile(agentName, sessionJsonl).filePath;
-}
-
-export function hasSessionPath(sessionPath: string): boolean {
-  return fs.existsSync(sessionPath);
-}
-
 function cleanupTempDir(dir: string | null): void {
   if (!dir) return;
   try {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     /* ignore */
-  }
-}
-
-export function cleanupManagedSessions(retainedSessionPaths: Iterable<string> = []): void {
-  const retained = new Set(retainedSessionPaths);
-  for (const dir of managedSessionDirs) {
-    const keep = [...managedSessionPaths].some(
-      (sessionPath) => path.dirname(sessionPath) === dir && retained.has(sessionPath),
-    );
-    if (!keep) cleanupTempDir(dir);
-  }
-  for (const sessionPath of managedSessionPaths) {
-    if (!retained.has(sessionPath)) managedSessionPaths.delete(sessionPath);
-  }
-  for (const dir of managedSessionDirs) {
-    if (![...managedSessionPaths].some((sessionPath) => path.dirname(sessionPath) === dir)) {
-      managedSessionDirs.delete(dir);
-    }
   }
 }
 
@@ -543,33 +500,4 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     cleanupTempDir(promptTmpDir);
     cleanupTempDir(parentPromptTmpDir);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Concurrency helper
-// ---------------------------------------------------------------------------
-
-/**
- * Map over items with a bounded number of concurrent workers.
- */
-export async function mapConcurrent<TIn, TOut>(
-  items: TIn[],
-  concurrency: number,
-  fn: (item: TIn, index: number) => Promise<TOut>,
-): Promise<TOut[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: TOut[] = Array.from({ length: items.length });
-  let nextIndex = 0;
-
-  const worker = async () => {
-    while (true) {
-      const i = nextIndex++;
-      if (i >= items.length) return;
-      results[i] = await fn(items[i], i);
-    }
-  };
-
-  await Promise.all(Array.from({ length: limit }, () => worker()));
-  return results;
 }

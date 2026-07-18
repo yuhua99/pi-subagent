@@ -15,8 +15,12 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 - `index.ts` — tool registration and event wiring only
 - `agents.ts` — agent discovery/parsing; `agents_command.ts` — `/agents` UI
 - `delegation.ts` — delegation mode, child-env markers, fork snapshots, placeholders
+- `subagent_execution.ts` — subagent invocation orchestration, lifecycle, retention, and background delivery
+- `session_files.ts` — managed child session JSONL creation, resume copies, existence checks, and cleanup
 - `registry.ts` — in-memory run registry and status/stream subscriptions
-- `runner.ts` — child process execution; `runner-cli.js` — parent CLI flag inheritance; `runner-events.js` — JSON-event parsing and result summaries
+- `runner.ts` — child process execution and CLI argument construction, without managed session state; `runner-cli.js` — parent CLI flag inheritance; `runner-events.js` — JSON-event parsing and result summaries
+- `tool_schema.ts` — subagent tool schemas, descriptions, and limits
+- `prompt_injection.ts` — system-prompt insertion and prompt path normalization
 - `render.ts` — tool-row rendering only; rich detail belongs in `/agents`
 - `types.ts` — shared types and small helpers; no I/O, no spawning
 - `test/` — `*.test.mjs` suites and fixtures
