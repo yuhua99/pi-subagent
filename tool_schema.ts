@@ -10,6 +10,8 @@ const SINGLE_MODE_EXAMPLE =
   '{ "agent": "agent-name", "task": "Detailed task...", "mode": "spawn" }';
 const PARALLEL_MODE_EXAMPLE =
   '{ "tasks": [{ "agent": "agent-name", "task": "..." }, { "agent": "other-agent", "task": "..." }], "mode": "fork" }';
+const RESUME_MODE_EXAMPLE =
+  '{ "resume": "completed-run-id", "task": "Follow-up task..." }';
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
@@ -25,26 +27,16 @@ const TaskItem = Type.Object({
   cwd: Type.Optional(
     Type.String({ description: "Working directory for this agent's process" }),
   ),
-});
+}, { additionalProperties: false });
 
-export const SubagentParams = Type.Object({
-  agent: Type.Optional(
-    Type.String({
-      description: "Agent name for single mode. Must match an available agent name exactly.",
-    }),
-  ),
-  task: Type.Optional(
-    Type.String({
-      description:
-        "Task description for single mode. In spawn mode it must be self-contained; in fork mode the subagent also receives your current session context.",
-    }),
-  ),
-  tasks: Type.Optional(
-    Type.Array(TaskItem, {
-      description:
-        "For parallel mode: array of {agent, task} objects. Each task runs in an isolated process concurrently. Do NOT set agent/task when using this.",
-    }),
-  ),
+const SingleParams = Type.Object({
+  agent: Type.String({
+    description: "Agent name for single mode. Must match an available agent name exactly.",
+  }),
+  task: Type.String({
+    description:
+      "Task description for single mode. In spawn mode it must be self-contained; in fork mode the subagent also receives your current session context.",
+  }),
   mode: Type.Optional(
     Type.String({
       description:
@@ -57,7 +49,31 @@ export const SubagentParams = Type.Object({
       description: "Working directory for the agent process (single mode only)",
     }),
   ),
-});
+}, { additionalProperties: false });
+
+const ParallelParams = Type.Object({
+  tasks: Type.Array(TaskItem, {
+    minItems: 1,
+    description:
+      "For parallel mode: array of {agent, task} objects. Do NOT set agent/task when using this.",
+  }),
+  mode: Type.Optional(
+    Type.String({
+      description:
+        "Context mode for delegated runs. 'spawn' (default) sends only the task prompt (best for isolated, reproducible runs with lower token/cost and less context leakage). 'fork' adds a snapshot of current session context plus task prompt (best for follow-up work, but usually higher token/cost and may include sensitive context).",
+      default: DEFAULT_DELEGATION_MODE,
+    }),
+  ),
+}, { additionalProperties: false });
+
+const ResumeParams = Type.Object({
+  resume: Type.String({
+    description: "Completed subagent run id from this parent Pi session.",
+  }),
+  task: Type.String({ description: "Follow-up task appended to the completed run's session." }),
+}, { additionalProperties: false });
+
+export const SubagentParams = Type.Union([SingleParams, ParallelParams, ResumeParams]);
 
 export const SubagentListParams = Type.Object({});
 
@@ -83,13 +99,15 @@ export const TOOL_DESCRIPTION = [
   "IMPORTANT: Use exactly ONE invocation shape:",
   "  Single mode:   set `agent` and `task` (both required together).",
   "  Parallel mode: set `tasks` array (do NOT also set `agent`/`task`).",
+  "  Resume mode:  set `resume` and `task` (do NOT set agent/tasks/mode/cwd).",
   "",
-  "Optional context mode:",
+  "Optional context mode applies only to new single or parallel runs:",
   `- ${SPAWN_MODE_DESCRIPTION}`,
   `- ${FORK_MODE_DESCRIPTION}`,
   "",
   `Example single:   ${SINGLE_MODE_EXAMPLE}`,
   `Example parallel: ${PARALLEL_MODE_EXAMPLE}`,
+  `Example resume:   ${RESUME_MODE_EXAMPLE}`,
 ].join("\n");
 
 export function formatSubagentSystemPrompt(agents: AgentConfig[]): string {
@@ -104,21 +122,26 @@ ${agentList}
 
 Each subagent runs in an **isolated process**.
 
-Context behavior is controlled by optional 'mode':
+Context behavior is controlled by optional 'mode' for new runs:
 - ${SPAWN_MODE_DESCRIPTION}
 - ${FORK_MODE_DESCRIPTION}
 
-**Single mode** \u2014 delegate one task:
+**Single mode** — delegate one task:
 \`\`\`json
 ${SINGLE_MODE_EXAMPLE}
 \`\`\`
 
-**Parallel mode** \u2014 run multiple tasks concurrently (do NOT also set agent/task):
+**Parallel mode** — run multiple tasks concurrently (do NOT also set agent/task):
 \`\`\`json
 ${PARALLEL_MODE_EXAMPLE}
 \`\`\`
 
-Use single mode for one task, parallel mode when tasks are independent and can run simultaneously.
+**Resume mode** — continue a completed run's native session (do NOT set agent/tasks/mode/cwd):
+\`\`\`json
+${RESUME_MODE_EXAMPLE}
+\`\`\`
+
+Use single mode for one task, parallel mode when tasks are independent and can run simultaneously. Use resume mode only for a successfully completed run from this parent Pi session.
 
 Delegation is single-level: subagents cannot spawn their own subagents.
 `;

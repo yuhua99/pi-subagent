@@ -29,9 +29,9 @@ import {
 } from "./delegation.js";
 import { formatSubagentList, renderCall, renderResult } from "./render.js";
 import { injectIntoSystemPrompt } from "./prompt_injection.js";
-import { completeRun, getRun, listRuns } from "./registry.js";
+import { completeRun, getRun, listCompletedRuns, listRuns, reserveResumeRun } from "./registry.js";
 import { getResultSummaryText } from "./runner-events.js";
-import { mapConcurrent, runAgent } from "./runner.js";
+import { cleanupManagedSessions, hasSessionPath, mapConcurrent, runAgent } from "./runner.js";
 import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, MAX_CONCURRENCY, MAX_PARALLEL_TASKS, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
 import { DEFAULT_DELEGATION_MODE, isResultError, isResultSuccess, type DelegationMode } from "./types.js";
 
@@ -50,8 +50,53 @@ export default function (pi: ExtensionAPI) {
   let discoveredAgents: AgentConfig[] = [];
   let discoveredOrchestrator: AgentConfig | null = null;
 
+  const retainedSessionPaths = () => {
+    const paths = new Set<string>();
+    for (const entry of listRuns()) {
+      if (entry.sessionPath) paths.add(entry.sessionPath);
+    }
+    for (const entry of listCompletedRuns()) {
+      if (isResultSuccess(entry.result) && entry.delegationMode && entry.sessionPath) {
+        paths.add(entry.sessionPath);
+      }
+    }
+    return paths;
+  };
+
+  const completeSubagentRun = (id: string, result: Parameters<typeof completeRun>[1]) => {
+    if (!getRun(id)) return;
+    result.registryId = id;
+    completeRun(id, result);
+    cleanupManagedSessions(retainedSessionPaths());
+  };
+
+  const onResumeKill = (id: string) => {
+    const entry = getRun(id);
+    if (!entry) return;
+    completeSubagentRun(id, failedPlaceholderResult(entry.result, "killed", "Subagent was killed before it started."));
+  };
+
   pi.on("session_shutdown", async () => {
-    for (const entry of listRuns()) entry.kill();
+    const entries = listRuns();
+    const completions = entries.map((entry) => new Promise<void>((resolve) => {
+      let finished = false;
+      let unsubscribe: (() => void) | undefined;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        unsubscribe?.();
+        resolve();
+      };
+      unsubscribe = entry.onStatus(() => {
+        queueMicrotask(() => {
+          if (!getRun(entry.id)) finish();
+        });
+      });
+      if (!getRun(entry.id)) finish();
+    }));
+    for (const entry of entries) entry.kill();
+    await Promise.all(completions);
+    cleanupManagedSessions();
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -91,6 +136,56 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 
+      const parentSessionId = ctx.sessionManager.getSessionId();
+      const hasResume = params.resume !== undefined;
+      const hasTasks = (params.tasks?.length ?? 0) > 0;
+      const hasSingle = typeof params.agent === "string" && typeof params.task === "string";
+
+      if (hasResume) {
+        const defaultDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
+        if (
+          typeof params.resume !== "string" ||
+          typeof params.task !== "string" ||
+          params.agent !== undefined ||
+          params.tasks !== undefined ||
+          params.mode !== undefined ||
+          params.cwd !== undefined
+        ) {
+          return {
+            content: [{ type: "text", text: `Invalid resume parameters. Use exactly { resume, task } and do not combine them with agent/tasks/mode/cwd.\nAvailable agents: ${formatAgentNames(agents)}` }],
+            details: defaultDetails("single")([]),
+            isError: true,
+          };
+        }
+        const reservation = reserveResumeRun(params.resume, params.task, parentSessionId, hasSessionPath, onResumeKill);
+        if ("error" in reservation) {
+          return {
+            content: [{ type: "text", text: reservation.error }],
+            details: defaultDetails("single")([]),
+            isError: true,
+          };
+        }
+        const source = reservation.source;
+        const delegationMode = source.delegationMode!;
+        const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
+        return executeSingle(
+          source.agent,
+          params.task,
+          undefined,
+          delegationMode,
+          undefined,
+          delegationMode === "fork" ? ctx.getSystemPrompt() : undefined,
+          agents,
+          source.workingDirectory ?? ctx.cwd,
+          makeDetails,
+          reservation.run.id,
+          source.sessionPath,
+          parentSessionId,
+          source.id,
+          source.lineageId,
+        );
+      }
+
       const delegationMode = parseDelegationMode(params.mode);
       if (!delegationMode) {
         const makeDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
@@ -100,7 +195,6 @@ export default function (pi: ExtensionAPI) {
           isError: true,
         };
       }
-
       const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
 
       let forkSessionSnapshotJsonl: string | undefined;
@@ -117,12 +211,11 @@ export default function (pi: ExtensionAPI) {
 
       const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
 
-      const hasTasks = (params.tasks?.length ?? 0) > 0;
-      const hasSingle = Boolean(params.agent && params.task);
-      if (Number(hasTasks) + Number(hasSingle) !== 1) {
+      if (hasTasks && hasSingle || !hasTasks && !hasSingle || params.resume !== undefined) {
         return {
           content: [{ type: "text", text: `Invalid parameters. Provide exactly one invocation shape.\nAvailable agents: ${formatAgentNames(agents)}` }],
           details: makeDetails("single")([]),
+          isError: true,
         };
       }
 
@@ -135,6 +228,7 @@ export default function (pi: ExtensionAPI) {
           agents,
           ctx.cwd,
           makeDetails,
+          parentSessionId,
         );
       }
 
@@ -148,6 +242,9 @@ export default function (pi: ExtensionAPI) {
         agents,
         ctx.cwd,
         makeDetails,
+        undefined,
+        undefined,
+        parentSessionId,
       );
     },
 
@@ -210,6 +307,11 @@ export default function (pi: ExtensionAPI) {
     agents: AgentConfig[],
     defaultCwd: string,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
+    reservedRegistryId?: string,
+    sessionPath?: string,
+    parentSessionId?: string,
+    sourceRunId?: string,
+    lineageId?: string,
   ) {
     let onSpawn: (id: string) => void;
     const spawned = new Promise<string>((resolve) => {
@@ -225,17 +327,49 @@ export default function (pi: ExtensionAPI) {
       delegationMode,
       forkSessionSnapshotJsonl,
       parentSystemPrompt,
+      sessionPath,
+      parentSessionId,
+      workingDirectory: defaultCwd,
+      sourceRunId,
+      lineageId,
+      reservedRegistryId,
       onSpawn: (id) => onSpawn(id),
     });
 
-    const raced = await Promise.race([
-      spawned.then((id) => ({ kind: "spawned" as const, id })),
-      runPromise.then((r) => ({ kind: "done" as const, r })),
-    ]);
+    let raced:
+      | { kind: "spawned"; id: string }
+      | { kind: "done"; r: Awaited<ReturnType<typeof runAgent>> };
+    try {
+      raced = await Promise.race([
+        spawned.then((id) => ({ kind: "spawned" as const, id })),
+        runPromise.then((r) => ({ kind: "done" as const, r })),
+      ]);
+    } catch (err: unknown) {
+      if (!reservedRegistryId) {
+        cleanupManagedSessions(retainedSessionPaths());
+        throw err;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      const r = failedPlaceholderResult(
+        makeRunningPlaceholder(agentName, task, agents, reservedRegistryId),
+        "error",
+        message,
+      );
+      completeSubagentRun(reservedRegistryId, r);
+      return {
+        content: [{ type: "text" as const, text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
+        details: makeDetails("single")([r]),
+        isError: true,
+      };
+    }
 
     if (raced.kind === "done") {
       const r = raced.r;
-      if (r.registryId) completeRun(r.registryId, r);
+      const id = r.registryId ?? reservedRegistryId;
+      if (id) {
+        r.registryId = id;
+        completeSubagentRun(id, r);
+      }
       if (isResultError(r)) {
         return {
           content: [{ type: "text" as const, text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
@@ -244,7 +378,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
       return {
-        content: [{ type: "text" as const, text: getResultSummaryText(r) }],
+        content: [{ type: "text" as const, text: r.registryId ? `Completed subagent [${r.registryId}]:\n\n${getResultSummaryText(r)}` : getResultSummaryText(r) }],
         details: makeDetails("single")([r]),
       };
     }
@@ -252,7 +386,7 @@ export default function (pi: ExtensionAPI) {
     runPromise.then((result) => {
       const id = result.registryId ?? raced.id;
       const status = isResultError(result) ? (result.stopReason || "failed") : "completed";
-      completeRun(id, result);
+      completeSubagentRun(id, result);
       pi.sendMessage(
         {
           customType: "subagent_result",
@@ -265,7 +399,7 @@ export default function (pi: ExtensionAPI) {
     }, (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       const r = failedPlaceholderResult(makeRunningPlaceholder(agentName, task, agents, raced.id), "error", message);
-      completeRun(raced.id, r);
+      completeSubagentRun(raced.id, r);
       pi.sendMessage(
         {
           customType: "subagent_result",
@@ -298,6 +432,7 @@ export default function (pi: ExtensionAPI) {
     agents: AgentConfig[],
     defaultCwd: string,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
+    parentSessionId: string,
   ) {
     if (tasks.length > MAX_PARALLEL_TASKS) {
       return {
@@ -306,7 +441,7 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    const { placeholders, killedResults } = reserveParallelPlaceholders(tasks, agents);
+    const { placeholders, killedResults } = reserveParallelPlaceholders(tasks, agents, completeSubagentRun);
 
     const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, async (t, i) => {
       const killed = killedResults[i];
@@ -321,14 +456,16 @@ export default function (pi: ExtensionAPI) {
           delegationMode,
           forkSessionSnapshotJsonl,
           parentSystemPrompt,
+          parentSessionId,
+          workingDirectory: t.cwd ?? defaultCwd,
           reservedRegistryId: placeholders[i].registryId,
         });
-        completeRun(r.registryId ?? placeholders[i].registryId!, r);
+        completeSubagentRun(r.registryId ?? placeholders[i].registryId!, r);
         return r;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const r = failedPlaceholderResult(placeholders[i], "error", message);
-        completeRun(placeholders[i].registryId!, r);
+        completeSubagentRun(placeholders[i].registryId!, r);
         return r;
       }
     });
@@ -336,7 +473,7 @@ export default function (pi: ExtensionAPI) {
     batchPromise.then((results) => {
       const successCount = results.filter((r) => isResultSuccess(r)).length;
       const summaries = results.map((r) =>
-        `[${r.agent}] ${isResultError(r) ? "failed" : "completed"}: ${getResultSummaryText(r)}`,
+        `[${r.registryId ?? "?"}] [${r.agent}] ${isResultError(r) ? "failed" : "completed"}: ${getResultSummaryText(r)}`,
       );
       pi.sendMessage(
         {
@@ -351,7 +488,7 @@ export default function (pi: ExtensionAPI) {
       const message = err instanceof Error ? err.message : String(err);
       for (const p of placeholders) {
         if (p.registryId && getRun(p.registryId)) {
-          completeRun(p.registryId, failedPlaceholderResult(p, "error", message));
+          completeSubagentRun(p.registryId, failedPlaceholderResult(p, "error", message));
         }
       }
       pi.sendMessage(

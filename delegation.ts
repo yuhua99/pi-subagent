@@ -1,5 +1,5 @@
 import type { AgentConfig } from "./agents.ts";
-import { completeRun, registerRun } from "./registry.ts";
+import { registerRun } from "./registry.ts";
 import { DEFAULT_DELEGATION_MODE, emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -106,6 +106,7 @@ export function failedPlaceholderResult(
 export function reserveParallelPlaceholders(
   tasks: Array<{ agent: string; task: string }>,
   agents: AgentConfig[],
+  onComplete: (id: string, result: SingleResult) => void,
 ): { placeholders: SingleResult[]; killedResults: Array<SingleResult | undefined> } {
   const placeholders = tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents));
   const killedResults: Array<SingleResult | undefined> = tasks.map(() => undefined);
@@ -118,7 +119,7 @@ export function reserveParallelPlaceholders(
       kill: () => {
         const r = failedPlaceholderResult(p, "killed", "Subagent was killed before it started.");
         killedResults[i] = r;
-        completeRun(p.registryId!, r);
+        onComplete(p.registryId!, r);
       },
       result: p,
     }).id;

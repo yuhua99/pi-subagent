@@ -7,9 +7,19 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { SingleResult } from "./types.js";
+import type { DelegationMode, SingleResult } from "./types.js";
+import { emptyUsage, isResultSuccess } from "./types.js";
 
-export interface CompletedRun {
+export interface RunMetadata {
+	parentSessionId?: string;
+	delegationMode?: DelegationMode;
+	sessionPath?: string;
+	workingDirectory?: string;
+	sourceRunId?: string;
+	lineageId?: string;
+}
+
+export interface CompletedRun extends RunMetadata {
 	id: string;
 	agent: string;
 	task: string;
@@ -18,7 +28,7 @@ export interface CompletedRun {
 	result: SingleResult;
 }
 
-export interface SubagentRun {
+export interface SubagentRun extends RunMetadata {
 	id: string;
 	agent: string;
 	task: string;
@@ -42,6 +52,7 @@ const STREAM_COALESCE_MS = 16;
 
 const running = new Map<string, RunState>();
 const completed = new Map<string, CompletedRun>();
+const resumeLocks = new Set<string>();
 
 function generateId(): string {
 	let id: string;
@@ -60,6 +71,7 @@ export function registerRun(
 	const state: RunState = {
 		...init,
 		id,
+		lineageId: init.lineageId ?? id,
 		statusSubs,
 		streamSubs,
 		onStatus(fn) {
@@ -77,7 +89,7 @@ export function registerRun(
 
 export function updateRun(
 	id: string,
-	patch: Partial<Pick<SubagentRun, "pid" | "startedAt" | "kill" | "result">>,
+	patch: Partial<Pick<SubagentRun, "pid" | "startedAt" | "kill" | "result" | "sessionPath" | "workingDirectory" | "parentSessionId" | "delegationMode" | "sourceRunId" | "lineageId">>,
 ): void {
 	const entry = running.get(id);
 	if (entry) Object.assign(entry, patch);
@@ -126,10 +138,18 @@ export function completeRun(id: string, result: SingleResult): void {
 		task: entry?.task ?? result.task,
 		startedAt: entry?.startedAt ?? finishedAt,
 		finishedAt,
+		parentSessionId: entry?.parentSessionId,
+		delegationMode: entry?.delegationMode,
+		sessionPath: entry?.sessionPath,
+		workingDirectory: entry?.workingDirectory,
+		sourceRunId: entry?.sourceRunId,
+		lineageId: entry?.lineageId ?? id,
 		result,
 	});
+	if (entry?.sourceRunId && entry.lineageId) resumeLocks.delete(entry.lineageId);
 	while (completed.size > MAX_COMPLETED) {
-		completed.delete(completed.keys().next().value!);
+		const removed = completed.keys().next().value;
+		if (removed) completed.delete(removed);
 	}
 	if (entry) {
 		if (entry.streamTimer) {
@@ -147,6 +167,68 @@ export function completeRun(id: string, result: SingleResult): void {
 
 export function listCompletedRuns(): CompletedRun[] {
 	return [...completed.values()].reverse();
+}
+
+export function getCompletedRun(id: string): CompletedRun | undefined {
+	return completed.get(id);
+}
+
+export interface ResumeReservation {
+	run: SubagentRun;
+	source: CompletedRun;
+}
+
+export function reserveResumeRun(
+	id: string,
+	task: string,
+	parentSessionId: string,
+	hasSessionPath: (sessionPath: string) => boolean,
+	onKill: (id: string) => void,
+): ResumeReservation | { error: string } {
+	const source = completed.get(id);
+	if (!source) return { error: `Cannot resume subagent [${id}]: run is not completed in this parent session.` };
+	if (source.parentSessionId !== parentSessionId) {
+		return { error: `Cannot resume subagent [${id}]: run belongs to a different parent Pi session.` };
+	}
+	if (!source.delegationMode || !source.sessionPath || !hasSessionPath(source.sessionPath)) {
+		return { error: `Cannot resume subagent [${id}]: completed run did not retain a session.` };
+	}
+	if (!isResultSuccess(source.result)) {
+		return { error: `Cannot resume subagent [${id}]: only successfully completed runs can be resumed.` };
+	}
+	const lineageId = source.lineageId ?? source.id;
+	if (resumeLocks.has(lineageId)) {
+		return { error: `Cannot resume subagent [${id}]: another resume is already running in this session lineage.` };
+	}
+	resumeLocks.add(lineageId);
+	const result: SingleResult = {
+		agent: source.agent,
+		agentSource: source.result.agentSource,
+		task,
+		exitCode: -1,
+		messages: [],
+		stderr: "",
+		usage: emptyUsage(),
+		model: source.result.model,
+	};
+	let runId = "";
+	const run = registerRun({
+		agent: source.agent,
+		task,
+		pid: undefined,
+		startedAt: Date.now(),
+		kill: () => onKill(runId),
+		result,
+		parentSessionId,
+		delegationMode: source.delegationMode,
+		sessionPath: source.sessionPath,
+		workingDirectory: source.workingDirectory,
+		sourceRunId: source.id,
+		lineageId,
+	});
+	runId = run.id;
+	result.registryId = run.id;
+	return { run, source };
 }
 
 export function getLiveStatus(

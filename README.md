@@ -7,6 +7,7 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 ## Features
 
 - **`spawn` / `fork` context** — fresh task-only context, or a session snapshot plus the task
+- **Native session resume** — continue a successfully completed child with `{ "resume": "run-id", "task": "..." }`
 - **Async by default** — tool returns as soon as the child starts; results arrive as a follow-up message
 - **Parallel runs** — up to 8 tasks, 4 concurrent
 - **Single-level only** — children cannot nest further subagents
@@ -75,10 +76,12 @@ Delegate independent work to the most appropriate specialized agent.
 { "agent": "writer", "task": "Document the API", "mode": "spawn" }
 { "agent": "review", "task": "Check this migration", "mode": "fork" }
 { "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }], "mode": "spawn" }
+{ "resume": "completed-run-id", "task": "Continue the previous work" }
 ```
 
 - **`spawn`** (default) — child gets only `Task: ...`; put all needed context in `task`
 - **`fork`** — session branch snapshot + task; better for follow-ups, higher cost / possible leakage. Cache-aligned: the child rebuilds the parent's request prefix (system prompt, tool schemas, history) to hit the provider prompt cache; misalignment only costs a cache miss. Agent `tools`/`thinking` are ignored (persona moves into the task message); `model` is respected.
+- **`resume`** — continue a successful completed run from this parent session using its native JSONL session. It creates a new run id and preserves lineage; only one resume per lineage may run at a time.
 
 Each child is a separate `pi` process (`PI_SUBAGENT=1`). The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
 

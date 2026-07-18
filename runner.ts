@@ -25,6 +25,8 @@ const isWindows = process.platform === "win32";
 const SIGKILL_TIMEOUT_MS = 5000;
 const AGENT_END_GRACE_MS = 250;
 const PI_OFFLINE_ENV = "PI_OFFLINE";
+const managedSessionDirs = new Set<string>();
+const managedSessionPaths = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Process helpers
@@ -58,15 +60,28 @@ function writePromptToTempFile(
   return { dir: tmpDir, filePath };
 }
 
-function writeForkSessionToTempFile(
+function createManagedSessionFile(
   agentName: string,
-  sessionJsonl: string,
+  sessionJsonl?: string,
 ): { dir: string; filePath: string } {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-"));
   const safeName = agentName.replace(/[^\w.-]+/g, "_");
-  const filePath = path.join(tmpDir, `fork-${safeName}.jsonl`);
-  fs.writeFileSync(filePath, sessionJsonl, { encoding: "utf-8", mode: 0o600 });
-  return { dir: tmpDir, filePath };
+  const filePath = path.join(dir, `session-${safeName}.jsonl`);
+  managedSessionDirs.add(dir);
+  managedSessionPaths.add(filePath);
+  if (sessionJsonl !== undefined) {
+    fs.writeFileSync(filePath, sessionJsonl, { encoding: "utf-8", mode: 0o600 });
+  }
+  return { dir, filePath };
+}
+
+export function createManagedResumeSessionFile(agentName: string, sessionPath: string): string {
+  const sessionJsonl = fs.readFileSync(sessionPath, "utf-8");
+  return createManagedSessionFile(agentName, sessionJsonl).filePath;
+}
+
+export function hasSessionPath(sessionPath: string): boolean {
+  return fs.existsSync(sessionPath);
 }
 
 function cleanupTempDir(dir: string | null): void {
@@ -75,6 +90,24 @@ function cleanupTempDir(dir: string | null): void {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     /* ignore */
+  }
+}
+
+export function cleanupManagedSessions(retainedSessionPaths: Iterable<string> = []): void {
+  const retained = new Set(retainedSessionPaths);
+  for (const dir of managedSessionDirs) {
+    const keep = [...managedSessionPaths].some(
+      (sessionPath) => path.dirname(sessionPath) === dir && retained.has(sessionPath),
+    );
+    if (!keep) cleanupTempDir(dir);
+  }
+  for (const sessionPath of managedSessionPaths) {
+    if (!retained.has(sessionPath)) managedSessionPaths.delete(sessionPath);
+  }
+  for (const dir of managedSessionDirs) {
+    if (![...managedSessionPaths].some((sessionPath) => path.dirname(sessionPath) === dir)) {
+      managedSessionDirs.delete(dir);
+    }
   }
 }
 
@@ -90,6 +123,7 @@ export interface BuildPiArgsOptions {
   task: string;
   delegationMode: DelegationMode;
   forkSessionPath: string | null;
+  sessionPath?: string | null;
   parentSystemPromptPath: string | null;
   inherited: ReturnType<typeof parseInheritedCliArgs>;
 }
@@ -101,6 +135,7 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     task,
     delegationMode,
     forkSessionPath,
+    sessionPath,
     parentSystemPromptPath,
     inherited,
   } = opts;
@@ -139,11 +174,8 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     "-p",
   ];
 
-  if (!fork) {
-    args.push("--no-session");
-  } else if (forkSessionPath) {
-    args.push("--session", forkSessionPath);
-  }
+  const selectedSessionPath = sessionPath ?? forkSessionPath;
+  if (selectedSessionPath) args.push("--session", selectedSessionPath);
 
   const model = agent.model ?? inherited.fallbackModel;
   if (model) args.push("--model", model);
@@ -193,6 +225,11 @@ export interface RunAgentOptions {
   delegationMode: DelegationMode;
   /** Serialized parent session snapshot used when delegationMode is "fork". */
   forkSessionSnapshotJsonl?: string;
+  sessionPath?: string;
+  parentSessionId?: string;
+  workingDirectory?: string;
+  sourceRunId?: string;
+  lineageId?: string;
   /** Parent's effective system prompt, forwarded to fork children for cache alignment. */
   parentSystemPrompt?: string;
   /** Abort signal for cancellation. */
@@ -217,6 +254,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     taskCwd,
     delegationMode,
     forkSessionSnapshotJsonl,
+    sessionPath,
+    parentSessionId,
+    workingDirectory,
+    sourceRunId,
+    lineageId,
     parentSystemPrompt,
     signal,
     onSpawn,
@@ -240,6 +282,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 
   if (
     delegationMode === "fork" &&
+    !sessionPath &&
     (!forkSessionSnapshotJsonl || !forkSessionSnapshotJsonl.trim())
   ) {
     return {
@@ -291,13 +334,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     parentPromptTmpPath = tmp.filePath;
   }
 
-  // Write forked session snapshot if needed
-  let forkSessionTmpDir: string | null = null;
-  let forkSessionTmpPath: string | null = null;
-  if (delegationMode === "fork" && forkSessionSnapshotJsonl) {
-    const tmp = writeForkSessionToTempFile(agent.name, forkSessionSnapshotJsonl);
-    forkSessionTmpDir = tmp.dir;
-    forkSessionTmpPath = tmp.filePath;
+  let sessionTmpPath: string | null;
+  if (sessionPath) {
+    sessionTmpPath = createManagedResumeSessionFile(agent.name, sessionPath);
+  } else {
+    const tmp = createManagedSessionFile(
+      agent.name,
+      delegationMode === "fork" ? forkSessionSnapshotJsonl : undefined,
+    );
+    sessionTmpPath = tmp.filePath;
   }
 
   try {
@@ -306,7 +351,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       personaPromptPath: promptTmpPath,
       task,
       delegationMode,
-      forkSessionPath: forkSessionTmpPath,
+      forkSessionPath: null,
+      sessionPath: sessionTmpPath,
       parentSystemPromptPath: parentPromptTmpPath,
       inherited: inheritedCliArgs,
     });
@@ -376,6 +422,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           startedAt: Date.now(),
           kill: killFn,
           result,
+          sessionPath: sessionTmpPath ?? undefined,
+          workingDirectory: taskCwd ?? workingDirectory ?? cwd,
+          parentSessionId,
+          delegationMode,
+          sourceRunId,
+          lineageId,
         });
         if (!getRun(reservedRegistryId)) {
           wasKilled = true;
@@ -389,6 +441,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           startedAt: Date.now(),
           kill: killFn,
           result,
+          parentSessionId,
+          delegationMode,
+          sessionPath: sessionTmpPath ?? undefined,
+          workingDirectory: taskCwd ?? workingDirectory ?? cwd,
+          sourceRunId,
+          lineageId,
         }).id;
       }
       result.registryId = registryId;
@@ -484,7 +542,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   } finally {
     cleanupTempDir(promptTmpDir);
     cleanupTempDir(parentPromptTmpDir);
-    cleanupTempDir(forkSessionTmpDir);
   }
 }
 

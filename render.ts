@@ -235,12 +235,12 @@ export function renderCall(
 	}
 
 	// Single mode
-	const agentName = args.agent || "...";
+	const agentName = args.agent || (args.resume ? `resume ${args.resume}` : "...");
 	const text =
 		headerIcon +
 		theme.fg("toolTitle", theme.bold("subagent ")) +
 		theme.fg("accent", agentName) +
-		modeBadge +
+		(args.resume ? "" : modeBadge) +
 		headerBadge;
 	return new Text(text, 0, 0);
 }

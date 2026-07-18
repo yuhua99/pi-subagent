@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import {
 	bindRowInvalidator,
 	completeRun,
+	getCompletedRun,
 	getLiveStatus,
 	getRun,
 	listRuns,
 	notifyStatus,
 	notifyStream,
 	registerRun,
+	reserveResumeRun,
 	resolveLiveResult,
 	updateRun,
 } from "../registry.ts";
@@ -177,4 +182,132 @@ test("completeRun works even when id is not in running (early-error path)", () =
 	const r = makeResult({ exitCode: 1 });
 	completeRun("dead", r);
 	assert.equal(getLiveStatus("dead").kind, "completed");
+});
+
+test("resume reservations require a successful completed run in the same parent session", () => {
+	cleanup();
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
+	const sessionPath = path.join(dir, "session.jsonl");
+	fs.writeFileSync(sessionPath, "{}\n");
+	const source = registerRun({
+		agent: "a",
+		task: "first",
+		pid: undefined,
+		startedAt: 0,
+		kill: () => {},
+		result: makeResult(),
+		parentSessionId: "parent",
+		delegationMode: "spawn",
+		sessionPath,
+		workingDirectory: dir,
+	});
+	completeRun(source.id, makeResult({ exitCode: 0 }));
+
+	const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {});
+	assert.equal("error" in reservation, false);
+	if ("error" in reservation) return;
+	assert.equal(reservation.source.id, source.id);
+	assert.equal(reservation.run.sourceRunId, source.id);
+	assert.equal(reservation.run.lineageId, source.id);
+	assert.equal(reserveResumeRun(source.id, "parallel follow up", "parent", fs.existsSync, () => {}).error !== undefined, true);
+
+	completeRun(reservation.run.id, makeResult({ exitCode: 1 }));
+	const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
+	assert.equal("error" in retry, false);
+	if ("error" in retry) return;
+	completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+	const descendant = getCompletedRun(retry.run.id);
+	assert.equal(descendant?.sourceRunId, source.id);
+	const second = reserveResumeRun(retry.run.id, "second follow up", "parent", fs.existsSync, () => {});
+	assert.equal("error" in second, false);
+	if (!("error" in second)) completeRun(second.run.id, makeResult({ exitCode: 0 }));
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("resume reservations reject failed, foreign-session, and missing-session runs", () => {
+	cleanup();
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
+	const sessionPath = path.join(dir, "session.jsonl");
+	fs.writeFileSync(sessionPath, "{}\n");
+	const source = registerRun({
+		agent: "a",
+		task: "first",
+		pid: undefined,
+		startedAt: 0,
+		kill: () => {},
+		result: makeResult(),
+		parentSessionId: "parent",
+		delegationMode: "fork",
+		sessionPath,
+	});
+	completeRun(source.id, makeResult({ exitCode: 1 }));
+	assert.match(reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {}).error, /successfully completed/);
+
+	const foreign = registerRun({
+		agent: "a",
+		task: "foreign",
+		pid: undefined,
+		startedAt: 0,
+		kill: () => {},
+		result: makeResult(),
+		parentSessionId: "other",
+		delegationMode: "spawn",
+		sessionPath,
+	});
+	completeRun(foreign.id, makeResult({ exitCode: 0 }));
+	assert.match(reserveResumeRun(foreign.id, "follow up", "parent", fs.existsSync, () => {}).error, /different parent/);
+
+	const missing = registerRun({
+		agent: "a",
+		task: "missing",
+		pid: undefined,
+		startedAt: 0,
+		kill: () => {},
+		result: makeResult(),
+		parentSessionId: "parent",
+		delegationMode: "spawn",
+		sessionPath: path.join(dir, "missing.jsonl"),
+	});
+	completeRun(missing.id, makeResult({ exitCode: 0 }));
+	assert.match(reserveResumeRun(missing.id, "follow up", "parent", fs.existsSync, () => {}).error, /retain a session/);
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("killing a reserved resume removes it and releases its lineage lock", () => {
+	cleanup();
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
+	const sessionPath = path.join(dir, "session.jsonl");
+	fs.writeFileSync(sessionPath, "{}\n");
+	const source = registerRun({
+		agent: "a",
+		task: "first",
+		pid: undefined,
+		startedAt: 0,
+		kill: () => {},
+		result: makeResult(),
+		parentSessionId: "parent",
+		delegationMode: "spawn",
+		sessionPath,
+	});
+	completeRun(source.id, makeResult({ exitCode: 0 }));
+
+	let killCalls = 0;
+	const onKill = (id) => {
+		killCalls++;
+		const entry = getRun(id);
+		if (entry) completeRun(id, { ...entry.result, exitCode: 1, stopReason: "killed" });
+	};
+	const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, onKill);
+	assert.equal("error" in reservation, false);
+	if ("error" in reservation) return;
+	reservation.run.kill();
+	reservation.run.kill();
+	assert.equal(killCalls, 2);
+	assert.equal(getRun(reservation.run.id), undefined);
+	assert.equal(getCompletedRun(reservation.run.id)?.result.stopReason, "killed");
+
+	const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, onKill);
+	assert.equal("error" in retry, false);
+	if (!("error" in retry)) completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+	fs.rmSync(dir, { recursive: true, force: true });
 });
