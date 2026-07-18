@@ -13,7 +13,7 @@ import { SUBAGENT_CHILD_ENV, SUBAGENT_FORK_ENV } from "./delegation.ts";
 import { stripCwdTail } from "./prompt_injection.ts";
 import { parseInheritedCliArgs } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
-import { getRun, notifyStatus, notifyStream, registerRun, updateRun } from "./registry.ts";
+import { getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
 import { createManagedResumeSessionFile, createManagedSessionFile } from "./session_files.ts";
 import {
   type DelegationMode,
@@ -79,7 +79,6 @@ export interface BuildPiArgsOptions {
   personaPromptPath: string | null;
   task: string;
   delegationMode: DelegationMode;
-  forkSessionPath: string | null;
   sessionPath?: string | null;
   parentSystemPromptPath: string | null;
   inherited: ReturnType<typeof parseInheritedCliArgs>;
@@ -91,7 +90,6 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     personaPromptPath,
     task,
     delegationMode,
-    forkSessionPath,
     sessionPath,
     parentSystemPromptPath,
     inherited,
@@ -131,8 +129,7 @@ export function buildPiArgs(opts: BuildPiArgsOptions): string[] {
     "-p",
   ];
 
-  const selectedSessionPath = sessionPath ?? forkSessionPath;
-  if (selectedSessionPath) args.push("--session", selectedSessionPath);
+  if (sessionPath) args.push("--session", sessionPath);
 
   const model = agent.model ?? inherited.fallbackModel;
   if (model) args.push("--model", model);
@@ -308,7 +305,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       personaPromptPath: promptTmpPath,
       task,
       delegationMode,
-      forkSessionPath: null,
       sessionPath: sessionTmpPath,
       parentSystemPromptPath: parentPromptTmpPath,
       inherited: inheritedCliArgs,
@@ -371,20 +367,23 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         wasKilled = true;
         terminateChild();
       };
+      const runMetadata: RunMetadata = {
+        sessionPath: sessionTmpPath ?? undefined,
+        workingDirectory: taskCwd ?? workingDirectory ?? cwd,
+        parentSessionId,
+        delegationMode,
+        sourceRunId,
+        lineageId,
+      };
       let registryId: string;
       if (reservedRegistryId) {
         registryId = reservedRegistryId;
         updateRun(reservedRegistryId, {
+          ...runMetadata,
           pid: proc.pid,
           startedAt: Date.now(),
           kill: killFn,
           result,
-          sessionPath: sessionTmpPath ?? undefined,
-          workingDirectory: taskCwd ?? workingDirectory ?? cwd,
-          parentSessionId,
-          delegationMode,
-          sourceRunId,
-          lineageId,
         });
         if (!getRun(reservedRegistryId)) {
           wasKilled = true;
@@ -398,12 +397,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           startedAt: Date.now(),
           kill: killFn,
           result,
-          parentSessionId,
-          delegationMode,
-          sessionPath: sessionTmpPath ?? undefined,
-          workingDirectory: taskCwd ?? workingDirectory ?? cwd,
-          sourceRunId,
-          lineageId,
+          ...runMetadata,
         }).id;
       }
       result.registryId = registryId;

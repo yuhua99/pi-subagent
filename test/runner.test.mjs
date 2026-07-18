@@ -134,7 +134,6 @@ function makeBuildOptions(overrides = {}) {
     personaPromptPath: "/tmp/persona.md",
     task: "repro",
     delegationMode: "spawn",
-    forkSessionPath: null,
     parentSystemPromptPath: null,
     inherited: {
       extensionArgs: [],
@@ -168,7 +167,7 @@ test("buildPiArgs resumes using the existing native session path", () => {
 test("buildPiArgs aligns fork mode with the parent prompt", () => {
   const args = buildPiArgs(makeBuildOptions({
     delegationMode: "fork",
-    forkSessionPath: "/tmp/fork.jsonl",
+    sessionPath: "/tmp/fork.jsonl",
     parentSystemPromptPath: "/tmp/parent.md",
     inherited: {
       alwaysProxy: ["--provider", "test", "--system-prompt", "old.md", "--verbose"],

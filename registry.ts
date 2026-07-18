@@ -169,10 +169,6 @@ export function listCompletedRuns(): CompletedRun[] {
 	return [...completed.values()].reverse();
 }
 
-export function getCompletedRun(id: string): CompletedRun | undefined {
-	return completed.get(id);
-}
-
 export interface ResumeReservation {
 	run: SubagentRun;
 	source: CompletedRun;

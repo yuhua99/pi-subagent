@@ -6,7 +6,7 @@ import { test } from "node:test";
 import {
 	bindRowInvalidator,
 	completeRun,
-	getCompletedRun,
+	listCompletedRuns,
 	getLiveStatus,
 	getRun,
 	listRuns,
@@ -216,7 +216,7 @@ test("resume reservations require a successful completed run in the same parent 
 	assert.equal("error" in retry, false);
 	if ("error" in retry) return;
 	completeRun(retry.run.id, makeResult({ exitCode: 0 }));
-	const descendant = getCompletedRun(retry.run.id);
+	const descendant = listCompletedRuns().find((entry) => entry.id === retry.run.id);
 	assert.equal(descendant?.sourceRunId, source.id);
 	const second = reserveResumeRun(retry.run.id, "second follow up", "parent", fs.existsSync, () => {});
 	assert.equal("error" in second, false);
@@ -304,7 +304,7 @@ test("killing a reserved resume removes it and releases its lineage lock", () =>
 	reservation.run.kill();
 	assert.equal(killCalls, 2);
 	assert.equal(getRun(reservation.run.id), undefined);
-	assert.equal(getCompletedRun(reservation.run.id)?.result.stopReason, "killed");
+	assert.equal(listCompletedRuns().find((entry) => entry.id === reservation.run.id)?.result.stopReason, "killed");
 
 	const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, onKill);
 	assert.equal("error" in retry, false);

@@ -448,7 +448,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 	};
 }
 
-export async function mapConcurrent<TIn, TOut>(
+async function mapConcurrent<TIn, TOut>(
 	items: TIn[],
 	concurrency: number,
 	fn: (item: TIn, index: number) => Promise<TOut>,
