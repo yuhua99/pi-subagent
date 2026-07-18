@@ -56,7 +56,7 @@ interface ToolResult {
 }
 
 interface SubagentExecution {
-	execute(params: SubagentToolParams, ctx: SubagentExecutionContext): Promise<ToolResult>;
+	execute(params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
 	kill(id: string): SubagentRun | undefined;
 	shutdown(): Promise<void>;
 }
@@ -103,6 +103,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		parentSessionId?: string,
 		sourceRunId?: string,
 		lineageId?: string,
+		signal?: AbortSignal,
 	): Promise<ToolResult> => {
 		let onSpawn: (id: string) => void;
 		const spawned = new Promise<string>((resolve) => {
@@ -124,6 +125,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			sourceRunId,
 			lineageId,
 			reservedRegistryId,
+			signal,
 			onSpawn: (id) => onSpawn(id),
 		});
 
@@ -220,11 +222,13 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		defaultCwd: string,
 		makeDetails: ReturnType<typeof makeDetailsFactory>,
 		parentSessionId: string,
+		signal?: AbortSignal,
 	): Promise<ToolResult> => {
 		if (tasks.length > MAX_PARALLEL_TASKS) {
 			return {
 				content: [{ type: "text", text: `Too many parallel tasks (${tasks.length}). Max is ${MAX_PARALLEL_TASKS}.` }],
 				details: makeDetails("parallel")([]),
+				isError: true,
 			};
 		}
 
@@ -244,6 +248,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					parentSystemPrompt,
 					parentSessionId,
 					workingDirectory: t.cwd ?? defaultCwd,
+					signal,
 					reservedRegistryId: placeholders[i].registryId,
 				});
 				completeSubagentRun(r.registryId ?? placeholders[i].registryId!, r);
@@ -297,7 +302,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		};
 	};
 
-	const execute = async (params: SubagentToolParams, ctx: SubagentExecutionContext): Promise<ToolResult> => {
+	const execute = async (params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
 		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
 		const hasResume = params.resume !== undefined;
@@ -346,6 +351,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				parentSessionId,
 				source.id,
 				source.lineageId,
+				signal,
 			);
 		}
 
@@ -371,7 +377,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			}
 		}
 		const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
-		if (hasTasks && hasSingle || !hasTasks && !hasSingle || params.resume !== undefined) {
+		if (hasTasks && hasSingle || !hasTasks && !hasSingle) {
 			return {
 				content: [{ type: "text", text: `Invalid parameters. Provide exactly one invocation shape.\nAvailable agents: ${formatAgentNames(agents)}` }],
 				details: makeDetails("single")([]),
@@ -388,6 +394,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				ctx.cwd,
 				makeDetails,
 				parentSessionId,
+				signal,
 			);
 		}
 		return executeSingle(
@@ -403,6 +410,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			undefined,
 			undefined,
 			parentSessionId,
+			undefined,
+			undefined,
+			signal,
 		);
 	};
 
