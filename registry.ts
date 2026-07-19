@@ -169,6 +169,12 @@ export function listCompletedRuns(): CompletedRun[] {
 	return [...completed.values()].reverse();
 }
 
+export function clearSessionState(): void {
+	running.clear();
+	completed.clear();
+	resumeLocks.clear();
+}
+
 export interface ResumeReservation {
 	run: SubagentRun;
 	source: CompletedRun;

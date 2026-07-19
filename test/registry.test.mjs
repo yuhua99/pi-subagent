@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
 	bindRowInvalidator,
+	clearSessionState,
 	completeRun,
 	listCompletedRuns,
 	getLiveStatus,
@@ -175,6 +176,30 @@ test("getLiveStatus returns completed/running/stale correctly", () => {
 	assert.equal(getLiveStatus(run.id).kind, "running");
 	completeRun(run.id, makeResult({ exitCode: 0 }));
 	assert.equal(getLiveStatus(run.id).kind, "completed");
+});
+
+test("clearSessionState clears session-scoped run and resume state", () => {
+	cleanup();
+	const source = registerRun({
+		agent: "a",
+		task: "first",
+		pid: undefined,
+		startedAt: 0,
+		kill: () => {},
+		result: makeResult(),
+		parentSessionId: "parent",
+		delegationMode: "spawn",
+		sessionPath: "session",
+	});
+	completeRun(source.id, makeResult({ exitCode: 0 }));
+	const reservation = reserveResumeRun(source.id, "follow up", "parent", () => true, () => {});
+	assert.equal("error" in reservation, false);
+	assert.equal(listRuns().length, 1);
+
+	clearSessionState();
+	assert.equal(listRuns().length, 0);
+	assert.equal(listCompletedRuns().length, 0);
+	assert.equal(getLiveStatus(source.id).kind, "stale");
 });
 
 test("completeRun works even when id is not in running (early-error path)", () => {

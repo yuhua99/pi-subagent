@@ -11,6 +11,7 @@ import {
 } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
+	clearSessionState,
 	completeRun,
 	getRun,
 	listCompletedRuns,
@@ -444,6 +445,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			for (const entry of entries) entry.kill();
 			await Promise.all(completions);
 			cleanupManagedSessions();
+			clearSessionState();
 		},
 	};
 }
