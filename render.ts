@@ -15,6 +15,7 @@ import {
 	type UsageStats,
 	DEFAULT_DELEGATION_MODE,
 	isResultError,
+	parseTasksParam,
 } from "./types.js";
 
 const STALE_FINISHED_MSG = "finished (result delivered separately)";
@@ -224,11 +225,13 @@ export function renderCall(
 	const headerIcon = typeof context?.state.headerIcon === "string" ? `${context.state.headerIcon} ` : "";
 	const headerBadge = typeof context?.state.headerBadge === "string" ? context.state.headerBadge : "";
 
-	if (args.tasks && args.tasks.length > 0) {
+	const parsedTasks = parseTasksParam(args.tasks);
+	const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
+	if (tasks && tasks.length > 0) {
 		const text =
 			headerIcon +
 			theme.fg("toolTitle", theme.bold("subagent ")) +
-			theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
+			theme.fg("accent", `parallel (${tasks.length} tasks)`) +
 			modeBadge +
 			headerBadge;
 		return new Text(text, 0, 0);
