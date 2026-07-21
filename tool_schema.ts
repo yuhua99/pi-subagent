@@ -6,6 +6,8 @@ const SPAWN_MODE_DESCRIPTION =
   "'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.";
 const FORK_MODE_DESCRIPTION =
   "'fork': child receives a forked snapshot of current session context plus the task prompt. Best for follow-up tasks that rely on prior context; usually higher token/cost and may include sensitive context.";
+const MODE_PARAM_DESCRIPTION =
+  "Context mode: 'spawn' (default) or 'fork'. See tool description for tradeoffs.";
 const SINGLE_MODE_EXAMPLE =
   '{ "agent": "agent-name", "task": "Detailed task...", "mode": "spawn" }';
 const PARALLEL_MODE_EXAMPLE =
@@ -21,8 +23,7 @@ const TaskItem = Type.Object({
     description: "Name of an available agent (must match exactly)",
   }),
   task: Type.String({
-    description:
-      "Task description for this delegated run. In spawn mode include all required context; in fork mode the subagent also sees your current session context.",
+    description: "Task description for this delegated run.",
   }),
   cwd: Type.Optional(
     Type.String({ description: "Working directory for this agent's process" }),
@@ -35,12 +36,11 @@ const SingleParams = Type.Object({
   }),
   task: Type.String({
     description:
-      "Task description for single mode. In spawn mode it must be self-contained; in fork mode the subagent also receives your current session context.",
+      "Task description for single mode. In spawn mode it must be self-contained.",
   }),
   mode: Type.Optional(
     Type.String({
-      description:
-        "Context mode for delegated runs. 'spawn' (default) sends only the task prompt (best for isolated, reproducible runs with lower token/cost and less context leakage). 'fork' adds a snapshot of current session context plus task prompt (best for follow-up work, but usually higher token/cost and may include sensitive context).",
+      description: MODE_PARAM_DESCRIPTION,
       default: DEFAULT_DELEGATION_MODE,
     }),
   ),
@@ -58,8 +58,7 @@ const ParallelParams = Type.Object({
   }),
   mode: Type.Optional(
     Type.String({
-      description:
-        "Context mode for delegated runs. 'spawn' (default) sends only the task prompt (best for isolated, reproducible runs with lower token/cost and less context leakage). 'fork' adds a snapshot of current session context plus task prompt (best for follow-up work, but usually higher token/cost and may include sensitive context).",
+      description: MODE_PARAM_DESCRIPTION,
       default: DEFAULT_DELEGATION_MODE,
     }),
   ),
