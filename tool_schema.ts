@@ -52,10 +52,9 @@ const SingleParams = Type.Object({
 }, { additionalProperties: false });
 
 const ParallelParams = Type.Object({
-  tasks: Type.Array(TaskItem, {
-    minItems: 1,
+  tasks: Type.Union([Type.Array(TaskItem, { minItems: 1 }), Type.String()], {
     description:
-      "For parallel mode: array of {agent, task} objects. Do NOT set agent/task when using this.",
+      "For parallel mode: raw JSON array of {agent, task} objects, never a JSON-encoded string. Do NOT set agent/task when using this.",
   }),
   mode: Type.Optional(
     Type.String({

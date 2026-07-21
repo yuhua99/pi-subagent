@@ -25,9 +25,11 @@ import {
 	DEFAULT_DELEGATION_MODE,
 	isResultError,
 	isResultSuccess,
+	parseTasksParam,
 	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
+	type TaskSpec,
 } from "./types.ts";
 import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS } from "./tool_schema.ts";
 
@@ -37,7 +39,7 @@ export interface SubagentToolParams {
 	agent?: string;
 	mode?: unknown;
 	cwd?: string;
-	tasks?: Array<{ agent: string; task: string; cwd?: string }>;
+	tasks?: TaskSpec[] | string;
 }
 
 export interface SubagentExecutionContext {
@@ -215,7 +217,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 	};
 
 	const executeParallel = async (
-		tasks: Array<{ agent: string; task: string; cwd?: string }>,
+		tasks: TaskSpec[],
 		delegationMode: DelegationMode,
 		forkSessionSnapshotJsonl: string | undefined,
 		parentSystemPrompt: string | undefined,
@@ -307,7 +309,17 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
 		const hasResume = params.resume !== undefined;
-		const hasTasks = (params.tasks?.length ?? 0) > 0;
+		const parsedTasks = parseTasksParam(params.tasks);
+		if (parsedTasks && "error" in parsedTasks) {
+			const makeDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
+			return {
+				content: [{ type: "text", text: `${parsedTasks.error}\nAvailable agents: ${formatAgentNames(agents)}` }],
+				details: makeDetails("parallel")([]),
+				isError: true,
+			};
+		}
+		const tasks = parsedTasks?.tasks;
+		const hasTasks = (tasks?.length ?? 0) > 0;
 		const hasSingle = typeof params.agent === "string" && typeof params.task === "string";
 
 		if (hasResume) {
@@ -385,9 +397,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				isError: true,
 			};
 		}
-		if (params.tasks && params.tasks.length > 0) {
+		if (tasks && tasks.length > 0) {
 			return executeParallel(
-				params.tasks,
+				tasks,
 				delegationMode,
 				forkSessionSnapshotJsonl,
 				parentSystemPrompt,

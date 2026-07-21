@@ -39,6 +39,36 @@ export interface SingleResult {
 	partialMessage?: Message;
 }
 
+/** Task specification for a parallel delegation run. */
+export interface TaskSpec {
+	agent: string;
+	task: string;
+	cwd?: string;
+}
+
+function isTaskSpec(value: unknown): value is TaskSpec {
+	if (typeof value !== "object" || value === null) return false;
+	const t = value as Record<string, unknown>;
+	return typeof t.agent === "string" && typeof t.task === "string" && (t.cwd === undefined || typeof t.cwd === "string");
+}
+
+/** Normalize the `tasks` tool parameter, tolerating JSON-encoded array strings emitted by some models. */
+export function parseTasksParam(raw: unknown): { tasks: TaskSpec[] } | { error: string } | undefined {
+	if (raw === undefined) return undefined;
+	let value: unknown = raw;
+	if (typeof value === "string") {
+		try {
+			value = JSON.parse(value);
+		} catch {
+			return { error: "Invalid `tasks`: received a string that is not valid JSON. Provide a raw JSON array of { agent, task } objects, not a JSON-encoded string." };
+		}
+	}
+	if (!Array.isArray(value) || value.length === 0 || !value.every(isTaskSpec)) {
+		return { error: "Invalid `tasks`: expected a non-empty array of { agent, task, cwd? } objects." };
+	}
+	return { tasks: value };
+}
+
 /** Metadata attached to every tool result for rendering. */
 export interface SubagentDetails {
 	mode: "single" | "parallel";
