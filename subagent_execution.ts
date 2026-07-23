@@ -12,6 +12,7 @@ import {
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
 	clearSessionState,
+	bindToolCallRun,
 	completeRun,
 	getRun,
 	listCompletedRuns,
@@ -59,7 +60,7 @@ interface ToolResult {
 }
 
 interface SubagentExecution {
-	execute(params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
+	execute(toolCallId: string, params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
 	kill(id: string): SubagentRun | undefined;
 	shutdown(): Promise<void>;
 }
@@ -106,6 +107,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		parentSessionId?: string,
 		sourceRunId?: string,
 		lineageId?: string,
+		toolCallId?: string,
 		signal?: AbortSignal,
 	): Promise<ToolResult> => {
 		let onSpawn: (id: string) => void;
@@ -163,6 +165,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			const r = raced.r;
 			const id = r.registryId ?? reservedRegistryId;
 			if (id) {
+				if (toolCallId) bindToolCallRun(toolCallId, id);
 				r.registryId = id;
 				completeSubagentRun(id, r);
 			}
@@ -178,6 +181,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				details: makeDetails("single")([r]),
 			};
 		}
+
+		if (toolCallId) bindToolCallRun(toolCallId, raced.id);
 
 		runPromise.then((result) => {
 			const id = result.registryId ?? raced.id;
@@ -305,7 +310,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		};
 	};
 
-	const execute = async (params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
+	const execute = async (toolCallId: string, params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
 		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
 		const hasResume = params.resume !== undefined;
@@ -364,6 +369,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				parentSessionId,
 				source.id,
 				source.lineageId,
+				toolCallId,
 				signal,
 			);
 		}
@@ -425,6 +431,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			parentSessionId,
 			undefined,
 			undefined,
+			toolCallId,
 			signal,
 		);
 	};

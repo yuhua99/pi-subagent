@@ -73,10 +73,10 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent",
     description: TOOL_DESCRIPTION,
     parameters: SubagentParams,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      return execution.execute(params, ctx, signal);
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+      return execution.execute(toolCallId, params, ctx, signal);
     },
-    renderCall: (args, theme) => renderCall(args, theme),
+    renderCall: (args, theme, context) => renderCall(args, theme, context),
     renderResult: (result, _options, theme, context) => renderResult(result, theme, context),
   });
 

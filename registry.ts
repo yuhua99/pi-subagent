@@ -52,6 +52,7 @@ const STREAM_COALESCE_MS = 16;
 
 const running = new Map<string, RunState>();
 const completed = new Map<string, CompletedRun>();
+const toolCallRuns = new Map<string, string>();
 const resumeLocks = new Set<string>();
 
 function generateId(): string {
@@ -97,6 +98,15 @@ export function updateRun(
 
 export function getRun(id: string): SubagentRun | undefined {
 	return running.get(id);
+}
+
+export function bindToolCallRun(toolCallId: string, runId: string): void {
+	toolCallRuns.set(toolCallId, runId);
+}
+
+export function getToolCallStatus(toolCallId: string): ReturnType<typeof getLiveStatus> | undefined {
+	const runId = toolCallRuns.get(toolCallId);
+	return runId ? getLiveStatus(runId) : undefined;
 }
 
 export function listRuns(): SubagentRun[] {
@@ -149,7 +159,12 @@ export function completeRun(id: string, result: SingleResult): void {
 	if (entry?.sourceRunId && entry.lineageId) resumeLocks.delete(entry.lineageId);
 	while (completed.size > MAX_COMPLETED) {
 		const removed = completed.keys().next().value;
-		if (removed) completed.delete(removed);
+		if (removed) {
+			completed.delete(removed);
+			for (const [toolCallId, runId] of toolCallRuns) {
+				if (runId === removed) toolCallRuns.delete(toolCallId);
+			}
+		}
 	}
 	if (entry) {
 		if (entry.streamTimer) {
@@ -172,6 +187,7 @@ export function listCompletedRuns(): CompletedRun[] {
 export function clearSessionState(): void {
 	running.clear();
 	completed.clear();
+	toolCallRuns.clear();
 	resumeLocks.clear();
 }
 

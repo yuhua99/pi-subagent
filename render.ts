@@ -7,7 +7,7 @@
 import * as os from "node:os";
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { bindRowInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
+import { bindRowInvalidator, getToolCallStatus, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -23,6 +23,7 @@ const STALE_FINISHED_MSG = "finished (result delivered separately)";
 export type RenderContext = {
 	state: Record<string, any>;
 	invalidate: () => void;
+	toolCallId?: string;
 };
 
 type ResolvedRow = ResolvedResult & { original: SingleResult };
@@ -178,12 +179,12 @@ function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
-function killedBody(r: SingleResult, theme: { fg: ThemeFg }): string {
+function killedBody(r: SingleResult, theme: { fg: ThemeFg }): Text {
 	const message = r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
-	return theme.fg("warning", message);
+	return new Text(theme.fg("warning", message), 0, 0);
 }
 
-function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): string {
+function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): Container | Text {
 	const lines: string[] = [];
 	if (r.stopReason) lines.push(theme.fg("error", `[${r.stopReason}]`));
 
@@ -196,7 +197,7 @@ function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): string {
 		lines.push(theme.fg("error", fallback));
 	}
 
-	return lines.join("\n");
+	return new Text(lines.join("\n"), 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,26 +207,35 @@ function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): string {
 export function renderCall(
 	args: Record<string, any>,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
+	context?: RenderContext,
 ): Text {
 	const delegationMode = normalizeDelegationMode(args.mode);
 	const modeBadge = delegationMode === "fork" ? theme.fg("muted", " [fork]") : "";
+	const status = context?.toolCallId ? getToolCallStatus(context.toolCallId) : undefined;
+	if (status?.kind === "running") bindRowInvalidator(status.result.registryId!, context!.invalidate);
+	const headerIcon = status && status.kind !== "stale" ? `${statusIcon(status.result, theme)} ` : "";
+	const headerBadge = status && status.kind !== "stale" ? runningIdBadge(status.result, theme) : "";
 
 	const parsedTasks = parseTasksParam(args.tasks);
 	const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
 	if (tasks && tasks.length > 0) {
 		const text =
+			headerIcon +
 			theme.fg("toolTitle", theme.bold("subagent ")) +
 			theme.fg("accent", `parallel (${tasks.length} tasks)`) +
-			modeBadge;
+			modeBadge +
+			headerBadge;
 		return new Text(text, 0, 0);
 	}
 
 	// Single mode
 	const agentName = args.agent || (args.resume ? `resume ${args.resume}` : "...");
 	const text =
+		headerIcon +
 		theme.fg("toolTitle", theme.bold("subagent ")) +
 		theme.fg("accent", agentName) +
-		(args.resume ? "" : modeBadge);
+		(args.resume ? "" : modeBadge) +
+		headerBadge;
 	return new Text(text, 0, 0);
 }
 
@@ -263,18 +273,16 @@ function renderSingleResult(
 	if (!stale && r.exitCode === -1 && r.registryId && context) {
 		bindRowInvalidator(r.registryId, context.invalidate);
 	}
-	const status = (stale ? theme.fg("dim", "◌") : statusIcon(r, theme)) +
-		(stale ? "" : runningIdBadge(r, theme));
 	if (stale) {
-		return new Text(`${status} ${theme.fg("dim", STALE_FINISHED_MSG)}`, 0, 0);
+		return new Text(theme.fg("dim", STALE_FINISHED_MSG), 0, 0);
 	}
 	if (r.stopReason === "killed") {
-		return new Text(`${status}\n${killedBody(r, theme)}`, 0, 0);
+		return killedBody(r, theme);
 	}
 	if (isResultError(r)) {
-		return new Text(`${status}\n${singleErrorBody(r, theme)}`, 0, 0);
+		return singleErrorBody(r, theme);
 	}
-	return new Text(status, 0, 0);
+	return new Container();
 }
 
 // ---------------------------------------------------------------------------
