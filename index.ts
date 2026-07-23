@@ -77,7 +77,7 @@ export default function (pi: ExtensionAPI) {
       return execution.execute(toolCallId, params, ctx, signal);
     },
     renderCall: (args, theme, context) => renderCall(args, theme, context),
-    renderResult: (result, _options, theme, context) => renderResult(result, theme, context),
+    renderResult: (result, _options, theme) => renderResult(result, theme),
   });
 
   pi.registerTool({

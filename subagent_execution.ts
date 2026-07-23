@@ -12,9 +12,10 @@ import {
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
 	clearSessionState,
-	bindToolCallRun,
 	completeRun,
 	getRun,
+	setRunPhase,
+	bindToolCallRowInvalidate,
 	listCompletedRuns,
 	listRuns,
 	reserveResumeRun,
@@ -131,7 +132,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			lineageId,
 			reservedRegistryId,
 			signal,
-			onSpawn: (id) => onSpawn(id),
+			onSpawn: (id) => {
+				if (toolCallId) bindToolCallRowInvalidate(toolCallId, id);
+				onSpawn(id);
+			},
 		});
 
 		let raced:
@@ -165,7 +169,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			const r = raced.r;
 			const id = r.registryId ?? reservedRegistryId;
 			if (id) {
-				if (toolCallId) bindToolCallRun(toolCallId, id);
 				r.registryId = id;
 				completeSubagentRun(id, r);
 			}
@@ -181,8 +184,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				details: makeDetails("single")([r]),
 			};
 		}
-
-		if (toolCallId) bindToolCallRun(toolCallId, raced.id);
 
 		runPromise.then((result) => {
 			const id = result.registryId ?? raced.id;
@@ -212,6 +213,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			);
 		});
 
+		setRunPhase(raced.id, "background");
 		return {
 			content: [{
 				type: "text",
@@ -230,6 +232,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		defaultCwd: string,
 		makeDetails: ReturnType<typeof makeDetailsFactory>,
 		parentSessionId: string,
+		toolCallId: string,
 		signal?: AbortSignal,
 	): Promise<ToolResult> => {
 		if (tasks.length > MAX_PARALLEL_TASKS) {
@@ -241,6 +244,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		}
 
 		const { placeholders, killedResults } = reserveParallelPlaceholders(tasks, agents, completeSubagentRun);
+		for (const p of placeholders) bindToolCallRowInvalidate(toolCallId, p.registryId!);
 		const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, async (t, i) => {
 			const killed = killedResults[i];
 			if (killed) return killed;
@@ -301,6 +305,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			);
 		});
 
+		for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
 		return {
 			content: [{
 				type: "text",
@@ -413,6 +418,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				ctx.cwd,
 				makeDetails,
 				parentSessionId,
+				toolCallId,
 				signal,
 			);
 		}

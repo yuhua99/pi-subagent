@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	bindRowInvalidator,
 	clearSessionState,
 	completeRun,
 	listCompletedRuns,
@@ -14,8 +13,11 @@ import {
 	notifyStatus,
 	notifyStream,
 	registerRun,
+	registerToolCallInvalidator,
 	reserveResumeRun,
 	resolveLiveResult,
+	setRunPhase,
+	bindToolCallRowInvalidate,
 	updateRun,
 } from "../registry.ts";
 
@@ -143,17 +145,73 @@ test("completeRun cancels a pending stream notification", async () => {
 	assert.equal(calls, 0);
 });
 
-test("bindRowInvalidator: single-slot, fired by notifyStatus and by completeRun", () => {
+test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and background completion", () => {
 	cleanup();
 	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
 	let a = 0, b = 0;
-	bindRowInvalidator(run.id, () => { a++; });
-	bindRowInvalidator(run.id, () => { b++; });
+	registerToolCallInvalidator("first", () => { a++; });
+	registerToolCallInvalidator("second", () => { b++; });
+	bindToolCallRowInvalidate("first", run.id);
+	bindToolCallRowInvalidate("second", run.id);
 	notifyStatus(run.id);
 	assert.equal(a, 0);
 	assert.equal(b, 1);
 	completeRun(run.id, makeResult({ exitCode: 0 }));
+	assert.equal(b, 1);
+
+	const background = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	bindToolCallRowInvalidate("second", background.id);
+	setRunPhase(background.id, "background");
+	completeRun(background.id, makeResult({ exitCode: 0 }));
 	assert.equal(b, 2);
+});
+
+test("tool call row invalidator handoff works in either registration order", () => {
+	clearSessionState();
+	const before = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let beforeCalls = 0;
+	registerToolCallInvalidator("before", () => { beforeCalls++; });
+	bindToolCallRowInvalidate("before", before.id);
+	notifyStatus(before.id);
+	assert.equal(beforeCalls, 1);
+
+	const after = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let afterCalls = 0;
+	bindToolCallRowInvalidate("after", after.id);
+	registerToolCallInvalidator("after", () => { afterCalls++; });
+	notifyStatus(after.id);
+	assert.equal(afterCalls, 1);
+	cleanup();
+});
+
+test("tool call row invalidator is handed off to every parallel member", () => {
+	clearSessionState();
+	const first = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const second = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let calls = 0;
+	bindToolCallRowInvalidate("batch", first.id);
+	bindToolCallRowInvalidate("batch", second.id);
+	registerToolCallInvalidator("batch", () => { calls++; });
+	notifyStatus(first.id);
+	notifyStatus(second.id);
+	assert.equal(calls, 2);
+	cleanup();
+});
+
+test("background batch completion invalidates for each completed member", () => {
+	clearSessionState();
+	const first = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const second = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	let calls = 0;
+	registerToolCallInvalidator("background-batch", () => { calls++; });
+	bindToolCallRowInvalidate("background-batch", first.id);
+	bindToolCallRowInvalidate("background-batch", second.id);
+	setRunPhase(first.id, "background");
+	setRunPhase(second.id, "background");
+	completeRun(first.id, makeResult({ exitCode: 0 }));
+	assert.equal(calls, 1);
+	completeRun(second.id, makeResult({ exitCode: 0 }));
+	assert.equal(calls, 2);
 });
 
 test("resolveLiveResult is pure — accepts only one argument", () => {

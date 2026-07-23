@@ -6,8 +6,8 @@
 
 import * as os from "node:os";
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { bindRowInvalidator, getToolCallStatus, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
+import { Text } from "@earendil-works/pi-tui";
+import { registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -24,25 +24,24 @@ export type RenderContext = {
 	state: Record<string, any>;
 	invalidate: () => void;
 	toolCallId?: string;
+	isPartial?: boolean;
+	lastComponent?: unknown;
 };
 
 type ResolvedRow = ResolvedResult & { original: SingleResult };
 
-function staleRowHeader(
-	original: SingleResult,
-	theme: { fg: ThemeFg },
-): string {
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+function staleRowHeader(original: SingleResult, theme: { fg: ThemeFg }, prefix = "└─ "): string {
 	return (
-		theme.fg("muted", "─── ") +
+		theme.fg("muted", prefix) +
 		theme.fg("accent", original.agent) +
 		runningIdBadge(original, theme) +
 		` ${theme.fg("dim", "◌")}`
 	);
 }
-
-// ---------------------------------------------------------------------------
-// Formatting helpers
-// ---------------------------------------------------------------------------
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -155,18 +154,12 @@ export function transcriptLines(r: Pick<SingleResult, "messages" | "partialMessa
 		if (lines.length > 0) lines.push("");
 		for (const part of msg.content) {
 			if (part.type === "thinking") {
-				for (const line of splitOutputLines(part.thinking)) {
-					lines.push(theme.fg("dim", line));
-				}
+				for (const line of splitOutputLines(part.thinking)) lines.push(theme.fg("dim", line));
 			} else if (part.type === "text") {
-				for (const line of splitOutputLines(part.text)) {
-					lines.push(theme.fg("toolOutput", line));
-				}
+				for (const line of splitOutputLines(part.text)) lines.push(theme.fg("toolOutput", line));
 			} else if (part.type === "toolCall") {
 				const call = theme.fg("muted", "→ ") + formatToolCall(part.name, part.arguments, theme.fg.bind(theme));
-				for (const line of splitOutputLines(call)) {
-					lines.push(line);
-				}
+				for (const line of splitOutputLines(call)) lines.push(line);
 			}
 		}
 	}
@@ -179,25 +172,18 @@ function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
-function killedBody(r: SingleResult, theme: { fg: ThemeFg }): Text {
-	const message = r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
-	return new Text(theme.fg("warning", message), 0, 0);
+function statusColor(r: SingleResult): ThemeColor {
+	return r.exitCode === -1 ? "muted" : r.stopReason === "killed" ? "warning" : isResultError(r) ? "error" : "success";
 }
 
-function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): Container | Text {
-	const lines: string[] = [];
-	if (r.stopReason) lines.push(theme.fg("error", `[${r.stopReason}]`));
-
-	if (r.errorMessage) {
-		lines.push(theme.fg("error", `Error: ${r.errorMessage}`));
-	} else {
-		const fallback = r.stopReason
-			? `Error: ${r.stopReason}`
-			: `Error (exit ${r.exitCode})`;
-		lines.push(theme.fg("error", fallback));
+function statusMessage(r: SingleResult): string {
+	if (r.exitCode === -1) return "running";
+	if (r.stopReason === "killed") return r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
+	if (isResultError(r)) {
+		if (r.errorMessage) return `Error: ${r.errorMessage}`;
+		return r.stopReason ? `Error: ${r.stopReason}` : `Error (exit ${r.exitCode})`;
 	}
-
-	return new Text(lines.join("\n"), 0, 0);
+	return "completed";
 }
 
 // ---------------------------------------------------------------------------
@@ -209,34 +195,21 @@ export function renderCall(
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 	context?: RenderContext,
 ): Text {
+	if (context?.toolCallId && context.isPartial) registerToolCallInvalidator(context.toolCallId, context.invalidate);
 	const delegationMode = normalizeDelegationMode(args.mode);
 	const modeBadge = delegationMode === "fork" ? theme.fg("muted", " [fork]") : "";
-	const status = context?.toolCallId ? getToolCallStatus(context.toolCallId) : undefined;
-	if (status?.kind === "running") bindRowInvalidator(status.result.registryId!, context!.invalidate);
-	const headerIcon = status && status.kind !== "stale" ? `${statusIcon(status.result, theme)} ` : "";
-	const headerBadge = status && status.kind !== "stale" ? runningIdBadge(status.result, theme) : "";
-
 	const parsedTasks = parseTasksParam(args.tasks);
 	const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
+	let content: string;
 	if (tasks && tasks.length > 0) {
-		const text =
-			headerIcon +
-			theme.fg("toolTitle", theme.bold("subagent ")) +
-			theme.fg("accent", `parallel (${tasks.length} tasks)`) +
-			modeBadge +
-			headerBadge;
-		return new Text(text, 0, 0);
+		content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", `parallel (${tasks.length} tasks)`) + modeBadge;
+	} else {
+		const agentName = args.agent || (args.resume ? `resume ${args.resume}` : "...");
+		content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", agentName) + (args.resume ? "" : modeBadge);
 	}
-
-	// Single mode
-	const agentName = args.agent || (args.resume ? `resume ${args.resume}` : "...");
-	const text =
-		headerIcon +
-		theme.fg("toolTitle", theme.bold("subagent ")) +
-		theme.fg("accent", agentName) +
-		(args.resume ? "" : modeBadge) +
-		headerBadge;
-	return new Text(text, 0, 0);
+	const text = context?.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	text.setText(content);
+	return text;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,80 +219,37 @@ export function renderCall(
 export function renderResult(
 	result: { content: Array<{ type: string; text?: string }>; details?: unknown },
 	theme: { fg: ThemeFg; bold: (s: string) => string },
-	context?: RenderContext,
-): Container | Text {
+): Text {
 	const details = result.details as SubagentDetails | undefined;
 	if (!details || details.results.length === 0) {
 		const first = result.content[0];
 		return new Text(first?.type === "text" && first.text ? first.text : "(no output)", 0, 0);
 	}
-
-	if (details.mode === "single") {
-		return renderSingleResult(details.results[0], theme, context);
-	}
-	return renderParallelResult(details, theme, context);
+	return details.mode === "single"
+		? renderSingleResult(details.results[0], theme)
+		: renderParallelResult(details, theme);
 }
 
 // ---------------------------------------------------------------------------
 // Single-mode result
 // ---------------------------------------------------------------------------
 
-function renderSingleResult(
-	original: SingleResult,
-	theme: { fg: ThemeFg; bold: (s: string) => string },
-	context?: RenderContext,
-): Container | Text {
+function renderSingleResult(original: SingleResult, theme: { fg: ThemeFg }): Text {
 	const { result: r, stale } = resolveLiveResult(original);
-	if (!stale && r.exitCode === -1 && r.registryId && context) {
-		bindRowInvalidator(r.registryId, context.invalidate);
-	}
-	if (stale) {
-		return new Text(theme.fg("dim", STALE_FINISHED_MSG), 0, 0);
-	}
-	if (r.stopReason === "killed") {
-		return killedBody(r, theme);
-	}
-	if (isResultError(r)) {
-		return singleErrorBody(r, theme);
-	}
-	return new Container();
+	if (stale) return new Text(`${staleRowHeader(original, theme)} ${theme.fg("dim", STALE_FINISHED_MSG)}`, 0, 0);
+	return new Text(`${theme.fg("muted", "└─ ")}${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}${runningIdBadge(r, theme)}`, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
 // Parallel-mode result
 // ---------------------------------------------------------------------------
 
-function renderParallelResult(
-	details: SubagentDetails,
-	theme: { fg: ThemeFg; bold: (s: string) => string },
-	context?: RenderContext,
-): Container | Text {
-	const resolved: ResolvedRow[] = details.results.map((r) => {
-		const res = resolveLiveResult(r);
-		if (!res.stale && res.result.exitCode === -1 && res.result.registryId && context) {
-			bindRowInvalidator(res.result.registryId, context.invalidate);
-		}
-		return { original: r, ...res };
+function renderParallelResult(details: SubagentDetails, theme: { fg: ThemeFg }): Text {
+	const resolved: ResolvedRow[] = details.results.map((original) => ({ original, ...resolveLiveResult(original) }));
+	const lines = resolved.map(({ original, result: r, stale }, index) => {
+		const prefix = index === resolved.length - 1 ? "└─ " : "├─ ";
+		if (stale) return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
+		return `${theme.fg("muted", prefix)}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}`;
 	});
-	const lines: string[] = [];
-	for (const { original, result: r, stale } of resolved) {
-		if (stale) {
-			lines.push(`${staleRowHeader(original, theme)} ${theme.fg("dim", STALE_FINISHED_MSG)}`);
-			continue;
-		}
-		lines.push(`${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)}`);
-		if (r.stopReason === "killed") {
-			const msg = r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
-			lines.push(theme.fg("warning", msg));
-		} else if (isResultError(r)) {
-			const msg = r.errorMessage
-				? `Error: ${r.errorMessage}`
-				: r.stopReason
-					? `Error: ${r.stopReason}`
-					: `Error (exit ${r.exitCode})`;
-			lines.push(theme.fg("error", msg));
-		}
-	}
-
 	return new Text(lines.join("\n"), 0, 0);
 }

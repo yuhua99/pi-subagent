@@ -28,16 +28,24 @@ export interface CompletedRun extends RunMetadata {
 	result: SingleResult;
 }
 
+export type RunPhase = "foreground" | "background";
+
 export interface SubagentRun extends RunMetadata {
 	id: string;
 	agent: string;
 	task: string;
 	pid: number | undefined;
 	startedAt: number;
+	phase: RunPhase;
 	result: SingleResult;
 	kill: () => void;
 	onStatus(fn: () => void): () => void;
 	onStream(fn: () => void): () => void;
+}
+
+interface ToolCallInvalidation {
+	fn: () => void;
+	runIds: Set<string>;
 }
 
 interface RunState extends SubagentRun {
@@ -52,8 +60,9 @@ const STREAM_COALESCE_MS = 16;
 
 const running = new Map<string, RunState>();
 const completed = new Map<string, CompletedRun>();
-const toolCallRuns = new Map<string, string>();
 const resumeLocks = new Set<string>();
+const toolCallInvalidators = new Map<string, ToolCallInvalidation>();
+const pendingToolCallRuns = new Map<string, Set<string>>();
 
 function generateId(): string {
 	let id: string;
@@ -63,15 +72,14 @@ function generateId(): string {
 	return id;
 }
 
-export function registerRun(
-	init: Omit<SubagentRun, "id" | "onStatus" | "onStream">,
-): SubagentRun {
+export function registerRun(init: Omit<SubagentRun, "id" | "phase" | "onStatus" | "onStream">): SubagentRun {
 	const id = generateId();
 	const statusSubs = new Set<() => void>();
 	const streamSubs = new Set<() => void>();
 	const state: RunState = {
 		...init,
 		id,
+		phase: "foreground",
 		lineageId: init.lineageId ?? id,
 		statusSubs,
 		streamSubs,
@@ -100,22 +108,54 @@ export function getRun(id: string): SubagentRun | undefined {
 	return running.get(id);
 }
 
-export function bindToolCallRun(toolCallId: string, runId: string): void {
-	toolCallRuns.set(toolCallId, runId);
-}
-
-export function getToolCallStatus(toolCallId: string): ReturnType<typeof getLiveStatus> | undefined {
-	const runId = toolCallRuns.get(toolCallId);
-	return runId ? getLiveStatus(runId) : undefined;
-}
-
 export function listRuns(): SubagentRun[] {
 	return [...running.values()];
 }
 
-export function bindRowInvalidator(id: string, fn: () => void): void {
+function bindRowInvalidate(id: string, fn: () => void): void {
 	const entry = running.get(id);
 	if (entry) entry.rowInvalidate = fn;
+}
+
+export function setRunPhase(id: string, phase: RunPhase): void {
+	const entry = running.get(id);
+	if (entry) entry.phase = phase;
+}
+
+export function registerToolCallInvalidator(toolCallId: string, fn: () => void): void {
+	if (toolCallInvalidators.has(toolCallId)) return;
+	const invalidation: ToolCallInvalidation = { fn, runIds: new Set() };
+	toolCallInvalidators.set(toolCallId, invalidation);
+	for (const id of pendingToolCallRuns.get(toolCallId) ?? []) {
+		bindRowInvalidate(id, fn);
+		invalidation.runIds.add(id);
+	}
+	pendingToolCallRuns.delete(toolCallId);
+}
+
+export function bindToolCallRowInvalidate(toolCallId: string, id: string): void {
+	const invalidation = toolCallInvalidators.get(toolCallId);
+	if (invalidation) {
+		bindRowInvalidate(id, invalidation.fn);
+		invalidation.runIds.add(id);
+		return;
+	}
+	let ids = pendingToolCallRuns.get(toolCallId);
+	if (!ids) {
+		ids = new Set();
+		pendingToolCallRuns.set(toolCallId, ids);
+	}
+	ids.add(id);
+}
+
+function pruneToolCallRun(id: string): void {
+	for (const [toolCallId, invalidation] of toolCallInvalidators) {
+		if (invalidation.runIds.delete(id) && invalidation.runIds.size === 0) toolCallInvalidators.delete(toolCallId);
+	}
+	for (const [toolCallId, ids] of pendingToolCallRuns) {
+		ids.delete(id);
+		if (ids.size === 0) pendingToolCallRuns.delete(toolCallId);
+	}
 }
 
 export function notifyStatus(id: string): void {
@@ -161,9 +201,7 @@ export function completeRun(id: string, result: SingleResult): void {
 		const removed = completed.keys().next().value;
 		if (removed) {
 			completed.delete(removed);
-			for (const [toolCallId, runId] of toolCallRuns) {
-				if (runId === removed) toolCallRuns.delete(toolCallId);
-			}
+			pruneToolCallRun(removed);
 		}
 	}
 	if (entry) {
@@ -171,7 +209,7 @@ export function completeRun(id: string, result: SingleResult): void {
 			clearTimeout(entry.streamTimer);
 			entry.streamTimer = undefined;
 		}
-		entry.rowInvalidate?.();
+		if (entry.phase === "background") entry.rowInvalidate?.();
 		for (const fn of entry.statusSubs) fn();
 		entry.statusSubs.clear();
 		entry.streamSubs.clear();
@@ -187,8 +225,9 @@ export function listCompletedRuns(): CompletedRun[] {
 export function clearSessionState(): void {
 	running.clear();
 	completed.clear();
-	toolCallRuns.clear();
 	resumeLocks.clear();
+	toolCallInvalidators.clear();
+	pendingToolCallRuns.clear();
 }
 
 export interface ResumeReservation {
