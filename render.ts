@@ -27,18 +27,6 @@ export type RenderContext = {
 
 type ResolvedRow = ResolvedResult & { original: SingleResult };
 
-function publishHeader(
-	context: RenderContext | undefined,
-	icon: string,
-	badge = "",
-): void {
-	if (!context) return;
-	if (context.state.headerIcon === icon && context.state.headerBadge === badge) return;
-	context.state.headerIcon = icon;
-	context.state.headerBadge = badge;
-	queueMicrotask(context.invalidate);
-}
-
 function staleRowHeader(
 	original: SingleResult,
 	theme: { fg: ThemeFg },
@@ -190,12 +178,12 @@ function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
-function killedBody(r: SingleResult, theme: { fg: ThemeFg }): Text {
+function killedBody(r: SingleResult, theme: { fg: ThemeFg }): string {
 	const message = r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
-	return new Text(theme.fg("warning", message), 0, 0);
+	return theme.fg("warning", message);
 }
 
-function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): Container | Text {
+function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): string {
 	const lines: string[] = [];
 	if (r.stopReason) lines.push(theme.fg("error", `[${r.stopReason}]`));
 
@@ -208,7 +196,7 @@ function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): Container | T
 		lines.push(theme.fg("error", fallback));
 	}
 
-	return new Text(lines.join("\n"), 0, 0);
+	return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -218,39 +206,31 @@ function singleErrorBody(r: SingleResult, theme: { fg: ThemeFg }): Container | T
 export function renderCall(
 	args: Record<string, any>,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
-	context?: Pick<RenderContext, "state">,
 ): Text {
 	const delegationMode = normalizeDelegationMode(args.mode);
 	const modeBadge = delegationMode === "fork" ? theme.fg("muted", " [fork]") : "";
-	const headerIcon = typeof context?.state.headerIcon === "string" ? `${context.state.headerIcon} ` : "";
-	const headerBadge = typeof context?.state.headerBadge === "string" ? context.state.headerBadge : "";
 
 	const parsedTasks = parseTasksParam(args.tasks);
 	const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
 	if (tasks && tasks.length > 0) {
 		const text =
-			headerIcon +
 			theme.fg("toolTitle", theme.bold("subagent ")) +
 			theme.fg("accent", `parallel (${tasks.length} tasks)`) +
-			modeBadge +
-			headerBadge;
+			modeBadge;
 		return new Text(text, 0, 0);
 	}
 
 	// Single mode
 	const agentName = args.agent || (args.resume ? `resume ${args.resume}` : "...");
 	const text =
-		headerIcon +
 		theme.fg("toolTitle", theme.bold("subagent ")) +
 		theme.fg("accent", agentName) +
-		(args.resume ? "" : modeBadge) +
-		headerBadge;
+		(args.resume ? "" : modeBadge);
 	return new Text(text, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
-// renderResult — body shows errors / live status; header icon/badge stay in
-// sync via context.state for live/stale runs.
+// renderResult — body shows errors and live status.
 // ---------------------------------------------------------------------------
 
 export function renderResult(
@@ -283,19 +263,18 @@ function renderSingleResult(
 	if (!stale && r.exitCode === -1 && r.registryId && context) {
 		bindRowInvalidator(r.registryId, context.invalidate);
 	}
-	const icon = stale ? theme.fg("dim", "◌") : statusIcon(r, theme);
-	const badge = stale ? "" : runningIdBadge(r, theme);
-	publishHeader(context, icon, badge);
+	const status = (stale ? theme.fg("dim", "◌") : statusIcon(r, theme)) +
+		(stale ? "" : runningIdBadge(r, theme));
 	if (stale) {
-		return new Text(theme.fg("dim", STALE_FINISHED_MSG), 0, 0);
+		return new Text(`${status} ${theme.fg("dim", STALE_FINISHED_MSG)}`, 0, 0);
 	}
 	if (r.stopReason === "killed") {
-		return killedBody(r, theme);
+		return new Text(`${status}\n${killedBody(r, theme)}`, 0, 0);
 	}
 	if (isResultError(r)) {
-		return singleErrorBody(r, theme);
+		return new Text(`${status}\n${singleErrorBody(r, theme)}`, 0, 0);
 	}
-	return new Container();
+	return new Text(status, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -314,23 +293,6 @@ function renderParallelResult(
 		}
 		return { original: r, ...res };
 	});
-	const total = details.results.length;
-	const staleCount = resolved.filter((x) => x.stale).length;
-	const allStale = total > 0 && staleCount === total;
-	const running = resolved.filter((x) => !x.stale && x.result.exitCode === -1).length;
-	const failCount = resolved.filter((x) => !x.stale && isResultError(x.result)).length;
-	const isRunning = running > 0;
-
-	const icon = allStale
-		? theme.fg("dim", "◌")
-		: isRunning
-			? theme.fg("warning", "⏳")
-			: failCount > 0
-				? theme.fg("warning", "◐")
-				: theme.fg("success", "✓");
-
-	publishHeader(context, icon);
-
 	const lines: string[] = [];
 	for (const { original, result: r, stale } of resolved) {
 		if (stale) {

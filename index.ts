@@ -76,7 +76,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return execution.execute(params, ctx, signal);
     },
-    renderCall: (args, theme, context) => renderCall(args, theme, context),
+    renderCall: (args, theme) => renderCall(args, theme),
     renderResult: (result, _options, theme, context) => renderResult(result, theme, context),
   });
 
