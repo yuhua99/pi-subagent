@@ -7,8 +7,8 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { DelegationMode, SingleResult } from "./types.js";
-import { emptyUsage, isResultSuccess } from "./types.js";
+import type { DelegationMode, SingleResult } from "./types.ts";
+import { emptyUsage, isResultSuccess } from "./types.ts";
 
 export interface RunMetadata {
 	parentSessionId?: string;

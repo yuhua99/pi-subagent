@@ -1,6 +1,6 @@
 import { Type } from "typebox";
-import type { AgentConfig } from "./agents.js";
-import { DEFAULT_DELEGATION_MODE } from "./types.js";
+import type { AgentConfig } from "./agents.ts";
+import { DEFAULT_DELEGATION_MODE } from "./types.ts";
 
 const SPAWN_MODE_DESCRIPTION =
   "'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.";

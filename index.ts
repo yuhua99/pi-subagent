@@ -14,14 +14,14 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type AgentConfig, discoverAgents } from "./agents.js";
-import { registerAgentsCommand } from "./agents_command.js";
-import { isSubagentChild, isSubagentForkChild } from "./delegation.js";
-import { formatSubagentList, renderCall, renderResult } from "./render.js";
-import { injectIntoSystemPrompt } from "./prompt_injection.js";
-import { listRuns } from "./registry.js";
-import { createSubagentExecution } from "./subagent_execution.js";
-import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.js";
+import { type AgentConfig, discoverAgents } from "./agents.ts";
+import { registerAgentsCommand } from "./agents_command.ts";
+import { isSubagentChild, isSubagentForkChild } from "./delegation.ts";
+import { formatSubagentList, renderCall, renderResult } from "./render.ts";
+import { injectIntoSystemPrompt } from "./prompt_injection.ts";
+import { listRuns } from "./registry.ts";
+import { createSubagentExecution } from "./subagent_execution.ts";
+import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 
 export default function (pi: ExtensionAPI) {
   // Fork children register schema-identical stub tools instead of returning

@@ -4,9 +4,9 @@
 
 import { DynamicBorder, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type SelectItem, SelectList, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatElapsed, formatUsage, transcriptLines, type ThemeFg } from "./render.js";
-import { getRun, listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "./registry.js";
-import { isResultError, type SingleResult } from "./types.js";
+import { formatElapsed, formatUsage, transcriptLines, type ThemeFg } from "./render.ts";
+import { getRun, listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "./registry.ts";
+import { isResultError, type SingleResult } from "./types.ts";
 
 const REFRESH_MS = 1000;
 const MAX_VISIBLE = 10;

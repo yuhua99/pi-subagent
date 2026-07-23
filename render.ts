@@ -7,7 +7,7 @@
 import * as os from "node:os";
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { bindRowInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.js";
+import { bindRowInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -16,7 +16,7 @@ import {
 	DEFAULT_DELEGATION_MODE,
 	isResultError,
 	parseTasksParam,
-} from "./types.js";
+} from "./types.ts";
 
 const STALE_FINISHED_MSG = "finished (result delivered separately)";
 
