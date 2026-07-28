@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import {
 	buildForkSessionSnapshotJsonl,
@@ -19,10 +19,12 @@ import {
 	listCompletedRuns,
 	listRuns,
 	reserveResumeRun,
+	setRunTaskSummary,
 	type SubagentRun,
 } from "./registry.ts";
 import { getResultSummaryText } from "./runner-events.js";
 import { runAgent } from "./runner.ts";
+import { summarizeTask } from "./task_summary.ts";
 import {
 	DEFAULT_DELEGATION_MODE,
 	isResultError,
@@ -44,7 +46,7 @@ export interface SubagentToolParams {
 	tasks?: TaskSpec[] | string;
 }
 
-export interface SubagentExecutionContext {
+export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
 	cwd: string;
 	sessionManager: {
 		getHeader: () => unknown;
@@ -67,6 +69,12 @@ interface SubagentExecution {
 }
 
 export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): SubagentExecution {
+	const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
+		void summarizeTask(task, ctx).then((summary) => {
+			if (summary) setRunTaskSummary(id, task, summary);
+		}).catch(() => {});
+	};
+
 	const retainedSessionPaths = () => {
 		const paths = new Set<string>();
 		for (const entry of listRuns()) {
@@ -102,6 +110,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		parentSystemPrompt: string | undefined,
 		agents: AgentConfig[],
 		defaultCwd: string,
+		ctx: SubagentExecutionContext,
 		makeDetails: ReturnType<typeof makeDetailsFactory>,
 		reservedRegistryId?: string,
 		sessionPath?: string,
@@ -115,6 +124,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		const spawned = new Promise<string>((resolve) => {
 			onSpawn = resolve;
 		});
+
+		if (reservedRegistryId) startTaskSummary(reservedRegistryId, task, ctx);
 
 		const runPromise = runAgent({
 			cwd: defaultCwd,
@@ -134,6 +145,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			signal,
 			onSpawn: (id) => {
 				if (toolCallId) bindToolCallRowInvalidate(toolCallId, id);
+				if (!reservedRegistryId) startTaskSummary(id, task, ctx);
 				onSpawn(id);
 			},
 		});
@@ -231,6 +243,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		agents: AgentConfig[],
 		defaultCwd: string,
 		makeDetails: ReturnType<typeof makeDetailsFactory>,
+		ctx: SubagentExecutionContext,
 		parentSessionId: string,
 		toolCallId: string,
 		signal?: AbortSignal,
@@ -244,7 +257,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		}
 
 		const { placeholders, killedResults } = reserveParallelPlaceholders(tasks, agents, completeSubagentRun);
-		for (const p of placeholders) bindToolCallRowInvalidate(toolCallId, p.registryId!);
+		for (const p of placeholders) {
+			bindToolCallRowInvalidate(toolCallId, p.registryId!);
+			startTaskSummary(p.registryId!, p.task, ctx);
+		}
 		const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, async (t, i) => {
 			const killed = killedResults[i];
 			if (killed) return killed;
@@ -368,6 +384,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				delegationMode === "fork" ? ctx.getSystemPrompt() : undefined,
 				agents,
 				source.workingDirectory ?? ctx.cwd,
+				ctx,
 				makeDetails,
 				reservation.run.id,
 				source.sessionPath,
@@ -417,6 +434,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				agents,
 				ctx.cwd,
 				makeDetails,
+				ctx,
 				parentSessionId,
 				toolCallId,
 				signal,
@@ -431,6 +449,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			parentSystemPrompt,
 			agents,
 			ctx.cwd,
+			ctx,
 			makeDetails,
 			undefined,
 			undefined,

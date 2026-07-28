@@ -23,6 +23,7 @@ export interface CompletedRun extends RunMetadata {
 	id: string;
 	agent: string;
 	task: string;
+	taskSummary?: string;
 	startedAt: number;
 	finishedAt: number;
 	result: SingleResult;
@@ -34,6 +35,7 @@ export interface SubagentRun extends RunMetadata {
 	id: string;
 	agent: string;
 	task: string;
+	taskSummary?: string;
 	pid: number | undefined;
 	startedAt: number;
 	phase: RunPhase;
@@ -55,11 +57,16 @@ interface RunState extends SubagentRun {
 	streamTimer?: ReturnType<typeof setTimeout>;
 }
 
+interface CompletedRunState extends CompletedRun {
+	statusSubs?: Set<() => void>;
+	rowInvalidate?: () => void;
+}
+
 const MAX_COMPLETED = 50;
 const STREAM_COALESCE_MS = 16;
 
 const running = new Map<string, RunState>();
-const completed = new Map<string, CompletedRun>();
+const completed = new Map<string, CompletedRunState>();
 const resumeLocks = new Set<string>();
 const toolCallInvalidators = new Map<string, ToolCallInvalidation>();
 const pendingToolCallRuns = new Map<string, Set<string>>();
@@ -106,6 +113,13 @@ export function updateRun(
 
 export function getRun(id: string): SubagentRun | undefined {
 	return running.get(id);
+}
+
+export function setRunTaskSummary(id: string, task: string, taskSummary: string): void {
+	const entry = running.get(id) ?? completed.get(id);
+	if (!entry || entry.task !== task) return;
+	entry.taskSummary = taskSummary;
+	notifyStatus(id);
 }
 
 export function listRuns(): SubagentRun[] {
@@ -160,9 +174,15 @@ function pruneToolCallRun(id: string): void {
 
 export function notifyStatus(id: string): void {
 	const entry = running.get(id);
-	if (!entry) return;
-	entry.rowInvalidate?.();
-	for (const fn of entry.statusSubs) fn();
+	if (entry) {
+		entry.rowInvalidate?.();
+		for (const fn of entry.statusSubs) fn();
+		return;
+	}
+	const done = completed.get(id);
+	if (!done) return;
+	done.rowInvalidate?.();
+	for (const fn of done.statusSubs ?? []) fn();
 }
 
 export function notifyStream(id: string): void {
@@ -186,6 +206,7 @@ export function completeRun(id: string, result: SingleResult): void {
 		id,
 		agent: entry?.agent ?? result.agent,
 		task: entry?.task ?? result.task,
+		taskSummary: entry?.taskSummary,
 		startedAt: entry?.startedAt ?? finishedAt,
 		finishedAt,
 		parentSessionId: entry?.parentSessionId,
@@ -195,6 +216,8 @@ export function completeRun(id: string, result: SingleResult): void {
 		sourceRunId: entry?.sourceRunId,
 		lineageId: entry?.lineageId ?? id,
 		result,
+		statusSubs: entry?.statusSubs,
+		rowInvalidate: entry?.rowInvalidate,
 	});
 	if (entry?.sourceRunId && entry.lineageId) resumeLocks.delete(entry.lineageId);
 	while (completed.size > MAX_COMPLETED) {
@@ -211,7 +234,6 @@ export function completeRun(id: string, result: SingleResult): void {
 		}
 		if (entry.phase === "background") entry.rowInvalidate?.();
 		for (const fn of entry.statusSubs) fn();
-		entry.statusSubs.clear();
 		entry.streamSubs.clear();
 		entry.rowInvalidate = undefined;
 		running.delete(id);

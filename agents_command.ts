@@ -20,6 +20,7 @@ interface DetailEntry {
 	id: string;
 	agent: string;
 	task: string;
+	taskSummary?: string;
 	startedAt: number;
 	finishedAt?: number;
 	result: SingleResult;
@@ -72,12 +73,12 @@ function toItems(running: SubagentRun[], completed: CompletedRun[], now: number)
 		...runningLabels.map(({ entry, base }) => ({
 			value: entry.id,
 			label: padBase(base),
-			description: entry.task,
+			description: entry.taskSummary ?? entry.task,
 		})),
 		...completedLabels.map(({ entry, base }) => ({
 			value: entry.id,
 			label: `${padBase(base)}${entry.result.usage.cost > 0 ? `  $${entry.result.usage.cost.toFixed(3)}` : ""}`,
-			description: entry.task,
+			description: entry.taskSummary ?? entry.task,
 		})),
 	];
 }
@@ -199,6 +200,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 							id: run.id,
 							agent: run.agent,
 							task: run.task,
+							taskSummary: run.taskSummary,
 							startedAt: run.startedAt,
 							result: run.result,
 							onStatus: (fn) => run.onStatus(fn),
@@ -208,6 +210,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 							id: completed!.id,
 							agent: completed!.agent,
 							task: completed!.task,
+							taskSummary: completed!.taskSummary,
 							startedAt: completed!.startedAt,
 							finishedAt: completed!.finishedAt,
 							result: completed!.result,
@@ -243,6 +246,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 								const done = live ? undefined : listCompletedRuns().find((e) => e.id === entry.id);
 								const result = live?.result ?? done?.result ?? entry.result;
 								const finishedAt = done?.finishedAt ?? entry.finishedAt;
+								const taskSummary = live?.taskSummary ?? done?.taskSummary ?? entry.taskSummary;
 								if (result.exitCode !== -1 && timer) {
 									clearInterval(timer);
 									timer = undefined;
@@ -306,7 +310,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 								lines.push(theme.fg("border", `╭${hbar}╮`));
 								const paneBadge =
 									" " + theme.fg("dim", "[") + theme.fg("accent", activePane) + theme.fg("dim", "]");
-								lines.push(box(`${icon} ${theme.fg("accent", theme.bold(`[${entry.id}] ${entry.agent}`))} ${theme.fg("muted", `— ${status}`)}${paneBadge}`));
+								lines.push(box(`${icon} ${theme.fg("accent", theme.bold(`[${entry.id}] ${entry.agent}`))}${taskSummary ? theme.fg("dim", ` — ${taskSummary}`) : ""} ${theme.fg("muted", `— ${status}`)}${paneBadge}`));
 								lines.push(theme.fg("border", `├${hbar}┤`));
 								for (let i = 0; i < rows; i++) {
 									lines.push(box(pad(taskCol[i] ?? "", taskWidth) + sep + (transcriptCol[i] ?? "")));

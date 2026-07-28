@@ -91,15 +91,18 @@ test("updateRun replaces result reference", () => {
 	cleanup();
 });
 
-test("completeRun fires status subscribers exactly once then clears them", () => {
+test("completeRun retains status subscribers for late updates until unsubscribed", () => {
 	cleanup();
 	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
 	let calls = 0;
-	run.onStatus(() => { calls++; });
+	const unsubscribe = run.onStatus(() => { calls++; });
 	completeRun(run.id, makeResult({ exitCode: 0 }));
 	assert.equal(calls, 1);
 	notifyStatus(run.id);
-	assert.equal(calls, 1);
+	assert.equal(calls, 2);
+	unsubscribe();
+	notifyStatus(run.id);
+	assert.equal(calls, 2);
 });
 
 test("onStatus and onStream unsubscribe works", async () => {

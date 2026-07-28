@@ -7,7 +7,7 @@
 import * as os from "node:os";
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
+import { getRun, listCompletedRuns, registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -38,6 +38,7 @@ function staleRowHeader(original: SingleResult, theme: { fg: ThemeFg }, prefix =
 	return (
 		theme.fg("muted", prefix) +
 		theme.fg("accent", original.agent) +
+		taskSummarySuffix(original, theme) +
 		runningIdBadge(original, theme) +
 		` ${theme.fg("dim", "◌")}`
 	);
@@ -136,13 +137,19 @@ export function formatSubagentList(entries: SubagentRun[], now = Date.now()): st
 	if (entries.length === 0) return "No subagents currently running.";
 	const lines: string[] = [`${entries.length} running subagent(s):`];
 	for (const e of entries) {
-		lines.push(`[${e.id}] ${e.agent} — running ${formatElapsed(now - e.startedAt)}`);
+		lines.push(`[${e.id}] ${e.agent}${e.taskSummary ? ` — ${e.taskSummary}` : ""} — running ${formatElapsed(now - e.startedAt)}`);
 	}
 	return lines.join("\n");
 }
 
 function runningIdBadge(r: SingleResult, theme: { fg: ThemeFg }): string {
 	return r.exitCode === -1 && r.registryId ? theme.fg("dim", ` [${r.registryId}]`) : "";
+}
+
+function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
+	if (!r.registryId) return "";
+	const taskSummary = getRun(r.registryId)?.taskSummary ?? listCompletedRuns().find((run) => run.id === r.registryId)?.taskSummary;
+	return taskSummary ? theme.fg("dim", ` — ${taskSummary}`) : "";
 }
 
 /** Full transcript lines for the /agents detail view: thinking, text, and tool calls. Appends `partialMessage` when present to render live streaming output. */
@@ -238,7 +245,7 @@ export function renderResult(
 function renderSingleResult(original: SingleResult, theme: { fg: ThemeFg }): Text {
 	const { result: r, stale } = resolveLiveResult(original);
 	if (stale) return new Text(`${staleRowHeader(original, theme)} ${theme.fg("dim", STALE_FINISHED_MSG)}`, 0, 0);
-	return new Text(`${theme.fg("muted", "└─ ")}${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}${runningIdBadge(r, theme)}`, 0, 0);
+	return new Text(`${theme.fg("muted", "└─ ")}${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}${runningIdBadge(r, theme)}${taskSummarySuffix(r, theme)}`, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +257,7 @@ function renderParallelResult(details: SubagentDetails, theme: { fg: ThemeFg }):
 	const lines = resolved.map(({ original, result: r, stale }, index) => {
 		const prefix = index === resolved.length - 1 ? "└─ " : "├─ ";
 		if (stale) return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
-		return `${theme.fg("muted", prefix)}${theme.fg("accent", r.agent)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}`;
+		return `${theme.fg("muted", prefix)}${theme.fg("accent", r.agent)}${taskSummarySuffix(r, theme)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}`;
 	});
 	return new Text(lines.join("\n"), 0, 0);
 }
