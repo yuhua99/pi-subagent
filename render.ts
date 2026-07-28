@@ -18,7 +18,7 @@ import {
 	parseTasksParam,
 } from "./types.ts";
 
-const STALE_FINISHED_MSG = "finished (result delivered separately)";
+const STALE_FINISHED_MSG = "finished — result delivered separately";
 
 export type RenderContext = {
 	state: Record<string, any>;
@@ -167,7 +167,7 @@ export function transcriptLines(r: Pick<SingleResult, "messages" | "partialMessa
 }
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
-	if (r.exitCode === -1) return theme.fg("warning", "⏳");
+	if (r.exitCode === -1) return theme.fg("warning", "○");
 	if (r.stopReason === "killed") return theme.fg("warning", "■");
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
@@ -178,10 +178,11 @@ function statusColor(r: SingleResult): ThemeColor {
 
 function statusMessage(r: SingleResult): string {
 	if (r.exitCode === -1) return "running";
-	if (r.stopReason === "killed") return r.errorMessage ? `[killed] ${r.errorMessage}` : "[killed]";
+	if (r.stopReason === "killed") return r.errorMessage && r.errorMessage !== "Subagent was killed." ? `killed — ${r.errorMessage}` : "killed";
+	if (r.stopReason === "aborted" && isResultError(r)) return r.errorMessage && r.errorMessage !== "Subagent was aborted." ? `aborted — ${r.errorMessage}` : "aborted";
 	if (isResultError(r)) {
-		if (r.errorMessage) return `Error: ${r.errorMessage}`;
-		return r.stopReason ? `Error: ${r.stopReason}` : `Error (exit ${r.exitCode})`;
+		const detail = r.errorMessage || r.stopReason;
+		return `failed (exit ${r.exitCode})${detail ? ` — ${detail}` : ""}`;
 	}
 	return "completed";
 }

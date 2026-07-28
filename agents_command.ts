@@ -48,12 +48,12 @@ function paneView(
 }
 
 function runningLabel(e: SubagentRun, now: number): string {
-	return `⏳ [${e.id}] ${e.agent} — ${formatElapsed(now - e.startedAt)}`;
+	return `○ [${e.id}] ${e.agent} — ${formatElapsed(now - e.startedAt)}`;
 }
 
 function completedLabel(e: CompletedRun): string {
 	const duration = formatElapsed(e.finishedAt - e.startedAt);
-	const icon = isResultError(e.result) ? "✗" : "✓";
+	const icon = e.result.stopReason === "killed" ? "■" : isResultError(e.result) ? "✗" : "✓";
 	const abortedSuffix = e.result.stopReason === "aborted" ? " · aborted" : "";
 	return `${icon} [${e.id}] ${e.agent} — ${duration}${abortedSuffix}`;
 }
@@ -255,7 +255,7 @@ export function registerAgentsCommand(pi: ExtensionAPI) {
 									theme.fg("border", " │");
 								const running = result.exitCode === -1;
 								const icon = running
-									? theme.fg("warning", "⏳")
+									? theme.fg("warning", "○")
 									: isResultError(result)
 										? theme.fg("error", "✗")
 										: theme.fg("success", "✓");
