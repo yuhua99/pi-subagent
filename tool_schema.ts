@@ -2,41 +2,30 @@ import { Type } from "typebox";
 import type { AgentConfig } from "./agents.ts";
 import { DEFAULT_DELEGATION_MODE } from "./types.ts";
 
-const SPAWN_MODE_DESCRIPTION =
-  "'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.";
-const FORK_MODE_DESCRIPTION =
-  "'fork': child receives a forked snapshot of current session context plus the task prompt. Best for follow-up tasks that rely on prior context; usually higher token/cost and may include sensitive context.";
 const MODE_PARAM_DESCRIPTION =
-  "Context mode: 'spawn' (default) or 'fork'. See tool description for tradeoffs.";
-const SINGLE_MODE_EXAMPLE =
-  '{ "agent": "agent-name", "task": "Detailed task...", "mode": "spawn" }';
-const PARALLEL_MODE_EXAMPLE =
-  '{ "tasks": [{ "agent": "agent-name", "task": "..." }, { "agent": "other-agent", "task": "..." }], "mode": "fork" }';
-const RESUME_MODE_EXAMPLE =
-  '{ "resume": "completed-run-id", "task": "Follow-up task..." }';
+  "Context mode for new runs. 'spawn' (default): child gets only the task prompt; isolated and cheaper. 'fork': child inherits a snapshot of this session's context; costlier and may leak sensitive context.";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
 
 const TaskItem = Type.Object({
   agent: Type.String({
-    description: "Name of an available agent (must match exactly)",
+    description: "Must match an available agent name exactly.",
   }),
   task: Type.String({
-    description: "Task description for this delegated run.",
+    description: "In spawn mode it must be self-contained.",
   }),
   cwd: Type.Optional(
-    Type.String({ description: "Working directory for this agent's process" }),
+    Type.String({ description: "Working directory for this agent's process." }),
   ),
 }, { additionalProperties: false });
 
 const SingleParams = Type.Object({
   agent: Type.String({
-    description: "Agent name for single mode. Must match an available agent name exactly.",
+    description: "Must match an available agent name exactly.",
   }),
   task: Type.String({
-    description:
-      "Task description for single mode. In spawn mode it must be self-contained.",
+    description: "In spawn mode it must be self-contained.",
   }),
   mode: Type.Optional(
     Type.String({
@@ -46,7 +35,7 @@ const SingleParams = Type.Object({
   ),
   cwd: Type.Optional(
     Type.String({
-      description: "Working directory for the agent process (single mode only)",
+      description: "Working directory for the agent process.",
     }),
   ),
 }, { additionalProperties: false });
@@ -54,7 +43,7 @@ const SingleParams = Type.Object({
 const ParallelParams = Type.Object({
   tasks: Type.Union([Type.Array(TaskItem, { minItems: 1 }), Type.String()], {
     description:
-      "For parallel mode: raw JSON array of {agent, task} objects, never a JSON-encoded string. Do NOT set agent/task when using this.",
+      "Parallel runs as a JSON array, not a JSON-encoded string. Do not set agent/task with this.",
   }),
   mode: Type.Optional(
     Type.String({
@@ -94,18 +83,7 @@ export const KILL_TOOL_DESCRIPTION = [
 export const TOOL_DESCRIPTION = [
   "Delegate work to specialized subagents running in isolated pi processes.",
   "",
-  "IMPORTANT: Use exactly ONE invocation shape:",
-  "  Single mode:   set `agent` and `task` (both required together).",
-  "  Parallel mode: set `tasks` array (do NOT also set `agent`/`task`).",
-  "  Resume mode:  set `resume` and `task` (do NOT set agent/tasks/mode/cwd).",
-  "",
-  "Optional context mode applies only to new single or parallel runs:",
-  `- ${SPAWN_MODE_DESCRIPTION}`,
-  `- ${FORK_MODE_DESCRIPTION}`,
-  "",
-  `Example single:   ${SINGLE_MODE_EXAMPLE}`,
-  `Example parallel: ${PARALLEL_MODE_EXAMPLE}`,
-  `Example resume:   ${RESUME_MODE_EXAMPLE}`,
+  "Use exactly one invocation shape: {agent, task} | {tasks} | {resume, task}.",
 ].join("\n");
 
 export function formatSubagentSystemPrompt(agents: AgentConfig[]): string {
