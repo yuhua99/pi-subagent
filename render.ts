@@ -30,6 +30,8 @@ export type RenderContext = {
 
 type ResolvedRow = ResolvedResult & { original: SingleResult };
 
+type ResultContent = Array<{ type: string; text?: string }>;
+
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
@@ -71,6 +73,80 @@ function shortenPath(p: string): string {
 
 function normalizeDelegationMode(raw: unknown): DelegationMode {
 	return raw === "fork" ? "fork" : DEFAULT_DELEGATION_MODE;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isRenderableResult(value: unknown): value is SingleResult {
+	return isRecord(value) && typeof value.agent === "string" && typeof value.exitCode === "number" && Array.isArray(value.messages);
+}
+
+function isRenderableDetails(value: unknown): value is SubagentDetails {
+	return isRecord(value) && (value.mode === "single" || value.mode === "parallel") && Array.isArray(value.results) && value.results.every(isRenderableResult);
+}
+
+function hasUnexpectedKeys(args: Record<string, unknown>, allowed: string[]): boolean {
+	return Object.keys(args).some((key) => !allowed.includes(key));
+}
+
+function taskListGuidance(value: unknown): string | undefined {
+	if (typeof value === "string") return undefined;
+	if (!Array.isArray(value) || value.length === 0) return "Validation error: `tasks` must be a non-empty array of `{ agent, task, cwd? }` or a JSON string.";
+	for (const task of value) {
+		if (!isRecord(task)) return "Validation error: task items must be `{ agent, task, cwd? }`.";
+		if (hasUnexpectedKeys(task, ["agent", "task", "cwd"])) return "Validation error: task items accept only `agent`, `task`, and optional `cwd`.";
+		if (typeof task.agent !== "string") return "Validation error: task item `agent` must be a string.";
+		if (typeof task.task !== "string") return "Validation error: task item `task` must be a string.";
+		if (task.cwd !== undefined && typeof task.cwd !== "string") return "Validation error: task item `cwd` must be a string.";
+	}
+}
+
+function validationGuidance(args: unknown): string {
+	if (!isRecord(args)) return "Validation error: use `{ agent, task }`, `{ tasks }`, or `{ resume, task }`.";
+	if ("resume" in args) {
+		if (typeof args.resume !== "string") return "Validation error: resume requires string `resume` and `task`.";
+		if (!("task" in args)) return "Validation error: resume requires `task`.";
+		if (typeof args.task !== "string") return "Validation error: resume `task` must be a string.";
+		if ("cwd" in args) return "Validation error: resume does not accept `cwd`; use only `resume` and `task`.";
+		return "Validation error: resume accepts only `resume` and `task`.";
+	}
+	if ("tasks" in args) {
+		if (hasUnexpectedKeys(args, ["tasks", "mode"])) return "Validation error: parallel calls accept only `tasks` and optional `mode`.";
+		if (args.mode !== undefined && typeof args.mode !== "string") return "Validation error: parallel call `mode` must be a string.";
+		const taskGuidance = taskListGuidance(args.tasks);
+		if (taskGuidance) return taskGuidance;
+		return "Validation error: parallel calls accept `tasks` as an array or JSON string, with optional `mode`.";
+	}
+	if ("agent" in args) {
+		if (typeof args.agent !== "string") return "Validation error: single subagent calls require string `agent` and `task`.";
+		if (!("task" in args)) return "Validation error: single subagent calls require `task`.";
+		if (typeof args.task !== "string") return "Validation error: single subagent `task` must be a string.";
+		if (args.mode !== undefined && typeof args.mode !== "string") return "Validation error: single call `mode` must be a string.";
+		if (args.cwd !== undefined && typeof args.cwd !== "string") return "Validation error: single call `cwd` must be a string.";
+		if (hasUnexpectedKeys(args, ["agent", "task", "mode", "cwd"])) return "Validation error: single calls accept only `agent`, `task`, optional `mode`, and optional `cwd`.";
+		return "Validation error: single calls accept string `agent`, `task`, optional `mode`, and optional `cwd`.";
+	}
+	return "Validation error: use `{ agent, task }`, `{ tasks }`, or `{ resume, task }`.";
+}
+
+function validationMessage(content: ResultContent): string | undefined {
+	const text = content.find((block) => block.type === "text" && typeof block.text === "string")?.text;
+	if (!text?.startsWith('Validation failed for tool "subagent":')) return undefined;
+	const received = text.match(/Received arguments:\s*(\{[\s\S]*\})\s*$/)?.[1];
+	try {
+		return validationGuidance(received ? JSON.parse(received) : undefined);
+	} catch {
+		return validationGuidance(undefined);
+	}
+}
+
+function fallbackText(content: ResultContent): string {
+	const validation = validationMessage(content);
+	if (validation) return validation;
+	const first = content[0];
+	return first?.type === "text" && first.text ? first.text : "(no output)";
 }
 
 export type ThemeFg = (color: ThemeColor, text: string) => string;
@@ -225,14 +301,11 @@ export function renderCall(
 // ---------------------------------------------------------------------------
 
 export function renderResult(
-	result: { content: Array<{ type: string; text?: string }>; details?: unknown },
+	result: { content: ResultContent; details?: unknown },
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 ): Text {
-	const details = result.details as SubagentDetails | undefined;
-	if (!details || details.results.length === 0) {
-		const first = result.content[0];
-		return new Text(first?.type === "text" && first.text ? first.text : "(no output)", 0, 0);
-	}
+	const details = isRenderableDetails(result.details) ? result.details : undefined;
+	if (!details || details.results.length === 0) return new Text(fallbackText(result.content), 0, 0);
 	return details.mode === "single"
 		? renderSingleResult(details.results[0], theme)
 		: renderParallelResult(details, theme);
