@@ -35,7 +35,7 @@ import {
 	type SubagentDetails,
 	type TaskSpec,
 } from "./types.ts";
-import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS } from "./tool_schema.ts";
+import { getSubagentInvocationShape, MAX_CONCURRENCY, MAX_PARALLEL_TASKS } from "./tool_schema.ts";
 
 export interface SubagentToolParams {
 	resume?: string;
@@ -335,6 +335,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
 		const hasResume = params.resume !== undefined;
+		const invocationShape = getSubagentInvocationShape(params);
 		const parsedTasks = parseTasksParam(params.tasks);
 		if (parsedTasks && "error" in parsedTasks) {
 			const makeDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
@@ -345,26 +346,17 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			};
 		}
 		const tasks = parsedTasks?.tasks;
-		const hasTasks = (tasks?.length ?? 0) > 0;
-		const hasSingle = typeof params.agent === "string" && typeof params.task === "string";
 
 		if (hasResume) {
 			const defaultDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
-			if (
-				typeof params.resume !== "string" ||
-				typeof params.task !== "string" ||
-				params.agent !== undefined ||
-				params.tasks !== undefined ||
-				params.mode !== undefined ||
-				params.cwd !== undefined
-			) {
+			if (invocationShape !== "resume") {
 				return {
 					content: [{ type: "text", text: `Invalid resume parameters. Use exactly { resume, task } and do not combine them with agent/tasks/mode/cwd.\nAvailable agents: ${formatAgentNames(agents)}` }],
 					details: defaultDetails("single")([]),
 					isError: true,
 				};
 			}
-			const reservation = reserveResumeRun(params.resume, params.task, parentSessionId, hasManagedSessionPath, onResumeKill);
+			const reservation = reserveResumeRun(params.resume!, params.task!, parentSessionId, hasManagedSessionPath, onResumeKill);
 			if ("error" in reservation) {
 				return {
 					content: [{ type: "text", text: reservation.error }],
@@ -377,7 +369,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
 			return executeSingle(
 				source.agent,
-				params.task,
+				params.task!,
 				undefined,
 				delegationMode,
 				undefined,
@@ -418,16 +410,16 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			}
 		}
 		const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
-		if (hasTasks && hasSingle || !hasTasks && !hasSingle) {
+		if (invocationShape !== "single" && invocationShape !== "parallel") {
 			return {
 				content: [{ type: "text", text: `Invalid parameters. Provide exactly one invocation shape.\nAvailable agents: ${formatAgentNames(agents)}` }],
 				details: makeDetails("single")([]),
 				isError: true,
 			};
 		}
-		if (tasks && tasks.length > 0) {
+		if (invocationShape === "parallel") {
 			return executeParallel(
-				tasks,
+				tasks!,
 				delegationMode,
 				forkSessionSnapshotJsonl,
 				parentSystemPrompt,

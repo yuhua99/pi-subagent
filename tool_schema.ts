@@ -20,47 +20,54 @@ const TaskItem = Type.Object({
   ),
 }, { additionalProperties: false });
 
-const SingleParams = Type.Object({
-  agent: Type.String({
+export const SubagentParams = Type.Object({
+  agent: Type.Optional(Type.String({
     description: "Must match an available agent name exactly.",
-  }),
-  task: Type.String({
+  })),
+  task: Type.Optional(Type.String({
     description: "In spawn mode it must be self-contained.",
-  }),
-  mode: Type.Optional(
-    Type.String({
-      description: MODE_PARAM_DESCRIPTION,
-      default: DEFAULT_DELEGATION_MODE,
-    }),
-  ),
-  cwd: Type.Optional(
-    Type.String({
-      description: "Working directory for the agent process.",
-    }),
-  ),
-}, { additionalProperties: false });
-
-const ParallelParams = Type.Object({
-  tasks: Type.Union([Type.Array(TaskItem, { minItems: 1 }), Type.String()], {
+  })),
+  tasks: Type.Optional(Type.Union([Type.Array(TaskItem, { minItems: 1 }), Type.String()], {
     description:
       "Parallel runs as a JSON array, not a JSON-encoded string. Do not set agent/task with this.",
-  }),
-  mode: Type.Optional(
-    Type.String({
-      description: MODE_PARAM_DESCRIPTION,
-      default: DEFAULT_DELEGATION_MODE,
-    }),
-  ),
-}, { additionalProperties: false });
-
-const ResumeParams = Type.Object({
-  resume: Type.String({
+  })),
+  resume: Type.Optional(Type.String({
     description: "Completed subagent run id from this parent Pi session.",
-  }),
-  task: Type.String({ description: "Follow-up task appended to the completed run's session." }),
+  })),
+  mode: Type.Optional(Type.String({
+    description: MODE_PARAM_DESCRIPTION,
+    default: DEFAULT_DELEGATION_MODE,
+  })),
+  cwd: Type.Optional(Type.String({
+    description: "Working directory for the agent process.",
+  })),
 }, { additionalProperties: false });
 
-export const SubagentParams = Type.Union([SingleParams, ParallelParams, ResumeParams]);
+export type SubagentInvocationShape = "single" | "parallel" | "resume";
+
+export function getSubagentInvocationShape(params: {
+  resume?: unknown;
+  task?: unknown;
+  agent?: unknown;
+  cwd?: unknown;
+  tasks?: unknown;
+  mode?: unknown;
+}): SubagentInvocationShape | undefined {
+  if (params.resume !== undefined) {
+    return typeof params.resume === "string" && typeof params.task === "string" &&
+      params.agent === undefined && params.tasks === undefined && params.mode === undefined && params.cwd === undefined
+      ? "resume"
+      : undefined;
+  }
+  if (params.tasks !== undefined) {
+    return params.agent === undefined && params.task === undefined && params.cwd === undefined
+      ? "parallel"
+      : undefined;
+  }
+  return typeof params.agent === "string" && typeof params.task === "string"
+    ? "single"
+    : undefined;
+}
 
 export const SubagentListParams = Type.Object({});
 

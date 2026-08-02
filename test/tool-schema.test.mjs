@@ -1,42 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SubagentParams } from "../tool_schema.ts";
+import { getSubagentInvocationShape, SubagentParams } from "../tool_schema.ts";
 import { parseTasksParam } from "../types.ts";
 
-function branch(required) {
-  return SubagentParams.anyOf.find((item) => item.required?.includes(required));
-}
-
-function structurallyMatches(schema, value) {
-  if (!schema.required?.every((key) => key in value)) return false;
-  if (schema.additionalProperties === false && Object.keys(value).some((key) => !(key in schema.properties))) {
-    return false;
-  }
-  return true;
-}
-
-function accepts(value) {
-  return SubagentParams.anyOf.some((schema) => structurallyMatches(schema, value));
-}
-
-test("subagent schema rejects mixed invocation shapes structurally", () => {
-  assert.equal(Array.isArray(SubagentParams.anyOf), true);
-  assert.equal(SubagentParams.anyOf.length, 3);
-  assert.equal(SubagentParams.anyOf.every((schema) => schema.additionalProperties === false), true);
-  const tasksSchema = branch("tasks").properties.tasks;
+test("subagent schema has an object root and preserves parameter types", () => {
+  assert.equal(SubagentParams.type, "object");
+  assert.equal(SubagentParams.anyOf, undefined);
+  assert.equal(SubagentParams.additionalProperties, false);
+  assert.deepEqual(Object.keys(SubagentParams.properties), ["agent", "task", "tasks", "resume", "mode", "cwd"]);
+  const tasksSchema = SubagentParams.properties.tasks;
   const tasksArray = tasksSchema.anyOf.find((schema) => schema.type === "array");
   assert.equal(tasksArray.items.additionalProperties, false);
   assert.equal("cwd" in tasksArray.items.properties, true);
   assert.equal(tasksSchema.anyOf.some((schema) => schema.type === "string"), true);
-  assert.deepEqual(branch("resume").required, ["resume", "task"]);
-  assert.equal(branch("resume").properties.agent, undefined);
-  assert.equal(branch("resume").properties.mode, undefined);
-  assert.deepEqual(branch("agent").required, ["agent", "task"]);
-  assert.deepEqual(branch("tasks").required, ["tasks"]);
-  assert.equal(accepts({ agent: "a", task: "t", tasks: [{ agent: "b", task: "u" }] }), false);
-  assert.equal(accepts({ resume: "id", task: "t", agent: "a" }), false);
-  assert.equal(accepts({ tasks: [{ agent: "a", task: "t" }], cwd: "/tmp" }), false);
-  assert.equal(accepts({ agent: "a", task: "t", cwd: "/tmp" }), true);
+});
+
+test("subagent invocation validation accepts only the three shapes", () => {
+  assert.equal(getSubagentInvocationShape({ agent: "a", task: "t" }), "single");
+  assert.equal(getSubagentInvocationShape({ agent: "a", task: "t", cwd: "/tmp", mode: "fork" }), "single");
+  assert.equal(getSubagentInvocationShape({ tasks: [{ agent: "a", task: "t" }] }), "parallel");
+  assert.equal(getSubagentInvocationShape({ resume: "id", task: "t" }), "resume");
+  assert.equal(getSubagentInvocationShape({ agent: "a", task: "t", tasks: [{ agent: "b", task: "u" }] }), undefined);
+  assert.equal(getSubagentInvocationShape({ resume: "id", task: "t", agent: "a" }), undefined);
+  assert.equal(getSubagentInvocationShape({ tasks: [{ agent: "a", task: "t" }], cwd: "/tmp" }), undefined);
+  assert.equal(getSubagentInvocationShape({ resume: "id", task: "t", mode: "fork" }), undefined);
+  assert.equal(getSubagentInvocationShape({ agent: "a" }), undefined);
 });
 
 test("parseTasksParam coerces JSON-encoded task strings", () => {
