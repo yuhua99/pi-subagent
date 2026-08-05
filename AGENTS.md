@@ -14,7 +14,7 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `common.ts`, `shared.ts`); use domain names.
 
 - `index.ts` — tool registration and event wiring only
-- `agents.ts` — agent discovery/parsing; `agents_command.ts` — `/agents` UI
+- `agents.ts` — agent discovery/parsing; `agents_command.ts` — `/agents` orchestration; `agents_overlay.ts` — shared overlay shell geometry; `agents_list.ts` — list UI/lifecycle; `agents_detail.ts` — detail UI/lifecycle
 - `delegation.ts` — delegation mode, child-env markers, fork snapshots, placeholders
 - `subagent_execution.ts` — subagent invocation orchestration, lifecycle, retention, and background delivery
 - `session_files.ts` — managed child session JSONL creation, resume copies, existence checks, and cleanup
