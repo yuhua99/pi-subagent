@@ -4,7 +4,6 @@
  * Tool rows show errors and live status only. Rich detail lives in `/agents`.
  */
 
-import * as os from "node:os";
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { getRun, listCompletedRuns, registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
@@ -64,11 +63,6 @@ export function formatUsage(usage: Partial<UsageStats>, model?: string): string 
 	if (usage.contextTokens && usage.contextTokens > 0) parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
 	if (model) parts.push(model);
 	return parts.join(" ");
-}
-
-function shortenPath(p: string): string {
-	const home = os.homedir();
-	return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
 function normalizeDelegationMode(raw: unknown): DelegationMode {
@@ -151,55 +145,9 @@ function fallbackText(content: ResultContent): string {
 
 export type ThemeFg = (color: ThemeColor, text: string) => string;
 
-function formatToolCall(toolName: string, args: Record<string, unknown>, fg: ThemeFg): string {
-	const pathArg = (args.file_path || args.path || "...") as string;
-
-	switch (toolName) {
-		case "bash": {
-			const cmd = (args.command as string) || "...";
-			return splitOutputLines(cmd)
-				.map((line, i) => (i === 0 ? fg("muted", "$ ") : "  ") + fg("toolOutput", line))
-				.join("\n");
-		}
-		case "read": {
-			let text = fg("accent", shortenPath(pathArg));
-			const offset = args.offset as number | undefined;
-			const limit = args.limit as number | undefined;
-			if (offset !== undefined || limit !== undefined) {
-				const start = offset ?? 1;
-				const end = limit !== undefined ? start + limit - 1 : "";
-				text += fg("warning", `:${start}${end ? `-${end}` : ""}`);
-			}
-			return fg("muted", "read ") + text;
-		}
-		case "write": {
-			const lines = ((args.content || "") as string).split("\n").length;
-			let text = fg("muted", "write ") + fg("accent", shortenPath(pathArg));
-			if (lines > 1) text += fg("dim", ` (${lines} lines)`);
-			return text;
-		}
-		case "edit":
-			return fg("muted", "edit ") + fg("accent", shortenPath(pathArg));
-		case "ls":
-			return fg("muted", "ls ") + fg("accent", shortenPath((args.path || ".") as string));
-		case "find":
-			return fg("muted", "find ") + fg("accent", (args.pattern || "*") as string) + fg("dim", ` in ${shortenPath((args.path || ".") as string)}`);
-		case "grep":
-			return fg("muted", "grep ") + fg("accent", `/${(args.pattern || "") as string}/`) + fg("dim", ` in ${shortenPath((args.path || ".") as string)}`);
-		default:
-			return fg("accent", toolName) + fg("dim", ` ${JSON.stringify(args)}`);
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Shared rendering building blocks
 // ---------------------------------------------------------------------------
-
-function splitOutputLines(text: string): string[] {
-	const lines = text.replace(/\r\n?/g, "\n").split("\n");
-	if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-	return lines;
-}
 
 export function formatElapsed(ms: number): string {
 	const s = Math.max(0, Math.floor(ms / 1000));
@@ -226,27 +174,6 @@ function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
 	if (!r.registryId) return "";
 	const taskSummary = getRun(r.registryId)?.taskSummary ?? listCompletedRuns().find((run) => run.id === r.registryId)?.taskSummary;
 	return taskSummary ? theme.fg("dim", ` — ${taskSummary}`) : "";
-}
-
-/** Full transcript lines for the /agents detail view: thinking, text, and tool calls. Appends `partialMessage` when present to render live streaming output. */
-export function transcriptLines(r: Pick<SingleResult, "messages" | "partialMessage">, theme: { fg: ThemeFg }): string[] {
-	const lines: string[] = [];
-	const messages = r.partialMessage ? [...r.messages, r.partialMessage] : r.messages;
-	for (const msg of messages) {
-		if (msg.role !== "assistant") continue;
-		if (lines.length > 0) lines.push("");
-		for (const part of msg.content) {
-			if (part.type === "thinking") {
-				for (const line of splitOutputLines(part.thinking)) lines.push(theme.fg("dim", line));
-			} else if (part.type === "text") {
-				for (const line of splitOutputLines(part.text)) lines.push(theme.fg("toolOutput", line));
-			} else if (part.type === "toolCall") {
-				const call = theme.fg("muted", "→ ") + formatToolCall(part.name, part.arguments, theme.fg.bind(theme));
-				for (const line of splitOutputLines(call)) lines.push(line);
-			}
-		}
-	}
-	return lines;
 }
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {

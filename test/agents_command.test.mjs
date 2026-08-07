@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AssistantMessageComponent, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { AGENTS_OVERLAY_OPTIONS, registerAgentsCommand } from "../agents_command.ts";
+import { NativeTranscriptRenderer } from "../agents_detail.ts";
+import { isDetailQuietTool } from "../agents_detail_tools.ts";
 import { renderAgentsOverlay } from "../agents_overlay.ts";
 import { clearSessionState, registerRun } from "../registry.ts";
 
@@ -40,6 +43,8 @@ function commandHarness() {
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
+test.before(() => initTheme());
+
 function assertOverlayFrame(lines, width, terminalRows = 24) {
 	const bodyRows = Math.max(3, Math.floor(terminalRows * 0.8) - 6);
 	const border = "─".repeat(width - 2);
@@ -56,6 +61,283 @@ function assertOverlayFrame(lines, width, terminalRows = 24) {
 	assert.equal(lines[bodyRows + 3], `├${border}┤`);
 	assert.equal(lines.at(-1), `╰${border}╯`);
 }
+
+test("detail renders native assistant and tool transcript components", () => {
+	const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+	const lines = renderer.render(
+		{
+			messages: [
+				{
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "reasoning" },
+						{ type: "text", text: "## Answer\n\nDone" },
+						{ type: "toolCall", id: "call_1", name: "unknown", arguments: { value: "input" } },
+						{ type: "toolCall", id: "call_2", name: "pending", arguments: { value: "waiting" } },
+					],
+					timestamp: 1,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "call_1",
+					toolName: "unknown",
+					content: [{ type: "text", text: "tool failed" }],
+					isError: true,
+					timestamp: 2,
+				},
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "failed answer" }],
+					stopReason: "error",
+					errorMessage: "assistant failed",
+					timestamp: 3,
+				},
+			],
+		},
+		60,
+	);
+	renderer.dispose();
+	const transcript = lines.join("\n");
+	assert.match(transcript, /reasoning/);
+	assert.match(transcript, /Answer/);
+	assert.match(transcript, /unknown/);
+	assert.match(transcript, /tool failed/);
+	assert.match(transcript, /pending/);
+	assert.match(transcript, /assistant failed/);
+});
+
+test("detail reuses components until message, args, or result references change", () => {
+	const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+	const originalAssistantUpdate = AssistantMessageComponent.prototype.updateContent;
+	const originalRender = ToolExecutionComponent.prototype.render;
+	const originalUpdateArgs = ToolExecutionComponent.prototype.updateArgs;
+	const originalUpdateResult = ToolExecutionComponent.prototype.updateResult;
+	const components = new Set();
+	let assistantUpdates = 0;
+	let argsUpdates = 0;
+	let resultUpdates = 0;
+	AssistantMessageComponent.prototype.updateContent = function(...args) {
+		assistantUpdates++;
+		return originalAssistantUpdate.apply(this, args);
+	};
+	ToolExecutionComponent.prototype.render = function(width) {
+		components.add(this);
+		return originalRender.call(this, width);
+	};
+	ToolExecutionComponent.prototype.updateArgs = function(...args) {
+		argsUpdates++;
+		return originalUpdateArgs.apply(this, args);
+	};
+	ToolExecutionComponent.prototype.updateResult = function(...args) {
+		resultUpdates++;
+		return originalUpdateResult.apply(this, args);
+	};
+	try {
+		const transcript = {
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "call_1", name: "unknown", arguments: { value: "input" } }],
+					timestamp: 1,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "call_1",
+					toolName: "unknown",
+					content: [{ type: "text", text: "first" }],
+					isError: false,
+					timestamp: 2,
+				},
+			],
+		};
+		renderer.render(transcript, 60);
+		renderer.render(transcript, 60);
+		assert.equal(components.size, 1);
+		assert.equal(assistantUpdates, 1);
+		assert.equal(argsUpdates, 0);
+		assert.equal(resultUpdates, 1);
+		transcript.messages[0] = {
+			...transcript.messages[0],
+			content: [{ type: "toolCall", id: "call_1", name: "unknown", arguments: { value: "changed" } }],
+		};
+		transcript.messages[1] = {
+			...transcript.messages[1],
+			content: [{ type: "text", text: "second" }],
+		};
+		renderer.render(transcript, 60);
+		assert.equal(components.size, 1);
+		assert.equal(assistantUpdates, 2);
+		assert.equal(argsUpdates, 1);
+		assert.equal(resultUpdates, 2);
+	} finally {
+		AssistantMessageComponent.prototype.updateContent = originalAssistantUpdate;
+		ToolExecutionComponent.prototype.render = originalRender;
+		ToolExecutionComponent.prototype.updateArgs = originalUpdateArgs;
+		ToolExecutionComponent.prototype.updateResult = originalUpdateResult;
+		renderer.dispose();
+	}
+});
+
+function detailTranscript(calls, results = []) {
+	return {
+		messages: [
+			{ role: "assistant", content: calls, timestamp: 1 },
+			...results.map(({ id, name, text, isError = false }, index) => ({
+				role: "toolResult",
+				toolCallId: id,
+				toolName: name,
+				content: [{ type: "text", text }],
+				isError,
+				timestamp: index + 2,
+			})),
+		],
+	};
+}
+
+test("detail shares its quiet tool predicate", () => {
+	for (const toolName of ["read", "grep", "find", "ls", "bash", "write", "edit"]) assert.equal(isDetailQuietTool(toolName), true);
+	assert.equal(isDetailQuietTool("other"), false);
+});
+
+test("detail disables images only for quiet tools", () => {
+	const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+	const originalRender = ToolExecutionComponent.prototype.render;
+	const components = new Map();
+	ToolExecutionComponent.prototype.render = function(width) {
+		components.set(this.toolName, this);
+		return originalRender.call(this, width);
+	};
+	try {
+		renderer.render(detailTranscript([
+			{ type: "toolCall", id: "read_image", name: "read", arguments: { path: "image.png" } },
+			{ type: "toolCall", id: "bash_image", name: "bash", arguments: { command: "echo image" } },
+			{ type: "toolCall", id: "other_image", name: "other", arguments: {} },
+		]), 80);
+		assert.equal(components.get("read").showImages, false);
+		assert.equal(components.get("bash").showImages, false);
+		assert.equal(components.get("other").showImages, true);
+	} finally {
+		ToolExecutionComponent.prototype.render = originalRender;
+		renderer.dispose();
+	}
+});
+
+test("detail applies quiet tool policy", () => {
+	const cases = [
+		{
+			name: "does not merge mixed exploration types",
+			calls: [
+				{ type: "toolCall", id: "mixed_read_1", name: "read", arguments: { path: "first.ts" } },
+				{ type: "toolCall", id: "mixed_grep", name: "grep", arguments: { pattern: "needle", path: "src" } },
+				{ type: "toolCall", id: "mixed_read_2", name: "read", arguments: { path: "final.ts" } },
+			],
+			results: [
+				{ id: "mixed_read_1", name: "read", text: "first output" },
+				{ id: "mixed_grep", name: "grep", text: "grep output" },
+				{ id: "mixed_read_2", name: "read", text: "final output" },
+			],
+			matches: [/first.ts/, /needle in src/, /final.ts/],
+			misses: [/×2/, /first output|grep output|final output/],
+		},
+		{
+			name: "merges successful same-type exploration calls",
+			calls: [
+				{ type: "toolCall", id: "same_read_1", name: "read", arguments: { path: "first.ts" } },
+				{ type: "toolCall", id: "same_read_2", name: "read", arguments: { path: "second.ts" } },
+			],
+			results: [
+				{ id: "same_read_1", name: "read", text: "first output" },
+				{ id: "same_read_2", name: "read", text: "second output" },
+			],
+			matches: [/read ×2/, /second.ts/],
+			misses: [/first output|second output/],
+		},
+		{
+			name: "keeps bash, edit, and write quiet and separate",
+			calls: [
+				{ type: "toolCall", id: "quiet_bash", name: "bash", arguments: { command: "echo quiet" } },
+				{ type: "toolCall", id: "quiet_edit", name: "edit", arguments: { path: "quiet.ts", edits: [] } },
+				{ type: "toolCall", id: "quiet_write", name: "write", arguments: { path: "quiet.txt", content: "text" } },
+				{ type: "toolCall", id: "native_other", name: "other", arguments: {} },
+			],
+			results: [
+				{ id: "quiet_bash", name: "bash", text: "bash result" },
+				{ id: "quiet_edit", name: "edit", text: "edit result" },
+				{ id: "quiet_write", name: "write", text: "write result" },
+				{ id: "native_other", name: "other", text: "native result" },
+			],
+			matches: [/echo quiet/, /quiet.ts/, /quiet.txt/, /native result/],
+			misses: [/×2/, /bash result|edit result|write result/],
+		},
+		{
+			name: "renders multiline quiet rows on one line",
+			calls: [
+				{ type: "toolCall", id: "multiline_bash", name: "bash", arguments: { command: "cat <<'EOF'\r\nhello\r\nEOF" } },
+				{ type: "toolCall", id: "multiline_grep", name: "grep", arguments: { pattern: "one\r\ntwo", path: "src" } },
+			],
+			results: [
+				{ id: "multiline_bash", name: "bash", text: "bash result" },
+				{ id: "multiline_grep", name: "grep", text: "grep result" },
+			],
+			matches: [/cat <<'EOF' hello EOF/, /one two in src/],
+			misses: [/hello\nEOF|one\ntwo/],
+		},
+		{
+			name: "keeps pending and errors visible at batch boundaries",
+			calls: [
+				{ type: "toolCall", id: "before_1", name: "read", arguments: { path: "before-1.ts" } },
+				{ type: "toolCall", id: "before_2", name: "read", arguments: { path: "before-2.ts" } },
+				{ type: "toolCall", id: "pending", name: "read", arguments: { path: "pending.ts" } },
+				{ type: "toolCall", id: "error", name: "read", arguments: { path: "denied.ts" } },
+				{ type: "toolCall", id: "after_1", name: "read", arguments: { path: "after-1.ts" } },
+				{ type: "toolCall", id: "after_2", name: "read", arguments: { path: "after-2.ts" } },
+			],
+			results: [
+				{ id: "before_1", name: "read", text: "before output" },
+				{ id: "before_2", name: "read", text: "before output" },
+				{ id: "error", name: "read", text: "permission denied\nmore output", isError: true },
+				{ id: "after_1", name: "read", text: "after output" },
+				{ id: "after_2", name: "read", text: "after output" },
+			],
+			matches: [/pending.ts/, /denied.ts/, /permission denied/],
+			misses: [],
+			count: 2,
+		},
+	];
+	for (const policy of cases) {
+		const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+		const lines = renderer.render(detailTranscript(policy.calls, policy.results), 80).join("\n");
+		renderer.dispose();
+		for (const match of policy.matches) assert.match(lines, match, policy.name);
+		for (const miss of policy.misses) assert.doesNotMatch(lines, miss, policy.name);
+		if (policy.count !== undefined) assert.equal(lines.match(/read ×2/g)?.length, policy.count, policy.name);
+	}
+});
+
+test("detail tool state is isolated per transcript renderer", () => {
+	const first = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+	const second = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+	const firstLines = first.render(detailTranscript([
+		{ type: "toolCall", id: "first_read", name: "read", arguments: { path: "first.ts" } },
+		{ type: "toolCall", id: "first_read_2", name: "read", arguments: { path: "second.ts" } },
+	], [
+		{ id: "first_read", name: "read", text: "first" },
+		{ id: "first_read_2", name: "read", text: "second" },
+	]), 80).join("\n");
+	const switchedLines = first.render(detailTranscript([
+		{ type: "toolCall", id: "switched_read", name: "read", arguments: { path: "switched.ts" } },
+	]), 80).join("\n");
+	const secondLines = second.render(detailTranscript([
+		{ type: "toolCall", id: "second_read", name: "read", arguments: { path: "second.ts" } },
+	]), 80).join("\n");
+	first.dispose();
+	second.dispose();
+	assert.match(firstLines, /read ×2/);
+	assert.match(switchedLines, /switched.ts/);
+	assert.doesNotMatch(switchedLines, /first.ts|×2/);
+	assert.match(secondLines, /second.ts/);
+	assert.doesNotMatch(secondLines, /first.ts|×2/);
+});
 
 test("agents overlay renders at narrow widths", () => {
 	const theme = { fg: (_color, text) => text };

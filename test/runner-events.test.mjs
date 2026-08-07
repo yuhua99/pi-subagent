@@ -43,7 +43,8 @@ test("repro: captures final assistant output from agent_end after non-zero tool 
 
   result.exitCode = 1;
 
-  assert.equal(result.messages.length, 2);
+  assert.equal(result.messages.length, 3);
+  assert.deepEqual(result.messages.map((message) => message.role), ["assistant", "toolResult", "assistant"]);
   assert.equal(result.stopReason, "error");
   assert.equal(result.errorMessage, "Command exited with code 1");
   assert.equal(result.usage.turns, 2);
@@ -83,6 +84,33 @@ test("deduplicates assistant messages repeated across message_end, turn_end, and
   assert.equal(result.usage.input, 1);
   assert.equal(result.usage.output, 2);
   assert.equal(result.sawAgentEnd, true);
+});
+
+test("stores completed tool results once and pairs canonical turn and agent messages", () => {
+  const result = makeResult();
+  const assistant = {
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "echo ok" } }],
+    timestamp: 1,
+  };
+  const toolResult = {
+    role: "toolResult",
+    toolCallId: "call_1",
+    toolName: "bash",
+    content: [{ type: "text", text: "ok" }],
+    isError: false,
+    timestamp: 2,
+  };
+
+  processPiEvent({ type: "message_end", message: assistant }, result);
+  processPiEvent({ type: "tool_execution_end", toolCallId: "call_1", toolName: "bash", result: { content: toolResult.content }, isError: false }, result);
+  processPiEvent({ type: "message_end", message: toolResult }, result);
+  processPiEvent({ type: "turn_end", message: assistant, toolResults: [toolResult] }, result);
+  processPiEvent({ type: "agent_end", messages: [assistant, toolResult] }, result);
+
+  assert.equal(result.messages.length, 2);
+  assert.deepEqual(result.messages.map((message) => message.role), ["assistant", "toolResult"]);
+  assert.equal(result.messages[1], toolResult);
 });
 
 test("message_update stores the snapshot on partialMessage and returns 'stream'", () => {

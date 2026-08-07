@@ -2,7 +2,7 @@
  * Shared type definitions for the subagent extension.
  */
 
-import type { Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import { getFinalAssistantText } from "./runner-events.js";
 
 /** Context mode for delegated runs. */
@@ -36,7 +36,7 @@ export interface SingleResult {
 	errorMessage?: string;
 	sawAgentEnd?: boolean;
 	registryId?: string;
-	partialMessage?: Message;
+	partialMessage?: AssistantMessage;
 }
 
 /** Task specification for a parallel delegation run. */

@@ -40,10 +40,20 @@ function updateAssistantMetadata(result, message) {
   if (message.errorMessage) result.errorMessage = message.errorMessage;
 }
 
-function addAssistantMessage(result, message) {
-  if (!message || message.role !== "assistant") return false;
+function addTranscriptMessage(result, message) {
+  if (!message || (message.role !== "assistant" && message.role !== "toolResult")) return false;
 
-  updateAssistantMetadata(result, message);
+  if (message.role === "toolResult") {
+    const index = result.messages.findIndex(
+      (existing) => existing?.role === "toolResult" && existing.toolCallId === message.toolCallId,
+    );
+    if (index >= 0) {
+      result.messages[index] = message;
+      return false;
+    }
+  } else {
+    updateAssistantMetadata(result, message);
+  }
 
   const signature = getMessageSignature(message);
   const seen = getSeenMessageSignatures(result);
@@ -52,27 +62,47 @@ function addAssistantMessage(result, message) {
 
   result.messages.push(message);
 
-  result.usage.turns++;
-  const usage = message.usage;
-  if (usage) {
-    result.usage.input += usage.input || 0;
-    result.usage.output += usage.output || 0;
-    result.usage.cacheRead += usage.cacheRead || 0;
-    result.usage.cacheWrite += usage.cacheWrite || 0;
-    result.usage.cost += usage.cost?.total || 0;
-    result.usage.contextTokens = usage.totalTokens || 0;
+  if (message.role === "assistant") {
+    result.usage.turns++;
+    const usage = message.usage;
+    if (usage) {
+      result.usage.input += usage.input || 0;
+      result.usage.output += usage.output || 0;
+      result.usage.cacheRead += usage.cacheRead || 0;
+      result.usage.cacheWrite += usage.cacheWrite || 0;
+      result.usage.cost += usage.cost?.total || 0;
+      result.usage.contextTokens = usage.totalTokens || 0;
+    }
   }
 
   return true;
 }
 
-function addAssistantMessages(result, messages) {
+function addTranscriptMessages(result, messages) {
   if (!Array.isArray(messages)) return false;
   let changed = false;
   for (const message of messages) {
-    if (addAssistantMessage(result, message)) changed = true;
+    if (addTranscriptMessage(result, message)) changed = true;
   }
   return changed;
+}
+
+function addToolExecutionResult(result, event) {
+  if (!event.result || typeof event.result !== "object") return false;
+  if (result.messages.some((message) => message?.role === "toolResult" && message.toolCallId === event.toolCallId)) {
+    return false;
+  }
+  return addTranscriptMessage(result, {
+    role: "toolResult",
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    content: event.result.content ?? [],
+    details: event.result.details,
+    usage: event.result.usage,
+    addedToolNames: event.result.addedToolNames,
+    isError: event.isError,
+    timestamp: Date.now(),
+  });
 }
 
 export function processPiEvent(event, result) {
@@ -84,18 +114,23 @@ export function processPiEvent(event, result) {
       return "stream";
 
     case "message_end":
-      addAssistantMessage(result, event.message);
+      addTranscriptMessage(result, event.message);
       result.partialMessage = undefined;
       return "status";
 
+    case "tool_execution_end":
+      addToolExecutionResult(result, event);
+      return "status";
+
     case "turn_end":
-      addAssistantMessage(result, event.message);
+      addTranscriptMessage(result, event.message);
+      addTranscriptMessages(result, event.toolResults);
       result.partialMessage = undefined;
       return "status";
 
     case "agent_end":
       result.sawAgentEnd = true;
-      addAssistantMessages(result, event.messages);
+      addTranscriptMessages(result, event.messages);
       result.partialMessage = undefined;
       return "status";
 
