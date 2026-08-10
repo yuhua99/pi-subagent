@@ -10,6 +10,8 @@ const MAX_VISIBLE = 10;
 const KEY_UP = "\x1b[A";
 const KEY_DOWN = "\x1b[B";
 const KEY_ESCAPE = "\x1b";
+const KEY_CTRL_U = "\x15";
+const KEY_CTRL_D = "\x04";
 
 function runningLabel(entry: SubagentRun, now: number): string {
 	return `○ [${entry.id}] ${entry.agent} — ${formatElapsed(now - entry.startedAt)}`;
@@ -125,6 +127,15 @@ export function showAgentsList(
 						killRun(selected.value);
 						refresh();
 					}
+					return;
+				}
+				if (data === KEY_CTRL_U || data === KEY_CTRL_D) {
+					const ids = [...runningEntries.map((entry) => entry.id), ...completedEntries.map((entry) => entry.id)];
+					const index = ids.findIndex((id) => id === selectList?.getSelectedItem()?.value);
+					const visible = Math.min(ids.length, MAX_VISIBLE, agentsOverlayBodyRows(tui.terminal.rows) - 1);
+					const step = Math.max(1, Math.floor(visible / 2));
+					selectList.setSelectedIndex(Math.max(0, index) + (data === KEY_CTRL_D ? step : -step));
+					tui.requestRender();
 					return;
 				}
 				const mapped = data === "j" ? KEY_DOWN : data === "k" ? KEY_UP : data;

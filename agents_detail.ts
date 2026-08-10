@@ -1,7 +1,7 @@
 import { AssistantMessageComponent, ToolExecutionComponent, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type OverlayOptions, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { renderAgentsOverlay } from "./agents_overlay.ts";
+import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
 import { createDetailToolRenderers, isDetailQuietTool } from "./agents_detail_tools.ts";
 import { formatElapsed, formatUsage, type ThemeFg } from "./render.ts";
 import { getRun, listCompletedRuns } from "./registry.ts";
@@ -13,6 +13,8 @@ const KEY_DOWN = "\x1b[B";
 const KEY_LEFT = "\x1b[D";
 const KEY_RIGHT = "\x1b[C";
 const KEY_ESCAPE = "\x1b";
+const KEY_CTRL_U = "\x15";
+const KEY_CTRL_D = "\x04";
 
 export interface DetailEntry {
 	id: string;
@@ -263,22 +265,24 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					tui.requestRender();
 					return;
 				}
-				if (data === KEY_UP || data === "k") {
+				if (data === KEY_UP || data === "k" || data === KEY_CTRL_U) {
+					const step = data === KEY_CTRL_U ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
 					if (activePane === "task") {
-						taskScroll = Math.max(0, taskScroll - 1);
+						taskScroll = Math.max(0, taskScroll - step);
 					} else {
 						const effective = transcriptScroll ?? lastTranscriptMax;
-						transcriptScroll = Math.max(0, effective - 1);
+						transcriptScroll = Math.max(0, effective - step);
 					}
 					tui.requestRender();
 					return;
 				}
-				if (data === KEY_DOWN || data === "j") {
+				if (data === KEY_DOWN || data === "j" || data === KEY_CTRL_D) {
+					const step = data === KEY_CTRL_D ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
 					if (activePane === "task") {
-						taskScroll = Math.min(lastTaskMax, taskScroll + 1);
+						taskScroll = Math.min(lastTaskMax, taskScroll + step);
 					} else {
 						const effective = transcriptScroll ?? lastTranscriptMax;
-						const next = effective + 1;
+						const next = effective + step;
 						transcriptScroll = next >= lastTranscriptMax ? null : next;
 					}
 					tui.requestRender();
