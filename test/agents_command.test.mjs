@@ -225,7 +225,7 @@ test("detail disables images only for quiet tools", () => {
 test("detail applies quiet tool policy", () => {
 	const cases = [
 		{
-			name: "does not merge mixed exploration types",
+			name: "renders each quiet call on its own row",
 			calls: [
 				{ type: "toolCall", id: "mixed_read_1", name: "read", arguments: { path: "first.ts" } },
 				{ type: "toolCall", id: "mixed_grep", name: "grep", arguments: { pattern: "needle", path: "src" } },
@@ -237,10 +237,10 @@ test("detail applies quiet tool policy", () => {
 				{ id: "mixed_read_2", name: "read", text: "final output" },
 			],
 			matches: [/first.ts/, /needle in src/, /final.ts/],
-			misses: [/×2/, /first output|grep output|final output/],
+			misses: [/×\d/, /first output|grep output|final output/],
 		},
 		{
-			name: "merges successful same-type exploration calls",
+			name: "does not collapse same-type exploration calls",
 			calls: [
 				{ type: "toolCall", id: "same_read_1", name: "read", arguments: { path: "first.ts" } },
 				{ type: "toolCall", id: "same_read_2", name: "read", arguments: { path: "second.ts" } },
@@ -249,8 +249,21 @@ test("detail applies quiet tool policy", () => {
 				{ id: "same_read_1", name: "read", text: "first output" },
 				{ id: "same_read_2", name: "read", text: "second output" },
 			],
-			matches: [/read ×2/, /second.ts/],
-			misses: [/first output|second output/],
+			matches: [/first.ts/, /second.ts/],
+			misses: [/×\d/, /first output|second output/],
+		},
+		{
+			name: "shows intent with tool detail when present",
+			calls: [
+				{ type: "toolCall", id: "intent_read", name: "read", arguments: { path: "src/a.ts", intent: "check entry" } },
+				{ type: "toolCall", id: "intent_bash", name: "bash", arguments: { command: "ls -la", intent: "list files" } },
+			],
+			results: [
+				{ id: "intent_read", name: "read", text: "file body" },
+				{ id: "intent_bash", name: "bash", text: "listing" },
+			],
+			matches: [/check entry/, /src\/a\.ts/, /list files/, /\$ ls -la/],
+			misses: [/file body|listing/],
 		},
 		{
 			name: "keeps bash, edit, and write quiet and separate",
@@ -267,7 +280,7 @@ test("detail applies quiet tool policy", () => {
 				{ id: "native_other", name: "other", text: "native result" },
 			],
 			matches: [/echo quiet/, /quiet.ts/, /quiet.txt/, /native result/],
-			misses: [/×2/, /bash result|edit result|write result/],
+			misses: [/×\d/, /bash result|edit result|write result/],
 		},
 		{
 			name: "renders multiline quiet rows on one line",
@@ -283,7 +296,7 @@ test("detail applies quiet tool policy", () => {
 			misses: [/hello\nEOF|one\ntwo/],
 		},
 		{
-			name: "keeps pending and errors visible at batch boundaries",
+			name: "keeps pending and errors visible on their own rows",
 			calls: [
 				{ type: "toolCall", id: "before_1", name: "read", arguments: { path: "before-1.ts" } },
 				{ type: "toolCall", id: "before_2", name: "read", arguments: { path: "before-2.ts" } },
@@ -299,9 +312,8 @@ test("detail applies quiet tool policy", () => {
 				{ id: "after_1", name: "read", text: "after output" },
 				{ id: "after_2", name: "read", text: "after output" },
 			],
-			matches: [/pending.ts/, /denied.ts/, /permission denied/],
-			misses: [],
-			count: 2,
+			matches: [/before-1\.ts/, /before-2\.ts/, /pending.ts/, /denied.ts/, /permission denied/, /after-1\.ts/, /after-2\.ts/],
+			misses: [/×\d/, /before output|after output/],
 		},
 	];
 	for (const policy of cases) {
@@ -310,7 +322,6 @@ test("detail applies quiet tool policy", () => {
 		renderer.dispose();
 		for (const match of policy.matches) assert.match(lines, match, policy.name);
 		for (const miss of policy.misses) assert.doesNotMatch(lines, miss, policy.name);
-		if (policy.count !== undefined) assert.equal(lines.match(/read ×2/g)?.length, policy.count, policy.name);
 	}
 });
 
@@ -332,11 +343,13 @@ test("detail tool state is isolated per transcript renderer", () => {
 	]), 80).join("\n");
 	first.dispose();
 	second.dispose();
-	assert.match(firstLines, /read ×2/);
+	assert.match(firstLines, /first\.ts/);
+	assert.match(firstLines, /second\.ts/);
+	assert.doesNotMatch(firstLines, /×\d/);
 	assert.match(switchedLines, /switched.ts/);
-	assert.doesNotMatch(switchedLines, /first.ts|×2/);
-	assert.match(secondLines, /second.ts/);
-	assert.doesNotMatch(secondLines, /first.ts|×2/);
+	assert.doesNotMatch(switchedLines, /first\.ts|×\d/);
+	assert.match(secondLines, /second\.ts/);
+	assert.doesNotMatch(secondLines, /first\.ts|×\d/);
 });
 
 test("agents overlay renders at narrow widths", () => {

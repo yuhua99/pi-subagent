@@ -79,7 +79,8 @@ export class NativeTranscriptRenderer {
 		const toolCalls = new Map<string, ToolCacheEntry>();
 		const activeAssistants = new Set<string>();
 		const activeTools = new Set<string>();
-		const toolEntries: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; group: string; component: ToolExecutionComponent; quiet: boolean }> = [];
+		const quietTools: ToolExecutionComponent[] = [];
+		const toolCallIds: string[] = [];
 		const messages = result.partialMessage ? [...result.messages, result.partialMessage] : result.messages;
 		const resultIds = new Set(messages.flatMap((message) => message.role === "toolResult" ? [message.toolCallId] : []));
 		let assistantIndex = 0;
@@ -111,7 +112,7 @@ export class NativeTranscriptRenderer {
 					}
 					if (!tool) {
 						tool = {
-							component: new ToolExecutionComponent(content.name, content.id, content.arguments, quiet ? { showImages: false } : undefined, this.detailTools.definition(content.name, assistantKey), this.tui, this.cwd),
+							component: new ToolExecutionComponent(content.name, content.id, content.arguments, quiet ? { showImages: false } : undefined, this.detailTools.definition(content.name), this.tui, this.cwd),
 							args: content.arguments,
 						};
 						this.tools.set(toolKey, tool);
@@ -123,7 +124,8 @@ export class NativeTranscriptRenderer {
 					}
 					activeTools.add(toolKey);
 					toolCalls.set(content.id, tool);
-					toolEntries.push({ toolCallId: content.id, toolName: content.name, args: content.arguments, group: assistantKey, component: tool.component, quiet });
+					toolCallIds.push(content.id);
+					if (quiet) quietTools.push(tool.component);
 					components.push(tool.component);
 				}
 			} else if (message.role === "toolResult") {
@@ -137,11 +139,9 @@ export class NativeTranscriptRenderer {
 			}
 		}
 
-		const quietLayoutChanged = this.detailTools.sync(toolEntries);
-		if (quietChanged || quietLayoutChanged) {
-			for (const entry of toolEntries) {
-				if (entry.quiet) entry.component.invalidate();
-			}
+		this.detailTools.sync(toolCallIds);
+		if (quietChanged) {
+			for (const component of quietTools) component.invalidate();
 		}
 
 		for (const key of this.assistants.keys()) {
