@@ -1,6 +1,6 @@
-import { AssistantMessageComponent, ToolExecutionComponent, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, ToolExecutionComponent, getMarkdownTheme, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { type OverlayOptions, type TUI, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, type OverlayOptions, type TUI, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
 import { createDetailToolRenderers, isDetailQuietTool } from "./agents_detail_tools.ts";
 import { formatElapsed, formatUsage, type ThemeFg } from "./render.ts";
@@ -228,7 +228,7 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					body: (bodyWidth, bodyRows) => {
 						const taskWidth = Math.max(5, Math.floor(bodyWidth * 0.3));
 						const transcriptWidth = Math.max(1, bodyWidth - taskWidth - 3);
-						const taskWrapped = wrapTextWithAnsi(theme.fg("dim", entry.task), taskWidth);
+						const taskWrapped = new Markdown(entry.task, 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("text", text) }).render(taskWidth);
 						lastTaskMax = Math.max(0, taskWrapped.length - bodyRows);
 						taskScroll = Math.min(Math.max(0, taskScroll), lastTaskMax);
 						const taskColumn = paneView(taskWrapped, taskScroll, bodyRows, theme);
