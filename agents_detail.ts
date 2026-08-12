@@ -1,6 +1,6 @@
 import { AssistantMessageComponent, ToolExecutionComponent, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { type OverlayOptions, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type OverlayOptions, type TUI, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
 import { createDetailToolRenderers, isDetailQuietTool } from "./agents_detail_tools.ts";
 import { formatElapsed, formatUsage, type ThemeFg } from "./render.ts";
@@ -13,8 +13,6 @@ const KEY_DOWN = "\x1b[B";
 const KEY_LEFT = "\x1b[D";
 const KEY_RIGHT = "\x1b[C";
 const KEY_ESCAPE = "\x1b";
-const KEY_CTRL_U = "\x15";
-const KEY_CTRL_D = "\x04";
 
 export interface DetailEntry {
 	id: string;
@@ -215,7 +213,7 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 						: "finished";
 
 				const usage = formatUsage(result.usage, result.model);
-				const escapeText = "tab pane · ↑↓ scroll · esc back";
+				const escapeText = "tab pane · ↑↓/c-u/d scroll · esc back";
 				const footerGap = Math.max(1, contentWidth - visibleWidth(escapeText) - visibleWidth(usage));
 				const footer = usage
 					? theme.fg("dim", escapeText) + " ".repeat(footerGap) + theme.fg("dim", usage)
@@ -265,8 +263,10 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					tui.requestRender();
 					return;
 				}
-				if (data === KEY_UP || data === "k" || data === KEY_CTRL_U) {
-					const step = data === KEY_CTRL_U ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
+				const ctrlU = matchesKey(data, "ctrl+u");
+				const ctrlD = matchesKey(data, "ctrl+d");
+				if (data === KEY_UP || data === "k" || ctrlU) {
+					const step = ctrlU ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
 					if (activePane === "task") {
 						taskScroll = Math.max(0, taskScroll - step);
 					} else {
@@ -276,8 +276,8 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					tui.requestRender();
 					return;
 				}
-				if (data === KEY_DOWN || data === "j" || data === KEY_CTRL_D) {
-					const step = data === KEY_CTRL_D ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
+				if (data === KEY_DOWN || data === "j" || ctrlD) {
+					const step = ctrlD ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
 					if (activePane === "task") {
 						taskScroll = Math.min(lastTaskMax, taskScroll + step);
 					} else {

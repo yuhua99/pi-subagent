@@ -1,17 +1,14 @@
 import { type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { type OverlayOptions, type SelectItem, SelectList, visibleWidth } from "@earendil-works/pi-tui";
+import { type OverlayOptions, type SelectItem, SelectList, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
 import { formatElapsed } from "./render.ts";
 import { listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "./registry.ts";
 import { isResultError } from "./types.ts";
 
 const REFRESH_MS = 1000;
-const MAX_VISIBLE = 10;
 const KEY_UP = "\x1b[A";
 const KEY_DOWN = "\x1b[B";
 const KEY_ESCAPE = "\x1b";
-const KEY_CTRL_U = "\x15";
-const KEY_CTRL_D = "\x04";
 
 function runningLabel(entry: SubagentRun, now: number): string {
 	return `○ [${entry.id}] ${entry.agent} — ${formatElapsed(now - entry.startedAt)}`;
@@ -87,7 +84,7 @@ export function showAgentsList(
 				const maxPrimaryColumnWidth = Math.max(0, ...items.map((item) => visibleWidth(item.label))) + 2;
 				selectList = new SelectList(
 					items,
-					Math.min(allIds.length, MAX_VISIBLE, agentsOverlayBodyRows(tui.terminal.rows) - 1),
+					Math.min(allIds.length, agentsOverlayBodyRows(tui.terminal.rows) - 1),
 					listTheme,
 					{ maxPrimaryColumnWidth },
 				);
@@ -112,7 +109,7 @@ export function showAgentsList(
 					header: theme.fg("muted", `Subagents — ${runningEntries.length} running · ${completedEntries.length} completed`),
 					body: (contentWidth) =>
 						selectList ? selectList.render(contentWidth) : [theme.fg("muted", "  No subagents running.")],
-					footer: theme.fg("dim", "enter view · x kill · esc close"),
+					footer: theme.fg("dim", "enter view · x kill · c-u/d · esc close"),
 				}),
 			invalidate: () => selectList?.invalidate(),
 			handleInput: (data: string) => {
@@ -129,12 +126,12 @@ export function showAgentsList(
 					}
 					return;
 				}
-				if (data === KEY_CTRL_U || data === KEY_CTRL_D) {
+				if (matchesKey(data, "ctrl+u") || matchesKey(data, "ctrl+d")) {
 					const ids = [...runningEntries.map((entry) => entry.id), ...completedEntries.map((entry) => entry.id)];
 					const index = ids.findIndex((id) => id === selectList?.getSelectedItem()?.value);
-					const visible = Math.min(ids.length, MAX_VISIBLE, agentsOverlayBodyRows(tui.terminal.rows) - 1);
+					const visible = Math.min(ids.length, agentsOverlayBodyRows(tui.terminal.rows) - 1);
 					const step = Math.max(1, Math.floor(visible / 2));
-					selectList.setSelectedIndex(Math.max(0, index) + (data === KEY_CTRL_D ? step : -step));
+					selectList.setSelectedIndex(Math.max(0, index) + (matchesKey(data, "ctrl+d") ? step : -step));
 					tui.requestRender();
 					return;
 				}
