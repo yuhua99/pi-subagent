@@ -262,7 +262,7 @@ test("detail applies quiet tool policy", () => {
 				{ id: "intent_read", name: "read", text: "file body" },
 				{ id: "intent_bash", name: "bash", text: "listing" },
 			],
-			matches: [/check entry/, /src\/a\.ts/, /list files/, /\$ ls -la/],
+			matches: [/check entry.*read.*src\/a\.ts/, /list files.*bash.*ls -la/],
 			misses: [/file body|listing/],
 		},
 		{

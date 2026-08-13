@@ -72,30 +72,6 @@ function target(toolName: string, args: Record<string, unknown>): string {
   }
 }
 
-function detail(toolName: string, args: Record<string, unknown>): string {
-  switch (toolName) {
-    case "bash": {
-      const command =
-        typeof args.command === "string" ? args.command.split("\n", 1)[0] : "";
-      return command ? `$ ${command}` : "";
-    }
-    case "read": {
-      const path = args.file_path ?? args.path;
-      return typeof path === "string" ? path : "";
-    }
-    case "edit":
-    case "write":
-      return typeof args.path === "string" ? args.path : "";
-    case "grep":
-    case "find":
-      return typeof args.pattern === "string" ? args.pattern : "";
-    case "ls":
-      return typeof args.path === "string" && args.path ? args.path : ".";
-    default:
-      return "";
-  }
-}
-
 export function createDetailToolRenderers(cwd: string) {
   const members = new Map<string, ToolMember>();
 
@@ -113,16 +89,16 @@ export function createDetailToolRenderers(cwd: string) {
     (args: Record<string, unknown>, theme: any, context: any) => {
       const member = memberFor(context.toolCallId);
       const intent = typeof args.intent === "string" ? args.intent.trim() : "";
-      const primary = intent || target(toolName, args);
-      const d = intent ? detail(toolName, args) : "";
+      const t = target(toolName, args);
       const symbol =
         member.status === "error"
           ? theme.fg("error", "✗")
           : member.status === "ok"
             ? theme.fg("success", "✓")
             : theme.fg("dim", "·");
-      let line = `${symbol} ${theme.fg("dim", toolName)} ${theme.fg("accent", shorten(primary))}`;
-      if (d && d !== primary) line += ` ${theme.fg("dim", shorten(d))}`;
+      let line = intent
+        ? `${symbol} ${theme.fg("accent", shorten(intent))} ${theme.fg("dim", toolName)} ${theme.fg("dim", shorten(t))}`
+        : `${symbol} ${theme.fg("dim", toolName)} ${theme.fg("accent", shorten(t))}`;
       if (member.status === "error" && member.error)
         line += `\n  ${theme.fg("error", member.error)}`;
       return new Text(line, 1, 0);
