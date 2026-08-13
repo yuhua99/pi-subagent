@@ -77,6 +77,21 @@ export interface SubagentDetails {
 	results: SingleResult[];
 }
 
+/** Metadata attached to subagent_list tool results for rendering. */
+export interface SubagentListDetails {
+	runs: Array<{
+		id: string;
+		agent: string;
+		taskSummary?: string;
+		startedAt: number;
+	}>;
+}
+
+/** Metadata attached to subagent_kill tool results for rendering. */
+export type SubagentKillDetails =
+	| { id: string; agent: string }
+	| { id: string };
+
 /** Create an empty UsageStats object. */
 export function emptyUsage(): UsageStats {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };

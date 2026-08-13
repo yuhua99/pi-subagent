@@ -17,9 +17,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { registerAgentsCommand } from "./agents_command.ts";
 import { isSubagentChild, isSubagentForkChild } from "./delegation.ts";
-import { formatSubagentList, renderCall, renderResult } from "./render.ts";
+import { formatSubagentList, renderCall, renderKillCall, renderKillResult, renderListCall, renderListResult, renderResult } from "./render.ts";
 import { injectIntoSystemPrompt } from "./prompt_injection.ts";
 import { listRuns } from "./registry.ts";
+import type { SubagentKillDetails, SubagentListDetails } from "./types.ts";
 import { createSubagentExecution } from "./subagent_execution.ts";
 import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 
@@ -86,11 +87,17 @@ export default function (pi: ExtensionAPI) {
     description: LIST_TOOL_DESCRIPTION,
     parameters: SubagentListParams,
     async execute() {
+      const runs = listRuns();
+      const details: SubagentListDetails = {
+        runs: runs.map(({ id, agent, taskSummary, startedAt }) => ({ id, agent, taskSummary, startedAt })),
+      };
       return {
-        content: [{ type: "text" as const, text: formatSubagentList(listRuns()) }],
-        details: undefined,
+        content: [{ type: "text" as const, text: formatSubagentList(runs) }],
+        details,
       };
     },
+    renderCall: (args, theme, context) => renderListCall(args, theme, context),
+    renderResult: (result, _options, theme) => renderListResult(result, _options, theme),
   });
 
   pi.registerTool({
@@ -101,6 +108,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params) {
       const entry = execution.kill(params.id);
       if (!entry) {
+        const details: SubagentKillDetails = { id: params.id };
         return {
           content: [
             {
@@ -108,14 +116,17 @@ export default function (pi: ExtensionAPI) {
               text: `No running subagent with id '${params.id}' (it may have already finished).`,
             },
           ],
-          details: undefined,
+          details,
         };
       }
+      const details: SubagentKillDetails = { id: entry.id, agent: entry.agent };
       return {
         content: [{ type: "text" as const, text: `Killed subagent [${entry.id}] (${entry.agent}).` }],
-        details: undefined,
+        details,
       };
     },
+    renderCall: (args, theme, context) => renderKillCall(args, theme, context),
+    renderResult: (result, _options, theme) => renderKillResult(result, _options, theme),
   });
 }
 

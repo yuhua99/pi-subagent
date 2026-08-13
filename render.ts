@@ -11,6 +11,8 @@ import {
 	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
+	type SubagentKillDetails,
+	type SubagentListDetails,
 	type UsageStats,
 	DEFAULT_DELEGATION_MODE,
 	isResultError,
@@ -79,6 +81,17 @@ function isRenderableResult(value: unknown): value is SingleResult {
 
 function isRenderableDetails(value: unknown): value is SubagentDetails {
 	return isRecord(value) && (value.mode === "single" || value.mode === "parallel") && Array.isArray(value.results) && value.results.every(isRenderableResult);
+}
+
+function isRenderableListDetails(value: unknown): value is SubagentListDetails {
+	return isRecord(value) && Array.isArray(value.runs) && value.runs.every((run) => (
+		isRecord(run) && typeof run.id === "string" && typeof run.agent === "string" &&
+		(run.taskSummary === undefined || typeof run.taskSummary === "string") && typeof run.startedAt === "number"
+	));
+}
+
+function isRenderableKillDetails(value: unknown): value is SubagentKillDetails {
+	return isRecord(value) && typeof value.id === "string" && (!("agent" in value) || typeof value.agent === "string");
 }
 
 function hasUnexpectedKeys(args: Record<string, unknown>, allowed: string[]): boolean {
@@ -236,6 +249,50 @@ export function renderResult(
 	return details.mode === "single"
 		? renderSingleResult(details.results[0], theme)
 		: renderParallelResult(details, theme);
+}
+
+export function renderListCall(
+	_args: Record<string, any>,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+	_context?: RenderContext,
+): Text {
+	return new Text(theme.fg("toolTitle", theme.bold("subagent_list")), 0, 0);
+}
+
+export function renderListResult(
+	result: { content: ResultContent; details?: unknown },
+	_options: unknown,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+): Text {
+	const details = isRenderableListDetails(result.details) ? result.details : undefined;
+	if (!details || details.runs.length === 0) return new Text(fallbackText(result.content), 0, 0);
+	const lines = details.runs.map((run, index) => {
+		const prefix = index === details.runs.length - 1 ? "└─ " : "├─ ";
+		const summary = run.taskSummary ? theme.fg("dim", ` — ${run.taskSummary}`) : "";
+		return `${theme.fg("muted", prefix)}${theme.fg("accent", run.agent)}${summary}${theme.fg("dim", ` [${run.id}]`)} ${theme.fg("warning", "○")} ${theme.fg("muted", `running ${formatElapsed(Date.now() - run.startedAt)}`)}`;
+	});
+	return new Text(lines.join("\n"), 0, 0);
+}
+
+export function renderKillCall(
+	args: Record<string, any>,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+	_context?: RenderContext,
+): Text {
+	return new Text(theme.fg("toolTitle", theme.bold("subagent_kill ")) + theme.fg("accent", args.id ?? "..."), 0, 0);
+}
+
+export function renderKillResult(
+	result: { content: ResultContent; details?: unknown },
+	_options: unknown,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+): Text {
+	const details = isRenderableKillDetails(result.details) ? result.details : undefined;
+	if (!details) return new Text(fallbackText(result.content), 0, 0);
+	if ("agent" in details) {
+		return new Text(`${theme.fg("muted", "└─ ")}${theme.fg("warning", "■")} ${theme.fg("warning", "killed")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`, 0, 0);
+	}
+	return new Text(`${theme.fg("muted", "└─ ")}${theme.fg("dim", `no running subagent [${details.id}]`)}`, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
