@@ -4,9 +4,7 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 
 ## Invariants
 
-- Single-level delegation: children run with `PI_SUBAGENT=1` (plus `PI_SUBAGENT_FORK=1` in fork mode). Spawn children register no extension tools; fork children must register schema-identical stub tools instead of returning early, or the parent's prompt cache is forfeited.
-- Fork mode keeps the child's system prompt and tool schemas byte-aligned with the parent for cache reuse; `buildPiArgs` in `runner.ts` owns this and ignores per-agent overrides.
-- Resume only targets a successfully completed run from the same parent Pi session whose session JSONL still exists; it creates a new run ID, preserves lineage, and allows only one concurrent resume per lineage.
+- Resume only targets a successfully completed run from the same parent Pi session; it creates a new run ID, preserves lineage, and allows only one concurrent resume per lineage.
 - Tests import `.ts` files directly under `node --test` (Node type stripping). Do not use runtime TS syntax (enums, namespaces, parameter properties) and do not introduce a build step.
 
 ## Architecture contract
@@ -15,14 +13,9 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 
 - `index.ts` — tool registration and event wiring only
 - `agents.ts` — agent discovery/parsing; `agents_command.ts` — `/agents` orchestration; `agents_overlay.ts` — shared overlay shell geometry; `agents_list.ts` — list UI/lifecycle; `agents_detail.ts` — detail UI/lifecycle
-- `delegation.ts` — delegation mode, child-env markers, fork snapshots, placeholders
-- `subagent_execution.ts` — subagent invocation orchestration, lifecycle, retention, and background delivery
-- `session_files.ts` — managed child session JSONL creation, resume copies, existence checks, and cleanup
 - `registry.ts` — in-memory run registry and status/stream subscriptions
-- `runner.ts` — child process execution and CLI argument construction, without managed session state; `runner-cli.js` — parent CLI flag inheritance; `runner-events.js` — JSON-event parsing and result summaries
 - `tool_schema.ts` — subagent tool schemas, descriptions, and limits
 - `task_summary.ts` — summary config and LLM completion
-- `prompt_injection.ts` — system-prompt insertion and prompt path normalization
 - `render.ts` — tool-row rendering only; rich detail belongs in `/agents`
 - `types.ts` — shared types and small helpers; no I/O, no spawning
 - `test/` — `*.test.mjs` suites and fixtures
