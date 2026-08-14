@@ -82,13 +82,10 @@ export const LIST_TOOL_DESCRIPTION = [
   "Returns each subagent's id (used by subagent_kill), agent name, elapsed time, and task preview.",
 ].join("\n");
 
-export const KILL_TOOL_DESCRIPTION = [
-  "Kill a running subagent by id (see subagent_list for ids).",
-  "Sends SIGTERM with a SIGKILL fallback. Killing one child of a parallel batch does not affect its siblings.",
-].join("\n");
+export const KILL_TOOL_DESCRIPTION = "Kill a running subagent by id (see subagent_list for ids).";
 
 export const TOOL_DESCRIPTION = [
-  "Delegate work to specialized subagents running in isolated pi processes.",
+  "Delegate work to specialized subagents.",
   "",
   "Use exactly one invocation shape: {agent, task} | {tasks} | {resume, task}.",
 ].join("\n");

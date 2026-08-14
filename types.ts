@@ -3,7 +3,6 @@
  */
 
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import { getFinalAssistantText } from "./runner-events.js";
 
 /** Context mode for delegated runs. */
 export type DelegationMode = "spawn" | "fork";
@@ -97,9 +96,31 @@ export function emptyUsage(): UsageStats {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 }
 
-/** Whether the child emitted a final assistant text response. */
+/** Return the final assistant message in a transcript. */
+export function getFinalAssistantMessage(messages: Message[]): AssistantMessage | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role === "assistant") return message;
+	}
+	return undefined;
+}
+
+/** Extract the last assistant text from a message history. */
+export function getFinalAssistantText(messages: Message[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role !== "assistant") continue;
+		for (const part of message.content) {
+			if (part.type === "text" && typeof part.text === "string" && part.text.length > 0) return part.text;
+		}
+	}
+	return "";
+}
+
+/** Whether the final assistant message emitted text. */
 export function hasFinalAssistantOutput(r: Pick<SingleResult, "messages">): boolean {
-	return getFinalAssistantText(r.messages).trim().length > 0;
+	const message = getFinalAssistantMessage(r.messages);
+	return Boolean(message?.content.some((part) => part.type === "text" && part.text.trim().length > 0));
 }
 
 /** Whether the child semantically completed the run. */
@@ -109,9 +130,9 @@ export function hasSemanticCompletion(r: Pick<SingleResult, "messages" | "sawAge
 
 /** Whether a result should be treated as successful by the wrapper/UI. */
 export function isResultSuccess(r: SingleResult): boolean {
-	if (r.exitCode === -1) return false;
+	if (r.exitCode === -1 || r.stopReason === "error" || r.stopReason === "aborted" || r.stopReason === "killed") return false;
 	if (hasSemanticCompletion(r)) return true;
-	return r.exitCode === 0 && r.stopReason !== "error" && r.stopReason !== "aborted";
+	return r.exitCode === 0;
 }
 
 /** Whether a result represents an error. */
@@ -120,7 +141,7 @@ export function isResultError(r: SingleResult): boolean {
 	return !isResultSuccess(r);
 }
 
-/** Reconcile process exit status with semantic completion observed from Pi's event stream. */
+/** Reconcile execution status with semantic completion observed from Pi's event stream. */
 export function normalizeCompletedResult(result: SingleResult, wasAborted: boolean): SingleResult {
 	result.partialMessage = undefined;
 	const hasSemanticSuccess = hasSemanticCompletion(result);
@@ -141,22 +162,41 @@ export function normalizeCompletedResult(result: SingleResult, wasAborted: boole
 		return result;
 	}
 
+	const finalFailure = result.stopReason === "error" ||
+		(result.stopReason === "length" && !hasFinalAssistantOutput(result));
+	if (finalFailure) {
+		result.exitCode = 1;
+		if (!result.errorMessage) {
+			result.errorMessage = result.stopReason === "length"
+				? "Subagent reached the output token limit before producing text."
+				: result.stderr.trim() || "Subagent provider error.";
+		}
+		if (!result.stderr.trim()) result.stderr = result.errorMessage;
+		return result;
+	}
+
 	if (result.exitCode > 0) {
 		if (hasSemanticSuccess) {
 			result.exitCode = 0;
-			if (result.stopReason === "error") result.stopReason = undefined;
-			if (result.errorMessage === result.stderr.trim()) {
-				result.errorMessage = undefined;
-			}
+			if (result.errorMessage === result.stderr.trim()) result.errorMessage = undefined;
 		} else {
 			if (!result.stopReason) result.stopReason = "error";
-			if (!result.errorMessage && result.stderr.trim()) {
-				result.errorMessage = result.stderr.trim();
-			}
+			if (!result.errorMessage && result.stderr.trim()) result.errorMessage = result.stderr.trim();
 		}
 	}
 
 	return result;
+}
+
+/** Summarize a result for a tool response. */
+export function getResultSummaryText(result: SingleResult): string {
+	const finalText = getFinalAssistantText(result.messages);
+	if (finalText) return finalText;
+	if (result.errorMessage?.trim()) return result.errorMessage.trim();
+	if ((result.exitCode > 0 || result.stopReason === "error" || result.stopReason === "aborted") && result.stderr.trim()) {
+		return result.stderr.trim();
+	}
+	return "(no output)";
 }
 
 /** Extract the last assistant text from a message history. */

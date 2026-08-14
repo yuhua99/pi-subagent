@@ -1,209 +1,209 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPiArgs } from "../runner.ts";
-import { isResultError, isResultSuccess, normalizeCompletedResult } from "../types.ts";
+import { buildTaskMessage, processSessionEvent } from "../runner.ts";
+import { getFinalAssistantText, isResultError, isResultSuccess, normalizeCompletedResult } from "../types.ts";
 
 function makeResult(overrides = {}) {
-  return {
-    agent: "oracle",
-    agentSource: "user",
-    task: "repro",
-    exitCode: -1,
-    messages: [],
-    stderr: "",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      cost: 0,
-      contextTokens: 0,
-      turns: 0,
-    },
-    ...overrides,
-  };
+	return {
+		agent: "oracle",
+		agentSource: "user",
+		task: "repro",
+		exitCode: -1,
+		messages: [],
+		stderr: "",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			cost: 0,
+			contextTokens: 0,
+			turns: 0,
+		},
+		...overrides,
+	};
 }
 
 test("normalizeCompletedResult keeps intermediate assistant output as a failure without agent_end", () => {
-  const result = makeResult({
-    exitCode: 1,
-    stopReason: "error",
-    errorMessage: "Command exited with code 1",
-    stderr: "Command exited with code 1",
-    messages: [
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "Let me check that for you." }],
-        timestamp: 1,
-      },
-    ],
-  });
+	const result = makeResult({
+		exitCode: 1,
+		stopReason: "error",
+		errorMessage: "Command exited with code 1",
+		stderr: "Command exited with code 1",
+		messages: [{
+			role: "assistant",
+			content: [{ type: "text", text: "Let me check that for you." }],
+			timestamp: 1,
+		}],
+	});
 
-  normalizeCompletedResult(result, false);
+	normalizeCompletedResult(result, false);
 
-  assert.equal(result.exitCode, 1);
-  assert.equal(result.stopReason, "error");
-  assert.equal(result.errorMessage, "Command exited with code 1");
-  assert.equal(isResultSuccess(result), false);
-  assert.equal(isResultError(result), true);
+	assert.equal(result.exitCode, 1);
+	assert.equal(isResultSuccess(result), false);
+	assert.equal(isResultError(result), true);
 });
 
-test("normalizeCompletedResult treats agent_end with final assistant output as semantic success", () => {
-  const result = makeResult({
-    exitCode: 1,
-    stopReason: "error",
-    errorMessage: "Command exited with code 1",
-    stderr: "Command exited with code 1",
-    sawAgentEnd: true,
-    messages: [
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "No matches found; exit code 1 was expected." }],
-        timestamp: 1,
-      },
-    ],
-  });
+test("normalizeCompletedResult treats a clean completed transcript as success", () => {
+	const result = makeResult({
+		exitCode: 1,
+		stderr: "Command exited with code 1",
+		sawAgentEnd: true,
+		messages: [{
+			role: "assistant",
+			stopReason: "stop",
+			content: [{ type: "text", text: "No matches found; exit code 1 was expected." }],
+			timestamp: 1,
+		}],
+	});
 
-  normalizeCompletedResult(result, false);
+	normalizeCompletedResult(result, false);
 
-  assert.equal(result.exitCode, 0);
-  assert.equal(result.stopReason, undefined);
-  assert.equal(result.errorMessage, undefined);
-  assert.equal(isResultSuccess(result), true);
-  assert.equal(isResultError(result), false);
+	assert.equal(result.exitCode, 0);
+	assert.equal(result.stopReason, undefined);
+	assert.equal(isResultSuccess(result), true);
+	assert.equal(isResultError(result), false);
 });
 
-test("normalizeCompletedResult preserves semantic completion when the process is aborted after agent_end", () => {
-  const result = makeResult({
-    exitCode: 130,
-    stopReason: "aborted",
-    errorMessage: "Subagent was aborted.",
-    stderr: "Subagent was aborted.",
-    sawAgentEnd: true,
-    messages: [
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "Done." }],
-        timestamp: 1,
-      },
-    ],
-  });
+test("normalizeCompletedResult preserves provider errors with partial output", () => {
+	const result = makeResult({
+		exitCode: 0,
+		stopReason: "error",
+		errorMessage: "Provider failed",
+		messages: [{
+			role: "assistant",
+			stopReason: "error",
+			errorMessage: "Provider failed",
+			content: [{ type: "text", text: "Partial answer" }],
+			timestamp: 1,
+		}],
+	});
 
-  normalizeCompletedResult(result, true);
+	normalizeCompletedResult(result, false);
 
-  assert.equal(result.exitCode, 0);
-  assert.equal(result.stopReason, undefined);
-  assert.equal(result.errorMessage, undefined);
-  assert.equal(isResultSuccess(result), true);
-  assert.equal(isResultError(result), false);
+	assert.equal(result.exitCode, 1);
+	assert.equal(result.errorMessage, "Provider failed");
+	assert.equal(isResultError(result), true);
 });
 
-test("normalizeCompletedResult keeps aborts as errors without semantic completion", () => {
-  const result = makeResult({
-    exitCode: 130,
-    stderr: "",
-  });
+test("normalizeCompletedResult rejects length stops without final text", () => {
+	const result = makeResult({
+		exitCode: 0,
+		stopReason: "length",
+		messages: [{
+			role: "assistant",
+			stopReason: "length",
+			content: [],
+			timestamp: 1,
+		}],
+	});
 
-  normalizeCompletedResult(result, true);
+	normalizeCompletedResult(result, false);
 
-  assert.equal(result.exitCode, 130);
-  assert.equal(result.stopReason, "aborted");
-  assert.equal(result.errorMessage, "Subagent was aborted.");
-  assert.equal(result.stderr, "Subagent was aborted.");
-  assert.equal(isResultSuccess(result), false);
-  assert.equal(isResultError(result), true);
+	assert.equal(result.exitCode, 1);
+	assert.match(result.errorMessage, /output token limit/);
 });
 
-test("running results are neither success nor error", () => {
-  const result = makeResult({ exitCode: -1 });
+test("normalizeCompletedResult preserves semantic completion after an abort", () => {
+	const result = makeResult({
+		exitCode: 130,
+		stopReason: "aborted",
+		errorMessage: "Subagent was aborted.",
+		sawAgentEnd: true,
+		messages: [{
+			role: "assistant",
+			stopReason: "stop",
+			content: [{ type: "text", text: "Done." }],
+			timestamp: 1,
+		}],
+	});
 
-  assert.equal(isResultSuccess(result), false);
-  assert.equal(isResultError(result), false);
+	normalizeCompletedResult(result, true);
+
+	assert.equal(result.exitCode, 0);
+	assert.equal(result.stopReason, undefined);
+	assert.equal(result.errorMessage, undefined);
 });
 
-function makeBuildOptions(overrides = {}) {
-  const { agent = {}, inherited = {}, ...options } = overrides;
-  return {
-    agent: {
-      name: "oracle",
-      description: "",
-      source: "user",
-      systemPrompt: "Persona",
-      ...agent,
-    },
-    personaPromptPath: "/tmp/persona.md",
-    task: "repro",
-    delegationMode: "spawn",
-    parentSystemPromptPath: null,
-    inherited: {
-      extensionArgs: [],
-      alwaysProxy: [],
-      fallbackModel: undefined,
-      fallbackThinking: undefined,
-      fallbackTools: undefined,
-      fallbackNoTools: false,
-      ...inherited,
-    },
-    ...options,
-  };
-}
-
-test("buildPiArgs uses a managed session and persona append prompt in spawn mode", () => {
-  const args = buildPiArgs(makeBuildOptions({ sessionPath: "/tmp/spawn.jsonl" }));
-
-  assert.equal(args.includes("--no-session"), false);
-  assert.equal(args[args.indexOf("--session") + 1], "/tmp/spawn.jsonl");
-  assert.deepEqual(args.slice(-3), ["--append-system-prompt", "/tmp/persona.md", "Task: repro"]);
-  assert.equal(args.includes("--system-prompt"), false);
+test("getFinalAssistantText falls back past a non-text final assistant message", () => {
+	assert.equal(getFinalAssistantText([
+		{ role: "assistant", content: [{ type: "text", text: "Completed work." }], timestamp: 1 },
+		{ role: "assistant", content: [{ type: "toolCall", id: "call_1", name: "read", arguments: {} }], timestamp: 2 },
+	]), "Completed work.");
 });
 
-test("buildPiArgs resumes using the existing native session path", () => {
-  const args = buildPiArgs(makeBuildOptions({ sessionPath: "/tmp/resume.jsonl" }));
+test("processSessionEvent streams partial messages and deduplicates transcript usage", () => {
+	const result = makeResult();
+	const assistant = {
+		role: "assistant",
+		model: "test-model",
+		stopReason: "stop",
+		content: [{ type: "text", text: "Done." }],
+		usage: {
+			input: 3,
+			output: 5,
+			cacheRead: 7,
+			cacheWrite: 11,
+			totalTokens: 26,
+			cost: { total: 0.25 },
+		},
+		timestamp: 2,
+	};
+	const toolResult = {
+		role: "toolResult",
+		toolCallId: "call_1",
+		toolName: "read",
+		content: [{ type: "text", text: "file contents" }],
+		isError: false,
+		timestamp: 3,
+	};
 
-  assert.equal(args.includes("--no-session"), false);
-  assert.equal(args[args.indexOf("--session") + 1], "/tmp/resume.jsonl");
+	assert.equal(processSessionEvent(result, {
+		type: "message_update",
+		message: { role: "assistant", content: [{ type: "text", text: "Do" }], timestamp: 1 },
+	}), "stream");
+	assert.equal(result.partialMessage.content[0].text, "Do");
+	assert.equal(processSessionEvent(result, { type: "message_end", message: assistant }), "status");
+	assert.equal(processSessionEvent(result, {
+		type: "tool_execution_end",
+		toolCallId: "call_1",
+		toolName: "read",
+		result: { content: toolResult.content },
+		isError: false,
+	}), "status");
+	processSessionEvent(result, { type: "message_end", message: toolResult });
+	processSessionEvent(result, { type: "turn_end", message: assistant, toolResults: [toolResult] });
+	assert.equal(processSessionEvent(result, { type: "agent_end", messages: [assistant, toolResult] }), "status");
+
+	assert.equal(result.partialMessage, undefined);
+	assert.deepEqual(result.messages.map((message) => message.role), ["assistant", "toolResult"]);
+	assert.equal(result.messages[1], toolResult);
+	assert.deepEqual(result.usage, {
+		input: 3,
+		output: 5,
+		cacheRead: 7,
+		cacheWrite: 11,
+		cost: 0.25,
+		contextTokens: 26,
+		turns: 1,
+	});
+	assert.equal(result.model, "test-model");
+	assert.equal(result.stopReason, "stop");
+	assert.equal(result.sawAgentEnd, true);
 });
 
-test("buildPiArgs aligns fork mode with the parent prompt", () => {
-  const args = buildPiArgs(makeBuildOptions({
-    delegationMode: "fork",
-    sessionPath: "/tmp/fork.jsonl",
-    parentSystemPromptPath: "/tmp/parent.md",
-    inherited: {
-      alwaysProxy: ["--provider", "test", "--system-prompt", "old.md", "--verbose"],
-    },
-  }));
+test("buildTaskMessage keeps fork instructions in the task message", () => {
+	const agent = {
+		name: "oracle",
+		description: "",
+		source: "user",
+		filePath: "/tmp/oracle.md",
+		systemPrompt: "Persona",
+	};
 
-  assert.equal(args.includes("--append-system-prompt"), false);
-  assert.equal(args.includes("old.md"), false);
-  assert.deepEqual(args.slice(-5), [
-    "--system-prompt",
-    "/tmp/parent.md",
-    "--no-context-files",
-    "--no-skills",
-    "Task instructions:\n\nPersona\n\nTask: repro",
-  ]);
-  assert.equal(args.includes("--session"), true);
-  assert.equal(args[args.indexOf("--session") + 1], "/tmp/fork.jsonl");
-});
-
-test("buildPiArgs ignores agent tools and thinking overrides in fork mode", () => {
-  const args = buildPiArgs(makeBuildOptions({
-    delegationMode: "fork",
-    agent: { tools: ["read"], thinking: "high" },
-    inherited: { fallbackTools: "read,bash" },
-  }));
-
-  assert.equal(args.includes("--tools"), true);
-  assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
-  assert.equal(args.includes("read"), false);
-  assert.equal(args.includes("--thinking"), false);
-});
-
-test("buildPiArgs degrades fork mode without a parent prompt", () => {
-  const args = buildPiArgs(makeBuildOptions({ delegationMode: "fork" }));
-
-  assert.equal(args.includes("--system-prompt"), false);
-  assert.equal(args.includes("--no-context-files"), false);
-  assert.equal(args.includes("--no-skills"), false);
+	assert.equal(buildTaskMessage(agent, "repro", "spawn"), "Task: repro");
+	assert.equal(
+		buildTaskMessage(agent, "repro", "fork"),
+		"Task instructions:\n\nPersona\n\nTask: repro",
+	);
 });

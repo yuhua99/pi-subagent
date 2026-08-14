@@ -22,11 +22,11 @@ import {
 	setRunTaskSummary,
 	type SubagentRun,
 } from "./registry.ts";
-import { getResultSummaryText } from "./runner-events.js";
 import { runAgent } from "./runner.ts";
 import { summarizeTask } from "./task_summary.ts";
 import {
 	DEFAULT_DELEGATION_MODE,
+	getResultSummaryText,
 	isResultError,
 	isResultSuccess,
 	parseTasksParam,
