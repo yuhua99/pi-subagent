@@ -77,12 +77,12 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent control",
     description: CTL_TOOL_DESCRIPTION,
     parameters: SubagentCtlParams,
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const invocation = parseSubagentCtlInvocation(params);
       if ("error" in invocation) {
         return { content: [{ type: "text" as const, text: invocation.error }], isError: true };
       }
-      return execution.executeControl(invocation);
+      return execution.executeControl(invocation, ctx, signal);
     },
     renderCall: (args, theme, context) => renderCtlCall(args, theme, context),
     renderResult: (result, options, theme) => renderCtlResult(result, options, theme),

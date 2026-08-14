@@ -12,6 +12,7 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentCtlDetails,
+	type SubagentInspectDetails,
 	type SubagentListDetails,
 	type UsageStats,
 	DEFAULT_DELEGATION_MODE,
@@ -95,6 +96,17 @@ function isRenderableKillDetails(value: unknown): value is SubagentCtlDetails {
 		typeof value.id === "string" && (!("agent" in value) || typeof value.agent === "string");
 }
 
+function isRenderableInspectDetails(value: unknown): value is SubagentInspectDetails {
+	if (!isRecord(value) || value.action !== "inspect" || typeof value.run_id !== "string") return false;
+	if (value.result === undefined) return true;
+	if (!isRecord(value.result)) return false;
+	return typeof value.result.id === "string" && typeof value.result.agent === "string" &&
+		typeof value.result.task === "string" && (value.result.taskSummary === undefined || typeof value.result.taskSummary === "string") &&
+		(value.result.activitySummary === undefined || typeof value.result.activitySummary === "string") &&
+		typeof value.result.startedAt === "number" && (value.result.finishedAt === undefined || typeof value.result.finishedAt === "number") &&
+		(value.result.status === "running" || value.result.status === "completed") && isRenderableResult(value.result.result);
+}
+
 function hasUnexpectedKeys(args: Record<string, unknown>, allowed: string[]): boolean {
 	return Object.keys(args).some((key) => !allowed.includes(key));
 }
@@ -137,7 +149,7 @@ function validationGuidance(args: unknown): string {
 }
 
 function ctlValidationGuidance(args: unknown): string {
-	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent_ctl requires action `list`, `kill`, or `steer`.";
+	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent_ctl requires action `list`, `kill`, `steer`, or `inspect`.";
 	if (args.action === "list") return hasUnexpectedKeys(args, ["action"])
 		? "Validation error: action `list` does not accept other fields."
 		: "Validation error: action `list` accepts no other fields.";
@@ -153,7 +165,13 @@ function ctlValidationGuidance(args: unknown): string {
 			? "Validation error: action `steer` accepts only `id` and `text`."
 			: "Validation error: action `steer` accepts string `id` and `text`.";
 	}
-	return "Validation error: action must be `list`, `kill`, or `steer`.";
+	if (args.action === "inspect") {
+		if (typeof args.run_id !== "string" || args.run_id.length === 0) return "Validation error: action `inspect` requires non-empty string `run_id`.";
+		return hasUnexpectedKeys(args, ["action", "run_id"])
+			? "Validation error: action `inspect` accepts only `run_id`."
+			: "Validation error: action `inspect` accepts non-empty string `run_id`.";
+	}
+	return "Validation error: action must be `list`, `kill`, `steer`, or `inspect`.";
 }
 
 function validationMessage(content: ResultContent, toolName: "subagent" | "subagent_ctl" = "subagent"): string | undefined {
@@ -280,7 +298,8 @@ export function renderCtlCall(
 	_context?: RenderContext,
 ): Text {
 	const title = theme.fg("toolTitle", theme.bold(`subagent_ctl ${args.action ?? "..."}`));
-	const id = args.action === "kill" || args.action === "steer" ? theme.fg("accent", ` ${args.id ?? "..."}`) : "";
+	const id = args.action === "inspect" ? theme.fg("accent", ` ${args.run_id ?? "..."}`)
+		: args.action === "kill" || args.action === "steer" ? theme.fg("accent", ` ${args.id ?? "..."}`) : "";
 	return new Text(title + id, 0, 0);
 }
 
@@ -325,12 +344,28 @@ export function renderSteerResult(
 	return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }
 
+export function renderInspectResult(
+	result: { content: ResultContent; details?: unknown },
+	_options: unknown,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+): Text {
+	const details = isRenderableInspectDetails(result.details) ? result.details : undefined;
+	if (!details?.result) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
+	const inspected = details.result;
+	const icon = inspected.status === "running" ? theme.fg("warning", "○")
+		: isResultError(inspected.result) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+	const status = theme.fg(inspected.status === "running" ? "warning" : "muted", inspected.status);
+	const activity = theme.fg("dim", inspected.activitySummary ?? "No activity yet.");
+	return new Text(`${theme.fg("muted", "└─ ")}${icon} ${status} ${theme.fg("accent", inspected.agent)}${theme.fg("dim", ` [${inspected.id}]`)}\n${theme.fg("muted", "   ")}${activity}`, 0, 0);
+}
+
 export function renderCtlResult(
 	result: { content: ResultContent; details?: unknown },
 	options: unknown,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 ): Text {
 	if (isRenderableListDetails(result.details)) return renderListResult(result, options, theme);
+	if (isRenderableInspectDetails(result.details)) return renderInspectResult(result, options, theme);
 	if (isRenderableKillDetails(result.details)) {
 		return result.details.action === "kill"
 			? renderKillResult(result, options, theme)

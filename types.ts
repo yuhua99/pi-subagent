@@ -87,6 +87,26 @@ export interface SubagentListDetails {
 	}>;
 }
 
+/** Inspectable state of a subagent run. */
+export interface SubagentInspectResult {
+	id: string;
+	agent: string;
+	task: string;
+	taskSummary?: string;
+	activitySummary?: string;
+	startedAt: number;
+	finishedAt?: number;
+	status: "running" | "completed";
+	result: SingleResult;
+}
+
+/** Metadata attached to subagent_ctl inspect results for rendering. */
+export interface SubagentInspectDetails {
+	action: "inspect";
+	run_id: string;
+	result?: SubagentInspectResult;
+}
+
 /** Metadata attached to subagent_ctl kill and steer results for rendering. */
 export type SubagentCtlDetails =
 	| { action: "kill" | "steer"; id: string; agent: string }

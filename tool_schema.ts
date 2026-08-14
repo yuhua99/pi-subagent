@@ -59,9 +59,14 @@ export const SubagentCtlParams = Type.Object({
     Type.Literal("list"),
     Type.Literal("kill"),
     Type.Literal("steer"),
+    Type.Literal("inspect"),
   ]),
   id: Type.Optional(Type.String({
     description: "Registry id of the running subagent.",
+  })),
+  run_id: Type.Optional(Type.String({
+    minLength: 1,
+    description: "Registry id of the subagent run to inspect.",
   })),
   text: Type.Optional(Type.String({
     description: "Message to deliver to the subagent.",
@@ -76,7 +81,8 @@ export type SubagentInvocation =
 export type SubagentCtlInvocation =
   | { action: "list" }
   | { action: "kill"; id: string }
-  | { action: "steer"; id: string; text: string };
+  | { action: "steer"; id: string; text: string }
+  | { action: "inspect"; run_id: string };
 
 type ParseResult<T> = T | { error: string };
 
@@ -141,8 +147,8 @@ export function parseSubagentInvocation(params: unknown): ParseResult<SubagentIn
 export function parseSubagentCtlInvocation(params: unknown): ParseResult<SubagentCtlInvocation> {
   if (!isRecord(params)) return { error: "subagent_ctl requires an action" };
   const action = params.action;
-  if (action !== "list" && action !== "kill" && action !== "steer") {
-    return { error: "action must be \"list\", \"kill\", or \"steer\"" };
+  if (action !== "list" && action !== "kill" && action !== "steer" && action !== "inspect") {
+    return { error: "action must be \"list\", \"kill\", \"steer\", or \"inspect\"" };
   }
   if (action === "list") {
     const rejected = rejectedField(action, params, ["action"]);
@@ -152,6 +158,13 @@ export function parseSubagentCtlInvocation(params: unknown): ParseResult<Subagen
     if (typeof params.id !== "string") return { error: "action \"kill\" requires \"id\"" };
     const rejected = rejectedField(action, params, ["action", "id"]);
     return rejected ? { error: rejected } : { action, id: params.id };
+  }
+  if (action === "inspect") {
+    if (typeof params.run_id !== "string" || params.run_id.length === 0) {
+      return { error: "action \"inspect\" requires a non-empty \"run_id\"" };
+    }
+    const rejected = rejectedField(action, params, ["action", "run_id"]);
+    return rejected ? { error: rejected } : { action, run_id: params.run_id };
   }
   if (typeof params.id !== "string" || typeof params.text !== "string") {
     return { error: "action \"steer\" requires \"id\" and \"text\"" };
@@ -168,7 +181,7 @@ export const TOOL_DESCRIPTION = [
 
 export const CTL_TOOL_DESCRIPTION = [
   "Manage direct subagents in this session.",
-  "Set action to \"list\", \"kill\" with id, or \"steer\" with id and text.",
+  "Set action to \"list\", \"kill\" with id, \"steer\" with id and text, or \"inspect\" with run_id.",
 ].join("\n");
 
 export function formatSubagentSystemPrompt(agents: AgentConfig[]): string {
@@ -179,7 +192,7 @@ The following subagents are available via the \`subagent\` tool:
 
 ${agentList}
 
-Use \`subagent\` with action \`run\`, \`run_parallel\`, or \`resume\`. Use \`subagent_ctl\` with action \`list\`, \`kill\`, or \`steer\` to manage runs.
+Use \`subagent\` with action \`run\`, \`run_parallel\`, or \`resume\`. Use \`subagent_ctl\` with action \`list\`, \`kill\`, \`steer\`, or \`inspect\` to manage runs.
 Delegation is single-level: subagents cannot spawn their own subagents.
 `;
 }

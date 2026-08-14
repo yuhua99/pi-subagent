@@ -22,7 +22,7 @@ import {
 } from "./registry.ts";
 import { formatSubagentList } from "./render.ts";
 import { runAgent } from "./runner.ts";
-import { summarizeTask } from "./task_summary.ts";
+import { summarizeActivity, summarizeTask } from "./task_summary.ts";
 import {
 	DEFAULT_DELEGATION_MODE,
 	getResultSummaryText,
@@ -32,6 +32,7 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentCtlDetails,
+	type SubagentInspectDetails,
 	type SubagentListDetails,
 	type TaskSpec,
 } from "./types.ts";
@@ -49,13 +50,13 @@ export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelR
 
 interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
-	details?: SubagentDetails | SubagentListDetails | SubagentCtlDetails;
+	details?: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
 	isError?: boolean;
 }
 
 interface SubagentExecution {
 	execute(toolCallId: string, invocation: SubagentInvocation, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
-	executeControl(invocation: SubagentCtlInvocation): ToolResult;
+	executeControl(invocation: SubagentCtlInvocation, ctx: Pick<ExtensionContext, "modelRegistry">, signal?: AbortSignal): Promise<ToolResult>;
 	kill(id: string): SubagentRun | undefined;
 	steer(id: string, text: string): SubagentRun | { error: string };
 	shutdown(): Promise<void>;
@@ -441,7 +442,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 
 	return {
 		execute,
-		executeControl(invocation) {
+		async executeControl(invocation, ctx, signal) {
 			if (invocation.action === "list") {
 				const runs = listRuns();
 				const details: SubagentListDetails = {
@@ -449,6 +450,40 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					runs: runs.map(({ id, agent, taskSummary, startedAt }) => ({ id, agent, taskSummary, startedAt })),
 				};
 				return { content: [{ type: "text", text: formatSubagentList(runs) }], details };
+			}
+			if (invocation.action === "inspect") {
+				const live = getRun(invocation.run_id);
+				const completed = live ? undefined : listCompletedRuns().find((run) => run.id === invocation.run_id);
+				const entry = live ?? completed;
+				if (!entry) {
+					const details: SubagentInspectDetails = { action: "inspect", run_id: invocation.run_id };
+					return {
+						content: [{ type: "text", text: `No subagent with id '${invocation.run_id}' found.` }],
+						details,
+					};
+				}
+				const activitySummary = await summarizeActivity(entry.task, entry.result.messages, ctx, signal)
+					?? fallbackActivitySummary(entry.result);
+				const status = live ? "running" : "completed";
+				const details: SubagentInspectDetails = {
+					action: "inspect",
+					run_id: invocation.run_id,
+					result: {
+						id: entry.id,
+						agent: entry.agent,
+						task: entry.task,
+						...(entry.taskSummary ? { taskSummary: entry.taskSummary } : {}),
+						activitySummary,
+						startedAt: entry.startedAt,
+						...(completed ? { finishedAt: completed.finishedAt } : {}),
+						status,
+						result: entry.result,
+					},
+				};
+				return {
+					content: [{ type: "text", text: `Subagent [${entry.id}] (${entry.agent}) is ${status}.\n\nActivity: ${activitySummary}` }],
+					details,
+				};
 			}
 			if (invocation.action === "kill") {
 				const entry = kill(invocation.id);
@@ -496,6 +531,25 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			clearSessionState();
 		},
 	};
+}
+
+function fallbackActivitySummary(result: SingleResult): string {
+	const compact = (text: string) => {
+		const activity = text.replace(/\s+/g, " ").trim();
+		return activity.length <= 300 ? activity : `${activity.slice(0, 299)}…`;
+	};
+	const partial = result.partialMessage?.content.find((part) => part.type === "text" && part.text.trim());
+	if (partial?.type === "text") return compact(partial.text);
+	const latest = result.messages.at(-1);
+	if (latest?.role === "assistant") {
+		const text = latest.content.find((part) => part.type === "text" && part.text.trim());
+		if (text?.type === "text") return compact(text.text);
+		const toolCall = latest.content.find((part) => part.type === "toolCall");
+		if (toolCall?.type === "toolCall") return `Calling ${toolCall.name}.`;
+	}
+	if (latest?.role === "toolResult") return `Received result from ${latest.toolName}.`;
+	const summary = getResultSummaryText(result);
+	return summary === "(no output)" ? "No activity yet." : compact(summary);
 }
 
 async function mapConcurrent<TIn, TOut>(

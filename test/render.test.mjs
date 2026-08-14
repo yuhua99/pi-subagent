@@ -71,6 +71,31 @@ test("renderCtlCall distinguishes control actions", () => {
   assert.equal(renderCtlCall({ action: "list" }, theme).render(200).join("\n").trim(), "subagent_ctl list");
   assert.equal(renderCtlCall({ action: "kill", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl kill a1b2");
   assert.equal(renderCtlCall({ action: "steer", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl steer a1b2");
+  assert.equal(renderCtlCall({ action: "inspect", run_id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl inspect a1b2");
+});
+
+test("renderCtlResult shows inspect status, agent, and activity", () => {
+  const component = renderCtlResult(
+    {
+      content: [{ type: "text", text: "unused" }],
+      details: {
+        action: "inspect",
+        run_id: "a1b2",
+        result: {
+          id: "a1b2",
+          agent: "worker",
+          task: "review files",
+          activitySummary: "Reading the repository.",
+          startedAt: 0,
+          status: "running",
+          result: { agent: "worker", exitCode: -1, messages: [] },
+        },
+      },
+    },
+    undefined,
+    theme,
+  );
+  assert.equal(component.render(200).map((line) => line.trimEnd()).join("\n").trim(), "└─ ○ running worker [a1b2]\n   Reading the repository.");
 });
 
 test("renderSteerResult preserves completed-run errors", () => {
