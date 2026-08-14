@@ -17,6 +17,8 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 
 Keep source files under ~600 LOC; split by ownership before adding more logic.
 
+Reach for Pi built-ins first: check `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` exports and docs for an existing component, helper, or type before writing an equivalent.
+
 ## Quality gates
 
 ```bash
