@@ -2,14 +2,6 @@
 
 Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/agents` command to the Pi coding agent. TypeScript runs directly — no build step. Entry point: `index.ts` (declared in `package.json` under `pi.extensions`).
 
-## Invariants
-
-- Single-level delegation is a construction-time capability: child sessions load the parent's full extension set excluding pi-subagent, filtered by the `subagent` tool name with no allowlist configuration; third-party extension behavior in in-process children is the extension's own responsibility, and prompt-mutating `before_agent_start` extensions may break fork cache alignment (accepted; `cacheRead` stays diagnostic).
-- Resume only targets a successfully completed run from the same parent Pi session; it creates a new run ID, preserves lineage, and allows only one concurrent resume per lineage.
-- Fork requires a persisted parent session; under `--no-session` it errors clearly with no manual fallback; spawn is unaffected.
-- Fork children use the parent system prompt and schema-identical stub subagent tools; per-agent overrides are ignored in fork mode; `usage.cacheRead` diagnoses cache hits, not guarantees them.
-- Tests import `.ts` files directly under `node --test` (Node type stripping). Do not use runtime TS syntax (enums, namespaces, parameter properties) and do not introduce a build step.
-
 ## Architecture contract
 
 One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `common.ts`, `shared.ts`); use domain names.
@@ -21,7 +13,7 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 - `task_summary.ts` — summary config and LLM completion
 - `render.ts` — tool-row rendering only; rich detail belongs in `/agents`
 - `types.ts` — shared types and small helpers; no I/O, no spawning
-- `test/` — `*.test.mjs` suites and fixtures
+- `test/` — `*.test.mjs` suites and fixtures; import `.ts` directly under `node --test` (no build step, no runtime TS syntax: enums, namespaces, parameter properties)
 
 Keep source files under ~600 LOC; split by ownership before adding more logic.
 
