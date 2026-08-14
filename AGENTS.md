@@ -5,6 +5,8 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 ## Invariants
 
 - Resume only targets a successfully completed run from the same parent Pi session; it creates a new run ID, preserves lineage, and allows only one concurrent resume per lineage.
+- Fork requires a persisted parent session; under `--no-session` it errors clearly with no manual fallback; spawn is unaffected.
+- Fork children use the parent system prompt and schema-identical stub subagent tools; per-agent overrides are ignored in fork mode; `usage.cacheRead` diagnoses cache hits, not guarantees them.
 - Tests import `.ts` files directly under `node --test` (Node type stripping). Do not use runtime TS syntax (enums, namespaces, parameter properties) and do not introduce a build step.
 
 ## Architecture contract
