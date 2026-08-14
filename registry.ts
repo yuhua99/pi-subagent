@@ -24,6 +24,7 @@ export interface CompletedRun extends RunMetadata {
 	agent: string;
 	task: string;
 	taskSummary?: string;
+	steers: readonly { text: string; at: number }[];
 	startedAt: number;
 	finishedAt: number;
 	result: SingleResult;
@@ -41,6 +42,8 @@ export interface SubagentRun extends RunMetadata {
 	phase: RunPhase;
 	result: SingleResult;
 	kill: () => void;
+	steer(text: string): void;
+	steers: readonly { text: string; at: number }[];
 	onStatus(fn: () => void): () => void;
 	onStream(fn: () => void): () => void;
 }
@@ -51,6 +54,8 @@ interface ToolCallInvalidation {
 }
 
 interface RunState extends SubagentRun {
+	pendingSteers: string[];
+	steerCallback?: (text: string) => void;
 	statusSubs: Set<() => void>;
 	streamSubs: Set<() => void>;
 	rowInvalidate?: () => void;
@@ -79,15 +84,24 @@ function generateId(): string {
 	return id;
 }
 
-export function registerRun(init: Omit<SubagentRun, "id" | "phase" | "onStatus" | "onStream">): SubagentRun {
+export function registerRun(init: Omit<SubagentRun, "id" | "phase" | "steer" | "steers" | "onStatus" | "onStream">): SubagentRun {
 	const id = generateId();
 	const statusSubs = new Set<() => void>();
 	const streamSubs = new Set<() => void>();
+	const steers: { text: string; at: number }[] = [];
+	const pendingSteers: string[] = [];
 	const state: RunState = {
 		...init,
 		id,
 		phase: "foreground",
 		lineageId: init.lineageId ?? id,
+		steers,
+		pendingSteers,
+		steer(text) {
+			steers.push({ text, at: Date.now() });
+			if (state.steerCallback) state.steerCallback(text);
+			else pendingSteers.push(text);
+		},
 		statusSubs,
 		streamSubs,
 		onStatus(fn) {
@@ -113,6 +127,13 @@ export function updateRun(
 
 export function getRun(id: string): SubagentRun | undefined {
 	return running.get(id);
+}
+
+export function attachRunSteer(id: string, steer: (text: string) => void): void {
+	const entry = running.get(id);
+	if (!entry) return;
+	entry.steerCallback = steer;
+	for (const text of entry.pendingSteers.splice(0)) steer(text);
 }
 
 export function setRunTaskSummary(id: string, task: string, taskSummary: string): void {
@@ -207,6 +228,7 @@ export function completeRun(id: string, result: SingleResult): void {
 		agent: entry?.agent ?? result.agent,
 		task: entry?.task ?? result.task,
 		taskSummary: entry?.taskSummary,
+		steers: entry?.steers ?? [],
 		startedAt: entry?.startedAt ?? finishedAt,
 		finishedAt,
 		parentSessionId: entry?.parentSessionId,
@@ -228,6 +250,7 @@ export function completeRun(id: string, result: SingleResult): void {
 		}
 	}
 	if (entry) {
+		entry.pendingSteers.length = 0;
 		if (entry.streamTimer) {
 			clearTimeout(entry.streamTimer);
 			entry.streamTimer = undefined;

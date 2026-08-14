@@ -1,6 +1,6 @@
 import { AssistantMessageComponent, ToolExecutionComponent, getMarkdownTheme, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { Markdown, type OverlayOptions, type TUI, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { AssistantMessage, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import { Input, Markdown, type OverlayOptions, type TUI, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
 import { createDetailToolRenderers, isDetailQuietTool } from "./agents_detail_tools.ts";
 import { formatElapsed, formatUsage, type ThemeFg } from "./render.ts";
@@ -13,6 +13,7 @@ const KEY_DOWN = "\x1b[B";
 const KEY_LEFT = "\x1b[D";
 const KEY_RIGHT = "\x1b[C";
 const KEY_ESCAPE = "\x1b";
+const PLAIN_THEME: { fg: ThemeFg } = { fg: (_color, text) => text };
 
 export interface DetailEntry {
 	id: string;
@@ -24,6 +25,13 @@ export interface DetailEntry {
 	result: SingleResult;
 	onStatus?: (fn: () => void) => () => void;
 	onStream?: (fn: () => void) => () => void;
+}
+
+function userMessageText(message: UserMessage): string {
+	if (typeof message.content === "string") return message.content;
+	return message.content
+		.map((content) => content.type === "text" ? content.text : "")
+		.join("");
 }
 
 function paneView(lines: string[], offset: number, height: number, theme: { fg: ThemeFg }): string[] {
@@ -72,7 +80,12 @@ export class NativeTranscriptRenderer {
 		this.detailTools.clear();
 	}
 
-	render(result: Pick<SingleResult, "messages" | "partialMessage">, width: number): string[] {
+	render(
+		result: Pick<SingleResult, "messages" | "partialMessage">,
+		width: number,
+		steers: readonly { text: string; at: number }[] = [],
+		theme: { fg: ThemeFg } = PLAIN_THEME,
+	): string[] {
 		if (this.transcript && this.transcript !== result) this.clear();
 		this.transcript = result;
 		const components: Array<{ render(width: number): string[] }> = [];
@@ -83,6 +96,7 @@ export class NativeTranscriptRenderer {
 		const toolCallIds: string[] = [];
 		const messages = result.partialMessage ? [...result.messages, result.partialMessage] : result.messages;
 		const resultIds = new Set(messages.flatMap((message) => message.role === "toolResult" ? [message.toolCallId] : []));
+		const deliveredSteers = new Map<string, number>();
 		let assistantIndex = 0;
 		let quietChanged = false;
 
@@ -128,6 +142,12 @@ export class NativeTranscriptRenderer {
 					if (quiet) quietTools.push(tool.component);
 					components.push(tool.component);
 				}
+			} else if (message.role === "user") {
+				const text = userMessageText(message);
+				deliveredSteers.set(text, (deliveredSteers.get(text) ?? 0) + 1);
+				components.push({
+					render: (renderWidth) => wrapTextWithAnsi(theme.fg("userMessageText", `» ${text}`), renderWidth),
+				});
 			} else if (message.role === "toolResult") {
 				const tool = toolCalls.get(message.toolCallId);
 				if (!tool) continue;
@@ -137,6 +157,17 @@ export class NativeTranscriptRenderer {
 				}
 				tool.result = message;
 			}
+		}
+
+		for (const steer of steers) {
+			const delivered = deliveredSteers.get(steer.text) ?? 0;
+			if (delivered > 0) {
+				deliveredSteers.set(steer.text, delivered - 1);
+				continue;
+			}
+			components.push({
+				render: (renderWidth) => wrapTextWithAnsi(theme.fg("dim", `» steer: ${steer.text}`), renderWidth),
+			});
 		}
 
 		this.detailTools.sync(toolCallIds);
@@ -168,7 +199,24 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 		const unsubscribeStatus = entry.onStatus?.(() => tui.requestRender());
 		const unsubscribeStream = entry.onStream?.(() => tui.requestRender());
 
-		let activePane: "task" | "transcript" = "transcript";
+		let activePane: "task" | "transcript" | "input" = "transcript";
+		const input = new Input();
+		let focused = false;
+		const updateInputFocus = () => {
+			input.focused = focused && activePane === "input";
+		};
+		input.onSubmit = (value) => {
+			const steer = value.trim();
+			if (!steer) return;
+			getRun(entry.id)?.steer(steer);
+			input.setValue("");
+			tui.requestRender();
+		};
+		input.onEscape = () => {
+			activePane = "transcript";
+			tui.requestRender();
+		};
+		let steers: readonly { text: string; at: number }[] = [];
 		let taskScroll = 0;
 		let transcriptScroll: number | null = null;
 		let lastTaskMax = 0;
@@ -188,18 +236,29 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 		}
 
 		return {
+			get focused() {
+				return focused;
+			},
+			set focused(value: boolean) {
+				focused = value;
+				updateInputFocus();
+			},
 			render: (width: number) => {
 				const live = getRun(entry.id);
 				const completed = live ? undefined : listCompletedRuns().find((run) => run.id === entry.id);
+				const completedSteers = completed?.steers;
 				const result = live?.result ?? completed?.result ?? entry.result;
 				const finishedAt = completed?.finishedAt ?? entry.finishedAt;
 				const taskSummary = live?.taskSummary ?? completed?.taskSummary ?? entry.taskSummary;
+				steers = live?.steers ?? completedSteers ?? steers;
 				if (result.exitCode !== -1 && timer) {
 					clearInterval(timer);
 					timer = undefined;
 				}
 				const contentWidth = width - 4;
-				const running = result.exitCode === -1;
+				const running = Boolean(live && result.exitCode === -1);
+				if (!running && activePane === "input") activePane = "transcript";
+				updateInputFocus();
 				const icon = running
 					? theme.fg("warning", "○")
 					: isResultError(result)
@@ -213,7 +272,9 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 						: "finished";
 
 				const usage = formatUsage(result.usage, result.model);
-				const escapeText = "tab pane · ↑↓/c-u/d scroll · esc back";
+				const escapeText = running
+					? "tab panes/input · ↑↓/c-u/d scroll · esc back"
+					: "tab panes · ↑↓/c-u/d scroll · esc back";
 				const footerGap = Math.max(1, contentWidth - visibleWidth(escapeText) - visibleWidth(usage));
 				const footer = usage
 					? theme.fg("dim", escapeText) + " ".repeat(footerGap) + theme.fg("dim", usage)
@@ -226,28 +287,34 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					theme,
 					header: `${icon} ${theme.fg("accent", theme.bold(`[${entry.id}] ${entry.agent}`))}${taskSummary ? theme.fg("dim", ` — ${taskSummary}`) : ""} ${theme.fg("muted", `— ${status}`)}${paneBadge}`,
 					body: (bodyWidth, bodyRows) => {
+						const paneRows = running ? bodyRows - 1 : bodyRows;
 						const taskWidth = Math.max(5, Math.floor(bodyWidth * 0.3));
 						const transcriptWidth = Math.max(1, bodyWidth - taskWidth - 3);
 						const taskWrapped = new Markdown(entry.task, 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("text", text) }).render(taskWidth);
-						lastTaskMax = Math.max(0, taskWrapped.length - bodyRows);
+						lastTaskMax = Math.max(0, taskWrapped.length - paneRows);
 						taskScroll = Math.min(Math.max(0, taskScroll), lastTaskMax);
-						const taskColumn = paneView(taskWrapped, taskScroll, bodyRows, theme);
+						const taskColumn = paneView(taskWrapped, taskScroll, paneRows, theme);
 						const transcript: string[] = [];
-						transcript.push(...transcriptRenderer.render(result, transcriptWidth));
-						lastTranscriptMax = Math.max(0, transcript.length - bodyRows);
+						transcript.push(...transcriptRenderer.render(result, transcriptWidth, steers, theme));
+						lastTranscriptMax = Math.max(0, transcript.length - paneRows);
 						if (transcriptScroll !== null) {
 							transcriptScroll = Math.min(Math.max(0, transcriptScroll), lastTranscriptMax);
 						}
 						const transcriptOffset = transcriptScroll ?? lastTranscriptMax;
-						let transcriptColumn = paneView(transcript, transcriptOffset, bodyRows, theme);
+						let transcriptColumn = paneView(transcript, transcriptOffset, paneRows, theme);
 						if (transcriptColumn.length === 0) transcriptColumn = [theme.fg("muted", "(no output yet)")];
 						const pad = (line: string, columnWidth: number) =>
 							line + " ".repeat(Math.max(0, columnWidth - visibleWidth(line)));
 						const separator = ` ${theme.fg("border", "│")} `;
-						return Array.from(
-							{ length: bodyRows },
+						const panes = Array.from(
+							{ length: paneRows },
 							(_, index) => pad(taskColumn[index] ?? "", taskWidth) + separator + (transcriptColumn[index] ?? ""),
 						);
+						if (!running) return panes;
+						if (activePane !== "input") return [...panes, theme.fg("dim", `» steer: ${input.getValue()}`)];
+						const prompt = theme.fg("accent", theme.bold("» steer: "));
+						const inputLine = input.render(Math.max(1, bodyWidth - visibleWidth(prompt) + 2))[0] ?? "";
+						return [...panes, prompt + inputLine.slice(2)];
 					},
 					footer,
 				});
@@ -255,11 +322,27 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 			invalidate: () => {},
 			handleInput: (data: string) => {
 				if (data === KEY_ESCAPE) {
+					if (activePane === "input") {
+						activePane = "transcript";
+						tui.requestRender();
+						return;
+					}
 					finish();
 					return;
 				}
-				if (data === "\t" || data === KEY_LEFT || data === KEY_RIGHT) {
+				if (data === "\t") {
+					const panes: Array<typeof activePane> = getRun(entry.id) ? ["task", "transcript", "input"] : ["task", "transcript"];
+					activePane = panes[(panes.indexOf(activePane) + 1) % panes.length]!;
+					tui.requestRender();
+					return;
+				}
+				if ((data === KEY_LEFT || data === KEY_RIGHT) && activePane !== "input") {
 					activePane = activePane === "task" ? "transcript" : "task";
+					tui.requestRender();
+					return;
+				}
+				if (activePane === "input") {
+					input.handleInput(data);
 					tui.requestRender();
 					return;
 				}

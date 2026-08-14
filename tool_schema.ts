@@ -77,12 +77,23 @@ export const SubagentKillParams = Type.Object({
   }),
 });
 
+export const SubagentSteerParams = Type.Object({
+  id: Type.String({
+    description: "Registry id of the running subagent to steer (as shown by subagent_list).",
+  }),
+  text: Type.String({
+    description: "Message to deliver to the subagent.",
+  }),
+});
+
 export const LIST_TOOL_DESCRIPTION = [
   "List subagents currently running as direct children of this session.",
-  "Returns each subagent's id (used by subagent_kill), agent name, elapsed time, and task preview.",
+  "Returns each subagent's id (used by subagent_kill and subagent_steer), agent name, elapsed time, and task preview.",
 ].join("\n");
 
 export const KILL_TOOL_DESCRIPTION = "Kill a running subagent by id (see subagent_list for ids).";
+
+export const STEER_TOOL_DESCRIPTION = "Send a message to a running subagent by id (see subagent_list for ids). It is delivered as a user message after the current assistant turn's tool calls complete. Completed runs cannot be steered; use subagent with { resume: \"<id>\", task } instead.";
 
 export const TOOL_DESCRIPTION = [
   "Delegate work to specialized subagents.",

@@ -295,6 +295,27 @@ export function renderKillResult(
 	return new Text(`${theme.fg("muted", "└─ ")}${theme.fg("dim", `no running subagent [${details.id}]`)}`, 0, 0);
 }
 
+export function renderSteerCall(
+	args: Record<string, any>,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+	_context?: RenderContext,
+): Text {
+	return new Text(theme.fg("toolTitle", theme.bold("subagent_steer ")) + theme.fg("accent", args.id ?? "..."), 0, 0);
+}
+
+export function renderSteerResult(
+	result: { content: ResultContent; details?: unknown },
+	_options: unknown,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+): Text {
+	const details = isRenderableKillDetails(result.details) ? result.details : undefined;
+	if (!details) return new Text(fallbackText(result.content), 0, 0);
+	if ("agent" in details) {
+		return new Text(`${theme.fg("muted", "└─ ")}${theme.fg("success", "✓")} ${theme.fg("success", "steered")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`, 0, 0);
+	}
+	return new Text(fallbackText(result.content), 0, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Single-mode result
 // ---------------------------------------------------------------------------

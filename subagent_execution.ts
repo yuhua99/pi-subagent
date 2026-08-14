@@ -65,6 +65,7 @@ interface ToolResult {
 interface SubagentExecution {
 	execute(toolCallId: string, params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
 	kill(id: string): SubagentRun | undefined;
+	steer(id: string, text: string): SubagentRun | { error: string };
 	shutdown(): Promise<void>;
 }
 
@@ -469,6 +470,17 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			const entry = getRun(id);
 			entry?.kill();
 			return entry;
+		},
+		steer(id: string, text: string) {
+			const entry = getRun(id);
+			if (entry) {
+				entry.steer(text);
+				return entry;
+			}
+			if (listCompletedRuns().some((run) => run.id === id)) {
+				return { error: `Subagent [${id}] already finished. Use the subagent tool with { resume: "${id}", task } instead.` };
+			}
+			return { error: `No running subagent with id '${id}' (it may have already finished).` };
 		},
 		async shutdown() {
 			const entries = listRuns();

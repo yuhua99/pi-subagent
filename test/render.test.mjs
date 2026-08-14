@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderResult } from "../render.ts";
+import { renderResult, renderSteerResult } from "../render.ts";
 
 const theme = {
   fg: (_color, text) => text,
@@ -55,6 +55,21 @@ test("renderResult gives validation guidance for each invocation shape", () => {
     [{ mode: "fork" }, "Validation error: use `{ agent, task }`, `{ tasks }`, or `{ resume, task }`."],
   ];
   for (const [args, expected] of cases) assert.equal(renderValidation(args, {}), expected);
+});
+
+test("renderSteerResult preserves completed-run errors", () => {
+  const component = renderSteerResult(
+    {
+      content: [{ type: "text", text: "Subagent [a1b2] already finished. Use the subagent tool with { resume: \"a1b2\", task } instead." }],
+      details: { id: "a1b2" },
+    },
+    undefined,
+    theme,
+  );
+  assert.equal(
+    component.render(200).join("\n").trim(),
+    "Subagent [a1b2] already finished. Use the subagent tool with { resume: \"a1b2\", task } instead.",
+  );
 });
 
 test("renderResult keeps normal subagent result rendering", () => {

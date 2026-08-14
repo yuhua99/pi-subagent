@@ -16,12 +16,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { registerAgentsCommand } from "./agents_command.ts";
-import { formatSubagentList, renderCall, renderKillCall, renderKillResult, renderListCall, renderListResult, renderResult } from "./render.ts";
+import { formatSubagentList, renderCall, renderKillCall, renderKillResult, renderListCall, renderListResult, renderResult, renderSteerCall, renderSteerResult } from "./render.ts";
 import { injectIntoSystemPrompt } from "./prompt_injection.ts";
 import { listRuns } from "./registry.ts";
 import type { SubagentKillDetails, SubagentListDetails } from "./types.ts";
 import { createSubagentExecution } from "./subagent_execution.ts";
-import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
+import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, STEER_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, SubagentSteerParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 
 export default function (pi: ExtensionAPI) {
   registerAgentsCommand(pi);
@@ -117,6 +117,30 @@ export default function (pi: ExtensionAPI) {
     },
     renderCall: (args, theme, context) => renderKillCall(args, theme, context),
     renderResult: (result, _options, theme) => renderKillResult(result, _options, theme),
+  });
+
+  pi.registerTool({
+    name: "subagent_steer",
+    label: "Steer subagent",
+    description: STEER_TOOL_DESCRIPTION,
+    parameters: SubagentSteerParams,
+    async execute(_toolCallId, params) {
+      const entry = execution.steer(params.id, params.text);
+      if ("error" in entry) {
+        const details: SubagentKillDetails = { id: params.id };
+        return {
+          content: [{ type: "text" as const, text: entry.error }],
+          details,
+        };
+      }
+      const details: SubagentKillDetails = { id: entry.id, agent: entry.agent };
+      return {
+        content: [{ type: "text" as const, text: `Steered subagent [${entry.id}] (${entry.agent}).` }],
+        details,
+      };
+    },
+    renderCall: (args, theme, context) => renderSteerCall(args, theme, context),
+    renderResult: (result, _options, theme) => renderSteerResult(result, _options, theme),
   });
 }
 

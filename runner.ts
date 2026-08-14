@@ -16,9 +16,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "./agents.ts";
 import { stripCwdTail } from "./prompt_injection.ts";
-import { getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
+import { attachRunSteer, getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
 import { allocateManagedSessionDir, registerManagedSessionPath } from "./session_files.ts";
-import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
+import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, STEER_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, SubagentSteerParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -61,6 +61,13 @@ function createForkStubTools() {
 			parameters: SubagentKillParams,
 			execute: unavailableToolResult,
 		}),
+		defineTool({
+			name: "subagent_steer",
+			label: "Steer subagent",
+			description: STEER_TOOL_DESCRIPTION,
+			parameters: SubagentSteerParams,
+			execute: unavailableToolResult,
+		}),
 	];
 }
 
@@ -77,8 +84,22 @@ function updateAssistantMetadata(result: SingleResult, message: AssistantMessage
 	if (message.errorMessage) result.errorMessage = message.errorMessage;
 }
 
+function isInitialTaskPrompt(result: SingleResult, signature: string): boolean {
+	const state = result as SingleResult & { initialTaskPromptSignature?: string };
+	if (state.initialTaskPromptSignature !== undefined) return state.initialTaskPromptSignature === signature;
+	Object.defineProperty(state, "initialTaskPromptSignature", { value: signature });
+	return true;
+}
+
 function addTranscriptMessage(result: SingleResult, message: Message | undefined): boolean {
-	if (!message || (message.role !== "assistant" && message.role !== "toolResult")) return false;
+	if (!message || (message.role !== "assistant" && message.role !== "toolResult" && message.role !== "user")) return false;
+
+	const signature = stableStringify(message);
+	const seen = getSeenMessageSignatures(result);
+	if (message.role === "user" && isInitialTaskPrompt(result, signature)) {
+		seen.add(signature);
+		return false;
+	}
 
 	if (message.role === "toolResult") {
 		const index = result.messages.findIndex(
@@ -92,8 +113,6 @@ function addTranscriptMessage(result: SingleResult, message: Message | undefined
 		updateAssistantMetadata(result, message);
 	}
 
-	const signature = stableStringify(message);
-	const seen = getSeenMessageSignatures(result);
 	if (seen.has(signature)) return false;
 	seen.add(signature);
 	result.messages.push(message);
@@ -391,6 +410,7 @@ async function createRunSession(
 interface RunControl {
 	state: { wasAborted: boolean; wasKilled: boolean };
 	abortSession(killed: boolean): void;
+	steer(text: string): void;
 }
 
 function createRunControl(session: Awaited<ReturnType<typeof createAgentSession>>["session"]): RunControl {
@@ -401,6 +421,9 @@ function createRunControl(session: Awaited<ReturnType<typeof createAgentSession>
 			if (killed) state.wasKilled = true;
 			else state.wasAborted = true;
 			void session.abort().catch(() => {});
+		},
+		steer(text) {
+			void session.steer(text).catch(() => {});
 		},
 	};
 }
@@ -421,6 +444,7 @@ function attachRun(
 		lineageId: opts.lineageId,
 	};
 	const kill = () => control.abortSession(true);
+	const steer = (text: string) => control.steer(text);
 	let registryId: string;
 	if (opts.reservedRegistryId) {
 		registryId = opts.reservedRegistryId;
@@ -443,6 +467,7 @@ function attachRun(
 			...runMetadata,
 		}).id;
 	}
+	attachRunSteer(registryId, steer);
 	result.registryId = registryId;
 	opts.onSpawn?.(registryId);
 	return registryId;

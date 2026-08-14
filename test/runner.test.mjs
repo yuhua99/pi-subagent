@@ -192,6 +192,19 @@ test("processSessionEvent streams partial messages and deduplicates transcript u
 	assert.equal(result.sawAgentEnd, true);
 });
 
+test("processSessionEvent records delivered steers but excludes the initial task prompt", () => {
+	const result = makeResult();
+	const initialTask = { role: "user", content: [{ type: "text", text: "Task: repro" }], timestamp: 1 };
+	const steer = { role: "user", content: [{ type: "text", text: "Focus on tests." }], timestamp: 2 };
+	const assistant = { role: "assistant", content: [{ type: "text", text: "Done." }], timestamp: 3 };
+
+	processSessionEvent(result, { type: "message_end", message: initialTask });
+	processSessionEvent(result, { type: "message_end", message: steer });
+	processSessionEvent(result, { type: "agent_end", messages: [initialTask, steer, assistant] });
+
+	assert.deepEqual(result.messages, [steer, assistant]);
+});
+
 test("excludeSubagentExtensions filters extensions that register subagent", () => {
 	const subagentExtension = { tools: new Map([["subagent", {}]]) };
 	const otherExtension = { tools: new Map([["other_tool", {}]]) };

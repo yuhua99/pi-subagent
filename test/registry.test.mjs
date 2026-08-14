@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
+	attachRunSteer,
 	clearSessionState,
 	completeRun,
 	listCompletedRuns,
@@ -78,6 +79,32 @@ test("kill closure fires; getRun returns undefined after completeRun", () => {
 test("getRun returns undefined for unknown id", () => {
 	cleanup();
 	assert.equal(getRun("zzzz"), undefined);
+});
+
+test("steer with an attached callback delivers immediately and records history", () => {
+	cleanup();
+	const delivered = [];
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	attachRunSteer(run.id, (text) => { delivered.push(text); });
+	run.steer("focus on tests");
+	assert.deepEqual(delivered, ["focus on tests"]);
+	assert.deepEqual(run.steers.map(({ text }) => text), ["focus on tests"]);
+	assert.equal(typeof run.steers[0].at, "number");
+	completeRun(run.id, makeResult({ exitCode: 0 }));
+	assert.deepEqual(listCompletedRuns()[0].steers, run.steers);
+	cleanup();
+});
+
+test("steer before callback attachment queues and flushes FIFO", () => {
+	cleanup();
+	const delivered = [];
+	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	run.steer("first");
+	run.steer("second");
+	attachRunSteer(run.id, (text) => { delivered.push(text); });
+	assert.deepEqual(delivered, ["first", "second"]);
+	assert.deepEqual(run.steers.map(({ text }) => text), ["first", "second"]);
+	cleanup();
 });
 
 test("updateRun replaces result reference", () => {
