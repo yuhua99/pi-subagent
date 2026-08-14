@@ -16,7 +16,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { registerAgentsCommand } from "./agents_command.ts";
-import { isSubagentChild, isSubagentForkChild } from "./delegation.ts";
 import { formatSubagentList, renderCall, renderKillCall, renderKillResult, renderListCall, renderListResult, renderResult } from "./render.ts";
 import { injectIntoSystemPrompt } from "./prompt_injection.ts";
 import { listRuns } from "./registry.ts";
@@ -25,15 +24,6 @@ import { createSubagentExecution } from "./subagent_execution.ts";
 import { formatSubagentSystemPrompt, KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 
 export default function (pi: ExtensionAPI) {
-  // Fork children register schema-identical stub tools instead of returning
-  // early: the parent's cached request prefix includes these tool schemas, so
-  // omitting them would diverge the tool segment and forfeit the prompt cache.
-  if (isSubagentForkChild()) {
-    registerForkChildStubs(pi);
-    return;
-  }
-  if (isSubagentChild()) return;
-
   registerAgentsCommand(pi);
   const execution = createSubagentExecution(pi);
   let discoveredAgents: AgentConfig[] = [];
@@ -130,46 +120,3 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-function registerForkChildStubs(pi: ExtensionAPI) {
-  pi.registerTool({
-    name: "subagent",
-    label: "Subagent",
-    description: TOOL_DESCRIPTION,
-    parameters: SubagentParams,
-    async execute() {
-      return {
-        content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
-        details: undefined,
-        isError: true,
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "subagent_list",
-    label: "List subagents",
-    description: LIST_TOOL_DESCRIPTION,
-    parameters: SubagentListParams,
-    async execute() {
-      return {
-        content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
-        details: undefined,
-        isError: true,
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "subagent_kill",
-    label: "Kill subagent",
-    description: KILL_TOOL_DESCRIPTION,
-    parameters: SubagentKillParams,
-    async execute() {
-      return {
-        content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
-        details: undefined,
-        isError: true,
-      };
-    },
-  });
-}

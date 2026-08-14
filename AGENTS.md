@@ -4,6 +4,7 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 
 ## Invariants
 
+- Single-level delegation is a construction-time capability: child sessions load the parent's full extension set excluding pi-subagent, filtered by the `subagent` tool name with no allowlist configuration; third-party extension behavior in in-process children is the extension's own responsibility, and prompt-mutating `before_agent_start` extensions may break fork cache alignment (accepted; `cacheRead` stays diagnostic).
 - Resume only targets a successfully completed run from the same parent Pi session; it creates a new run ID, preserves lineage, and allows only one concurrent resume per lineage.
 - Fork requires a persisted parent session; under `--no-session` it errors clearly with no manual fallback; spawn is unaffected.
 - Fork children use the parent system prompt and schema-identical stub subagent tools; per-agent overrides are ignored in fork mode; `usage.cacheRead` diagnoses cache hits, not guarantees them.

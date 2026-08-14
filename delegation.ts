@@ -4,23 +4,6 @@ import { registerRun } from "./registry.ts";
 import { DEFAULT_DELEGATION_MODE, emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.ts";
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-export const SUBAGENT_CHILD_ENV = "PI_SUBAGENT";
-export const SUBAGENT_FORK_ENV = "PI_SUBAGENT_FORK";
-
-/** Whether this process is a fork-mode subagent child. */
-export function isSubagentForkChild(): boolean {
-  return process.env[SUBAGENT_FORK_ENV] === "1";
-}
-
-/** Whether this process is itself a subagent child (single-level delegation). */
-export function isSubagentChild(): boolean {
-  return process.env[SUBAGENT_CHILD_ENV] === "1";
-}
-
-// ---------------------------------------------------------------------------
 // Delegation mode
 // ---------------------------------------------------------------------------
 

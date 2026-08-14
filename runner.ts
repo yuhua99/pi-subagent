@@ -4,6 +4,7 @@
 
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -190,6 +191,10 @@ export function buildTaskMessage(agent: AgentConfig, task: string, delegationMod
 	return `Task: ${task}`;
 }
 
+export function excludeSubagentExtensions(base: LoadExtensionsResult): LoadExtensionsResult {
+	return { ...base, extensions: base.extensions.filter((ext) => !ext.tools.has("subagent")) };
+}
+
 async function createResourceLoader(
 	cwd: string,
 	agent: AgentConfig,
@@ -200,7 +205,7 @@ async function createResourceLoader(
 	const loader = new DefaultResourceLoader({
 		cwd,
 		agentDir: getAgentDir(),
-		noExtensions: true,
+		extensionsOverride: excludeSubagentExtensions,
 		...(fork ? {
 			noSkills: true,
 			noContextFiles: true,
@@ -329,6 +334,7 @@ async function createRunSession(
 	}
 
 	const effectiveCwd = opts.taskCwd ?? opts.cwd;
+	let createdSession: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 	try {
 		const managedDir = allocateManagedSessionDir(agent.name);
 		let manager: SessionManager;
@@ -365,8 +371,18 @@ async function createRunSession(
 			...("model" in resolved && resolved.model ? { model: resolved.model } : {}),
 			...(thinkingLevel ? { thinkingLevel } : {}),
 		});
-		return { session: created.session, managedSessionPath };
+		createdSession = created.session;
+		await createdSession.bindExtensions({
+			mode: "print",
+			onError: (err) => {
+				console.error(`Subagent extension error (${err.extensionPath}): ${err.error}`);
+			},
+		});
+		return { session: createdSession, managedSessionPath };
 	} catch (error) {
+		try {
+			createdSession?.dispose();
+		} catch {}
 		failedResult(result, error instanceof Error ? error.message : String(error));
 		return undefined;
 	}
@@ -486,6 +502,7 @@ async function runSessionPrompt(
 	} finally {
 		if (opts.signal && abortHandler) opts.signal.removeEventListener("abort", abortHandler);
 		unsubscribe();
+		await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 		session.dispose();
 	}
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildTaskMessage, processSessionEvent } from "../runner.ts";
+import { buildTaskMessage, excludeSubagentExtensions, processSessionEvent } from "../runner.ts";
 import { getFinalAssistantText, isResultError, isResultSuccess, normalizeCompletedResult } from "../types.ts";
 
 function makeResult(overrides = {}) {
@@ -190,6 +190,23 @@ test("processSessionEvent streams partial messages and deduplicates transcript u
 	assert.equal(result.model, "test-model");
 	assert.equal(result.stopReason, "stop");
 	assert.equal(result.sawAgentEnd, true);
+});
+
+test("excludeSubagentExtensions filters extensions that register subagent", () => {
+	const subagentExtension = { tools: new Map([["subagent", {}]]) };
+	const otherExtension = { tools: new Map([["other_tool", {}]]) };
+	const base = { extensions: [subagentExtension, otherExtension], errors: [] };
+
+	const filtered = excludeSubagentExtensions(base);
+
+	assert.deepEqual(filtered.extensions, [otherExtension]);
+	assert.equal(filtered.errors, base.errors);
+});
+
+test("excludeSubagentExtensions preserves an empty extension list", () => {
+	const base = { extensions: [], errors: [] };
+
+	assert.deepEqual(excludeSubagentExtensions(base), base);
 });
 
 test("buildTaskMessage keeps fork instructions in the task message", () => {

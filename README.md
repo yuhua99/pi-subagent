@@ -83,7 +83,7 @@ Delegate independent work to the most appropriate specialized agent.
 - **`fork`** — session branch snapshot + task; better for follow-ups, higher cost / possible leakage. Cache-aligned: the child rebuilds the parent's request prefix (system prompt, tool schemas, history) to hit the provider prompt cache; misalignment only costs a cache miss. Agent `tools`/`thinking` are ignored (persona moves into the task message); `model` is respected.
 - **`resume`** — continue a successful completed run from this parent session using its native JSONL session. It creates a new run id and preserves lineage; only one resume per lineage may run at a time.
 
-Each child is a separate `pi` process (`PI_SUBAGENT=1`). The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
+Single-level delegation is a construction-time capability: child sessions load the parent's extensions except pi-subagent, so they physically lack the subagent tools. The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
 
 ## Attribution
 
