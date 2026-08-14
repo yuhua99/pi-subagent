@@ -1,19 +1,7 @@
 import * as fs from "node:fs";
 import type { AgentConfig } from "./agents.ts";
 import { registerRun } from "./registry.ts";
-import { DEFAULT_DELEGATION_MODE, emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.ts";
-
-// ---------------------------------------------------------------------------
-// Delegation mode
-// ---------------------------------------------------------------------------
-
-export function parseDelegationMode(raw: unknown): DelegationMode | null {
-  if (raw === undefined) return DEFAULT_DELEGATION_MODE;
-  if (typeof raw !== "string") return null;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "spawn" || normalized === "fork") return normalized;
-  return null;
-}
+import { emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.ts";
 
 export function resolveForkSource(sessionManager: {
   getSessionFile: () => string | undefined;
@@ -45,10 +33,6 @@ export function makeDetailsFactory(projectAgentsDir: string | null, delegationMo
       projectAgentsDir,
       results,
     });
-}
-
-export function formatAgentNames(agents: AgentConfig[]): string {
-  return agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
 }
 
 // ---------------------------------------------------------------------------

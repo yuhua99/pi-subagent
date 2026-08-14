@@ -3,10 +3,8 @@ import { type AgentConfig, discoverAgents } from "./agents.ts";
 import {
 	resolveForkSource,
 	failedPlaceholderResult,
-	formatAgentNames,
 	makeDetailsFactory,
 	makeRunningPlaceholder,
-	parseDelegationMode,
 	reserveParallelPlaceholders,
 } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
@@ -22,6 +20,7 @@ import {
 	setRunTaskSummary,
 	type SubagentRun,
 } from "./registry.ts";
+import { formatSubagentList } from "./render.ts";
 import { runAgent } from "./runner.ts";
 import { summarizeTask } from "./task_summary.ts";
 import {
@@ -29,22 +28,14 @@ import {
 	getResultSummaryText,
 	isResultError,
 	isResultSuccess,
-	parseTasksParam,
 	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
+	type SubagentCtlDetails,
+	type SubagentListDetails,
 	type TaskSpec,
 } from "./types.ts";
-import { getSubagentInvocationShape, MAX_CONCURRENCY, MAX_PARALLEL_TASKS } from "./tool_schema.ts";
-
-export interface SubagentToolParams {
-	resume?: string;
-	task?: string;
-	agent?: string;
-	mode?: unknown;
-	cwd?: string;
-	tasks?: TaskSpec[] | string;
-}
+import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS, type SubagentCtlInvocation, type SubagentInvocation } from "./tool_schema.ts";
 
 export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
 	cwd: string;
@@ -58,12 +49,13 @@ export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelR
 
 interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
-	details?: SubagentDetails;
+	details?: SubagentDetails | SubagentListDetails | SubagentCtlDetails;
 	isError?: boolean;
 }
 
 interface SubagentExecution {
-	execute(toolCallId: string, params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
+	execute(toolCallId: string, invocation: SubagentInvocation, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult>;
+	executeControl(invocation: SubagentCtlInvocation): ToolResult;
 	kill(id: string): SubagentRun | undefined;
 	steer(id: string, text: string): SubagentRun | { error: string };
 	shutdown(): Promise<void>;
@@ -232,7 +224,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		return {
 			content: [{
 				type: "text",
-				text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered to you automatically as a new message when it finishes. Do NOT poll subagent_list or sleep. End your turn immediately.`,
+				text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered to you automatically as a new message when it finishes. Do NOT poll subagent_ctl or sleep. End your turn immediately.`,
 			}],
 			details: makeDetails("single")([makeRunningPlaceholder(agentName, task, agents, raced.id)]),
 		};
@@ -330,38 +322,19 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		return {
 			content: [{
 				type: "text",
-				text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT poll subagent_list or sleep. End your turn immediately.`,
+				text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT poll subagent_ctl or sleep. End your turn immediately.`,
 			}],
 			details: makeDetails("parallel")(placeholders),
 		};
 	};
 
-	const execute = async (toolCallId: string, params: SubagentToolParams, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
+	const execute = async (toolCallId: string, invocation: SubagentInvocation, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
 		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
-		const hasResume = params.resume !== undefined;
-		const invocationShape = getSubagentInvocationShape(params);
-		const parsedTasks = parseTasksParam(params.tasks);
-		if (parsedTasks && "error" in parsedTasks) {
-			const makeDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
-			return {
-				content: [{ type: "text", text: `${parsedTasks.error}\nAvailable agents: ${formatAgentNames(agents)}` }],
-				details: makeDetails("parallel")([]),
-				isError: true,
-			};
-		}
-		const tasks = parsedTasks?.tasks;
 
-		if (hasResume) {
+		if (invocation.action === "resume") {
 			const defaultDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
-			if (invocationShape !== "resume") {
-				return {
-					content: [{ type: "text", text: `Invalid resume parameters. Use exactly { resume, task } and do not combine them with agent/tasks/mode/cwd.\nAvailable agents: ${formatAgentNames(agents)}` }],
-					details: defaultDetails("single")([]),
-					isError: true,
-				};
-			}
-			const reservation = reserveResumeRun(params.resume!, params.task!, parentSessionId, hasManagedSessionPath, onResumeKill);
+			const reservation = reserveResumeRun(invocation.resume_id, invocation.task, parentSessionId, hasManagedSessionPath, onResumeKill);
 			if ("error" in reservation) {
 				return {
 					content: [{ type: "text", text: reservation.error }],
@@ -374,7 +347,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
 			return executeSingle(
 				source.agent,
-				params.task!,
+				invocation.task,
 				undefined,
 				delegationMode,
 				undefined,
@@ -394,15 +367,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			);
 		}
 
-		const delegationMode = parseDelegationMode(params.mode);
-		if (!delegationMode) {
-			const makeDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
-			return {
-				content: [{ type: "text", text: `Invalid mode "${String(params.mode)}". Expected "spawn" or "fork".\nAvailable agents: ${formatAgentNames(agents)}` }],
-				details: makeDetails("single")([]),
-				isError: true,
-			};
-		}
+		const delegationMode = invocation.mode ?? DEFAULT_DELEGATION_MODE;
 		const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
 		let sourceSessionPath: string | undefined;
 		let leafId: string | undefined;
@@ -419,16 +384,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			leafId = forkSource.leafId;
 		}
 		const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
-		if (invocationShape !== "single" && invocationShape !== "parallel") {
-			return {
-				content: [{ type: "text", text: `Invalid parameters. Provide exactly one invocation shape.\nAvailable agents: ${formatAgentNames(agents)}` }],
-				details: makeDetails("single")([]),
-				isError: true,
-			};
-		}
-		if (invocationShape === "parallel") {
+		if (invocation.action === "run_parallel") {
 			return executeParallel(
-				tasks!,
+				invocation.tasks,
 				delegationMode,
 				sourceSessionPath,
 				leafId,
@@ -443,9 +401,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			);
 		}
 		return executeSingle(
-			params.agent!,
-			params.task!,
-			params.cwd,
+			invocation.agent,
+			invocation.task,
+			invocation.cwd,
 			delegationMode,
 			sourceSessionPath,
 			leafId,
@@ -464,24 +422,56 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		);
 	};
 
+	const kill = (id: string) => {
+		const entry = getRun(id);
+		entry?.kill();
+		return entry;
+	};
+	const steer = (id: string, text: string) => {
+		const entry = getRun(id);
+		if (entry) {
+			entry.steer(text);
+			return entry;
+		}
+		if (listCompletedRuns().some((run) => run.id === id)) {
+			return { error: `Subagent [${id}] already finished. Use the subagent tool with { action: "resume", resume_id: "${id}", task } instead.` };
+		}
+		return { error: `No running subagent with id '${id}' (it may have already finished).` };
+	};
+
 	return {
 		execute,
-		kill(id: string) {
-			const entry = getRun(id);
-			entry?.kill();
-			return entry;
-		},
-		steer(id: string, text: string) {
-			const entry = getRun(id);
-			if (entry) {
-				entry.steer(text);
-				return entry;
+		executeControl(invocation) {
+			if (invocation.action === "list") {
+				const runs = listRuns();
+				const details: SubagentListDetails = {
+					action: "list",
+					runs: runs.map(({ id, agent, taskSummary, startedAt }) => ({ id, agent, taskSummary, startedAt })),
+				};
+				return { content: [{ type: "text", text: formatSubagentList(runs) }], details };
 			}
-			if (listCompletedRuns().some((run) => run.id === id)) {
-				return { error: `Subagent [${id}] already finished. Use the subagent tool with { resume: "${id}", task } instead.` };
+			if (invocation.action === "kill") {
+				const entry = kill(invocation.id);
+				if (!entry) {
+					const details: SubagentCtlDetails = { action: "kill", id: invocation.id };
+					return {
+						content: [{ type: "text", text: `No running subagent with id '${invocation.id}' (it may have already finished).` }],
+						details,
+					};
+				}
+				const details: SubagentCtlDetails = { action: "kill", id: entry.id, agent: entry.agent };
+				return { content: [{ type: "text", text: `Killed subagent [${entry.id}] (${entry.agent}).` }], details };
 			}
-			return { error: `No running subagent with id '${id}' (it may have already finished).` };
+			const entry = steer(invocation.id, invocation.text);
+			if ("error" in entry) {
+				const details: SubagentCtlDetails = { action: "steer", id: invocation.id };
+				return { content: [{ type: "text", text: entry.error }], details };
+			}
+			const details: SubagentCtlDetails = { action: "steer", id: entry.id, agent: entry.agent };
+			return { content: [{ type: "text", text: `Steered subagent [${entry.id}] (${entry.agent}).` }], details };
 		},
+		kill,
+		steer,
 		async shutdown() {
 			const entries = listRuns();
 			const completions = entries.map((entry) => new Promise<void>((resolve) => {

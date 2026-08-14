@@ -1,74 +1,90 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderResult, renderSteerResult } from "../render.ts";
+import { renderCall, renderCtlCall, renderCtlResult, renderResult, renderSteerResult } from "../render.ts";
 
 const theme = {
   fg: (_color, text) => text,
   bold: (text) => text,
 };
 
-function validationText(args) {
-  const diagnostics = ["  - root: Expected union value"];
-  if ("cwd" in args) diagnostics.push("  - cwd: Unexpected property");
-  return `Validation failed for tool "subagent":
-${diagnostics.join("\n")}
+function validationText(toolName, args) {
+  return `Validation failed for tool "${toolName}":
+  - root: Expected union value
 
 Received arguments:
 ${JSON.stringify(args, null, 2)}`;
 }
 
-function renderValidation(args, details) {
-  const text = validationText(args);
+function renderValidation(toolName, args, details) {
+  const text = validationText(toolName, args);
   const result = { content: [{ type: "text", text }], details };
   let component;
   assert.doesNotThrow(() => {
-    component = renderResult(result, theme);
+    component = toolName === "subagent" ? renderResult(result, theme) : renderCtlResult(result, undefined, theme);
   });
   const output = component.render(200).join("\n").trim();
-  assert.doesNotMatch(output, /Expected union|Unexpected property|Received arguments|root:/);
+  assert.doesNotMatch(output, /Expected union|Received arguments|root:/);
   assert.equal(result.content[0].text, text);
   return output;
 }
 
-test("renderResult replaces malformed resume validation diagnostics", () => {
-  const args = { resume: "a1b2", task: "continue", cwd: "/tmp" };
+test("renderResult replaces malformed action validation diagnostics", () => {
+  const args = { action: "resume", resume_id: "a1b2", task: "continue", cwd: "/tmp" };
   for (const details of [{}, undefined, { mode: "single", results: [null] }]) {
     assert.equal(
-      renderValidation(args, details),
-      "Validation error: resume does not accept `cwd`; use only `resume` and `task`.",
+      renderValidation("subagent", args, details),
+      "Validation error: action `resume` accepts only `resume_id` and `task`.",
     );
   }
 });
 
-test("renderResult gives validation guidance for each invocation shape", () => {
+test("renderResult gives action-oriented validation guidance", () => {
   const cases = [
-    [{ resume: "a1b2" }, "Validation error: resume requires `task`."],
-    [{ agent: "worker" }, "Validation error: single subagent calls require `task`."],
-    [{ agent: "worker", task: "work", mode: {} }, "Validation error: single call `mode` must be a string."],
-    [{ agent: "worker", task: "work", cwd: {} }, "Validation error: single call `cwd` must be a string."],
-    [{ tasks: [] }, "Validation error: `tasks` must be a non-empty array of `{ agent, task, cwd? }` or a JSON string."],
-    [{ tasks: [{ agent: "worker" }] }, "Validation error: task item `task` must be a string."],
-    [{ tasks: [{ agent: "worker", task: "work", extra: true }] }, "Validation error: task items accept only `agent`, `task`, and optional `cwd`."],
-    [{ tasks: [{ agent: "worker", task: "work", cwd: {} }] }, "Validation error: task item `cwd` must be a string."],
-    [{ tasks: [{ agent: "worker", task: "work" }], mode: {} }, "Validation error: parallel call `mode` must be a string."],
-    [{ tasks: "[]", cwd: "/tmp" }, "Validation error: parallel calls accept only `tasks` and optional `mode`."],
-    [{ mode: "fork" }, "Validation error: use `{ agent, task }`, `{ tasks }`, or `{ resume, task }`."],
+    [{ action: "run", agent: "worker" }, "Validation error: action `run` requires string `agent` and `task`."],
+    [{ action: "run_parallel" }, "Validation error: action `run_parallel` requires `tasks`."],
+    [{ action: "run_parallel", tasks: [] }, "Validation error: `tasks` must be a non-empty array of `{ agent, task, cwd? }` or a JSON string."],
+    [{ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp" }, "Validation error: action `run_parallel` accepts only `tasks` and optional `mode`."],
+    [{ action: "resume", resume_id: "a1b2" }, "Validation error: action `resume` requires string `resume_id` and `task`."],
+    [{ action: "unknown" }, "Validation error: action must be `run`, `run_parallel`, or `resume`."],
   ];
-  for (const [args, expected] of cases) assert.equal(renderValidation(args, {}), expected);
+  for (const [args, expected] of cases) assert.equal(renderValidation("subagent", args, {}), expected);
+});
+
+test("renderCtlResult gives control action validation guidance", () => {
+  assert.equal(
+    renderValidation("subagent_ctl", { action: "kill" }, {}),
+    "Validation error: action `kill` requires string `id`.",
+  );
+  assert.equal(
+    renderValidation("subagent_ctl", { action: "list", id: "a1b2" }, {}),
+    "Validation error: action `list` does not accept other fields.",
+  );
+});
+
+test("renderCall distinguishes delegation actions", () => {
+  assert.equal(renderCall({ action: "run", agent: "worker" }, theme).render(200).join("\n").trim(), "subagent worker");
+  assert.equal(renderCall({ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }] }, theme).render(200).join("\n").trim(), "subagent parallel (1 tasks)");
+  assert.equal(renderCall({ action: "resume", resume_id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent resume a1b2");
+});
+
+test("renderCtlCall distinguishes control actions", () => {
+  assert.equal(renderCtlCall({ action: "list" }, theme).render(200).join("\n").trim(), "subagent_ctl list");
+  assert.equal(renderCtlCall({ action: "kill", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl kill a1b2");
+  assert.equal(renderCtlCall({ action: "steer", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl steer a1b2");
 });
 
 test("renderSteerResult preserves completed-run errors", () => {
   const component = renderSteerResult(
     {
-      content: [{ type: "text", text: "Subagent [a1b2] already finished. Use the subagent tool with { resume: \"a1b2\", task } instead." }],
-      details: { id: "a1b2" },
+      content: [{ type: "text", text: "Subagent [a1b2] already finished. Use the subagent tool with { action: \"resume\", resume_id: \"a1b2\", task } instead." }],
+      details: { action: "steer", id: "a1b2" },
     },
     undefined,
     theme,
   );
   assert.equal(
     component.render(200).join("\n").trim(),
-    "Subagent [a1b2] already finished. Use the subagent tool with { resume: \"a1b2\", task } instead.",
+    "Subagent [a1b2] already finished. Use the subagent tool with { action: \"resume\", resume_id: \"a1b2\", task } instead.",
   );
 });
 

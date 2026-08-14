@@ -2,17 +2,17 @@
 
 **Delegate tasks to specialized subagents in isolated `pi` processes.**
 
-Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent); this package is a substantial rewrite (async delegation, `/agents` TUI, list/kill tools, single-level nesting).
+Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent); this package is a substantial rewrite (async delegation, `/agents` TUI, `subagent_ctl`, single-level nesting).
 
 ## Features
 
 - **`spawn` / `fork` context** — fresh task-only context, or a session snapshot plus the task
-- **Native session resume** — continue a successfully completed child with `{ "resume": "run-id", "task": "..." }`
+- **Native session resume** — continue a successfully completed child with `{ "action": "resume", "resume_id": "run-id", "task": "..." }`
 - **Async by default** — tool returns as soon as the child starts; results arrive as a follow-up message
 - **Parallel runs** — up to 8 tasks, 4 concurrent
 - **Single-level only** — children cannot nest further subagents
 - **`/agents`** — live status and transcript preview in the TUI
-- **`subagent_list` / `subagent_kill`** — inspect or stop running children
+- **`subagent_ctl`** — list, stop, or steer running children
 - **Orchestrator file** — main-agent-only delegation policy via `role: orchestrator`
 
 ## Install
@@ -72,11 +72,21 @@ Delegate independent work to the most appropriate specialized agent.
 
 ## Usage
 
+`subagent`:
+
 ```json
-{ "agent": "writer", "task": "Document the API", "mode": "spawn" }
-{ "agent": "review", "task": "Check this migration", "mode": "fork" }
-{ "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }], "mode": "spawn" }
-{ "resume": "completed-run-id", "task": "Continue the previous work" }
+{ "action": "run", "agent": "writer", "task": "Document the API", "mode": "spawn" }
+{ "action": "run", "agent": "review", "task": "Check this migration", "mode": "fork" }
+{ "action": "run_parallel", "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }], "mode": "spawn" }
+{ "action": "resume", "resume_id": "completed-run-id", "task": "Continue the previous work" }
+```
+
+`subagent_ctl`:
+
+```json
+{ "action": "list" }
+{ "action": "kill", "id": "running-run-id" }
+{ "action": "steer", "id": "running-run-id", "text": "Focus on the failing test." }
 ```
 
 - **`spawn`** (default) — child gets only `Task: ...`; put all needed context in `task`

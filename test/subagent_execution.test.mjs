@@ -23,7 +23,7 @@ test("steer rejects completed run ids", () => {
 	completeRun(run.id, makeResult({ exitCode: 0 }));
 
 	assert.deepEqual(execution.steer(run.id, "continue"), {
-		error: `Subagent [${run.id}] already finished. Use the subagent tool with { resume: "${run.id}", task } instead.`,
+		error: `Subagent [${run.id}] already finished. Use the subagent tool with { action: "resume", resume_id: "${run.id}", task } instead.`,
 	});
 	clearSessionState();
 });

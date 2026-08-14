@@ -18,7 +18,7 @@ import type { AgentConfig } from "./agents.ts";
 import { stripCwdTail } from "./prompt_injection.ts";
 import { attachRunSteer, getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
 import { allocateManagedSessionDir, registerManagedSessionPath } from "./session_files.ts";
-import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, STEER_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, SubagentSteerParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
+import { CTL_TOOL_DESCRIPTION, SubagentCtlParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 import {
 	type DelegationMode,
 	type SingleResult,
@@ -48,24 +48,10 @@ function createForkStubTools() {
 			execute: unavailableToolResult,
 		}),
 		defineTool({
-			name: "subagent_list",
-			label: "List subagents",
-			description: LIST_TOOL_DESCRIPTION,
-			parameters: SubagentListParams,
-			execute: unavailableToolResult,
-		}),
-		defineTool({
-			name: "subagent_kill",
-			label: "Kill subagent",
-			description: KILL_TOOL_DESCRIPTION,
-			parameters: SubagentKillParams,
-			execute: unavailableToolResult,
-		}),
-		defineTool({
-			name: "subagent_steer",
-			label: "Steer subagent",
-			description: STEER_TOOL_DESCRIPTION,
-			parameters: SubagentSteerParams,
+			name: "subagent_ctl",
+			label: "Subagent control",
+			description: CTL_TOOL_DESCRIPTION,
+			parameters: SubagentCtlParams,
 			execute: unavailableToolResult,
 		}),
 	];

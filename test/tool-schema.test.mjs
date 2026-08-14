@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getSubagentInvocationShape, SubagentParams } from "../tool_schema.ts";
+import {
+  parseSubagentCtlInvocation,
+  parseSubagentInvocation,
+  SubagentCtlParams,
+  SubagentParams,
+} from "../tool_schema.ts";
 import { parseTasksParam } from "../types.ts";
 
-test("subagent schema has an object root and preserves parameter types", () => {
+test("subagent schema has an action-discriminated object root", () => {
   assert.equal(SubagentParams.type, "object");
-  assert.equal(SubagentParams.anyOf, undefined);
   assert.equal(SubagentParams.additionalProperties, false);
-  assert.deepEqual(Object.keys(SubagentParams.properties), ["agent", "task", "tasks", "resume", "mode", "cwd"]);
+  assert.deepEqual(Object.keys(SubagentParams.properties), ["action", "agent", "task", "tasks", "resume_id", "mode", "cwd"]);
+  assert.deepEqual(SubagentParams.required, ["action"]);
+  assert.deepEqual(SubagentParams.properties.action.anyOf.map((schema) => schema.const), ["run", "run_parallel", "resume"]);
+  assert.deepEqual(SubagentParams.properties.mode.anyOf.map((schema) => schema.const), ["spawn", "fork"]);
   const tasksSchema = SubagentParams.properties.tasks;
   const tasksArray = tasksSchema.anyOf.find((schema) => schema.type === "array");
   assert.equal(tasksArray.items.additionalProperties, false);
@@ -15,16 +22,43 @@ test("subagent schema has an object root and preserves parameter types", () => {
   assert.equal(tasksSchema.anyOf.some((schema) => schema.type === "string"), true);
 });
 
-test("subagent invocation validation accepts only the three shapes", () => {
-  assert.equal(getSubagentInvocationShape({ agent: "a", task: "t" }), "single");
-  assert.equal(getSubagentInvocationShape({ agent: "a", task: "t", cwd: "/tmp", mode: "fork" }), "single");
-  assert.equal(getSubagentInvocationShape({ tasks: [{ agent: "a", task: "t" }] }), "parallel");
-  assert.equal(getSubagentInvocationShape({ resume: "id", task: "t" }), "resume");
-  assert.equal(getSubagentInvocationShape({ agent: "a", task: "t", tasks: [{ agent: "b", task: "u" }] }), undefined);
-  assert.equal(getSubagentInvocationShape({ resume: "id", task: "t", agent: "a" }), undefined);
-  assert.equal(getSubagentInvocationShape({ tasks: [{ agent: "a", task: "t" }], cwd: "/tmp" }), undefined);
-  assert.equal(getSubagentInvocationShape({ resume: "id", task: "t", mode: "fork" }), undefined);
-  assert.equal(getSubagentInvocationShape({ agent: "a" }), undefined);
+test("subagent control schema has a required action", () => {
+  assert.equal(SubagentCtlParams.type, "object");
+  assert.equal(SubagentCtlParams.additionalProperties, false);
+  assert.deepEqual(SubagentCtlParams.required, ["action"]);
+  assert.deepEqual(SubagentCtlParams.properties.action.anyOf.map((schema) => schema.const), ["list", "kill", "steer"]);
+});
+
+test("subagent action validation accepts each legal invocation", () => {
+  assert.deepEqual(parseSubagentInvocation({ action: "run", agent: "a", task: "t", mode: "fork", cwd: "/tmp" }), {
+    action: "run", agent: "a", task: "t", mode: "fork", cwd: "/tmp",
+  });
+  assert.deepEqual(parseSubagentInvocation({ action: "run_parallel", tasks: '[{"agent":"a","task":"t"}]' }), {
+    action: "run_parallel", tasks: [{ agent: "a", task: "t" }],
+  });
+  assert.deepEqual(parseSubagentInvocation({ action: "resume", resume_id: "id", task: "t" }), {
+    action: "resume", resume_id: "id", task: "t",
+  });
+});
+
+test("subagent action validation reports action-specific invalid fields", () => {
+  const cases = [
+    [{ action: "run", agent: "a" }, 'action "run" requires "agent" and "task"'],
+    [{ action: "run", agent: "a", task: "t", tasks: [] }, 'action "run" does not accept "tasks"'],
+    [{ action: "run_parallel", tasks: [{ agent: "a", task: "t" }], cwd: "/tmp" }, 'action "run_parallel" does not accept "cwd"'],
+    [{ action: "resume", resume_id: "id", task: "t", mode: "fork" }, 'action "resume" does not accept "mode"'],
+    [{ action: "other" }, 'action must be "run", "run_parallel", or "resume"'],
+  ];
+  for (const [params, error] of cases) assert.deepEqual(parseSubagentInvocation(params), { error });
+});
+
+test("subagent control validation enforces each action", () => {
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "list" }), { action: "list" });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "kill", id: "id" }), { action: "kill", id: "id" });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "id", text: "focus" }), { action: "steer", id: "id", text: "focus" });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "list", id: "id" }), { error: 'action "list" does not accept "id"' });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "kill" }), { error: 'action "kill" requires "id"' });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "id" }), { error: 'action "steer" requires "id" and "text"' });
 });
 
 test("parseTasksParam coerces JSON-encoded task strings", () => {

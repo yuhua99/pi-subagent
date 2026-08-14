@@ -76,8 +76,9 @@ export interface SubagentDetails {
 	results: SingleResult[];
 }
 
-/** Metadata attached to subagent_list tool results for rendering. */
+/** Metadata attached to subagent_ctl list results for rendering. */
 export interface SubagentListDetails {
+	action: "list";
 	runs: Array<{
 		id: string;
 		agent: string;
@@ -86,10 +87,10 @@ export interface SubagentListDetails {
 	}>;
 }
 
-/** Metadata attached to subagent_kill tool results for rendering. */
-export type SubagentKillDetails =
-	| { id: string; agent: string }
-	| { id: string };
+/** Metadata attached to subagent_ctl kill and steer results for rendering. */
+export type SubagentCtlDetails =
+	| { action: "kill" | "steer"; id: string; agent: string }
+	| { action: "kill" | "steer"; id: string };
 
 /** Create an empty UsageStats object. */
 export function emptyUsage(): UsageStats {

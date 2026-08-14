@@ -11,7 +11,7 @@ import {
 	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
-	type SubagentKillDetails,
+	type SubagentCtlDetails,
 	type SubagentListDetails,
 	type UsageStats,
 	DEFAULT_DELEGATION_MODE,
@@ -84,14 +84,15 @@ function isRenderableDetails(value: unknown): value is SubagentDetails {
 }
 
 function isRenderableListDetails(value: unknown): value is SubagentListDetails {
-	return isRecord(value) && Array.isArray(value.runs) && value.runs.every((run) => (
+	return isRecord(value) && value.action === "list" && Array.isArray(value.runs) && value.runs.every((run) => (
 		isRecord(run) && typeof run.id === "string" && typeof run.agent === "string" &&
 		(run.taskSummary === undefined || typeof run.taskSummary === "string") && typeof run.startedAt === "number"
 	));
 }
 
-function isRenderableKillDetails(value: unknown): value is SubagentKillDetails {
-	return isRecord(value) && typeof value.id === "string" && (!("agent" in value) || typeof value.agent === "string");
+function isRenderableKillDetails(value: unknown): value is SubagentCtlDetails {
+	return isRecord(value) && (value.action === "kill" || value.action === "steer") &&
+		typeof value.id === "string" && (!("agent" in value) || typeof value.agent === "string");
 }
 
 function hasUnexpectedKeys(args: Record<string, unknown>, allowed: string[]): boolean {
@@ -111,46 +112,64 @@ function taskListGuidance(value: unknown): string | undefined {
 }
 
 function validationGuidance(args: unknown): string {
-	if (!isRecord(args)) return "Validation error: use `{ agent, task }`, `{ tasks }`, or `{ resume, task }`.";
-	if ("resume" in args) {
-		if (typeof args.resume !== "string") return "Validation error: resume requires string `resume` and `task`.";
-		if (!("task" in args)) return "Validation error: resume requires `task`.";
-		if (typeof args.task !== "string") return "Validation error: resume `task` must be a string.";
-		if ("cwd" in args) return "Validation error: resume does not accept `cwd`; use only `resume` and `task`.";
-		return "Validation error: resume accepts only `resume` and `task`.";
+	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent requires action `run`, `run_parallel`, or `resume`.";
+	if (args.action === "run") {
+		if (typeof args.agent !== "string" || typeof args.task !== "string") return "Validation error: action `run` requires string `agent` and `task`.";
+		if (args.mode !== undefined && args.mode !== "spawn" && args.mode !== "fork") return "Validation error: action `run` `mode` must be `spawn` or `fork`.";
+		if (args.cwd !== undefined && typeof args.cwd !== "string") return "Validation error: action `run` `cwd` must be a string.";
+		if (hasUnexpectedKeys(args, ["action", "agent", "task", "mode", "cwd"])) return "Validation error: action `run` accepts only `agent`, `task`, optional `mode`, and optional `cwd`.";
+		return "Validation error: action `run` accepts string `agent`, `task`, optional `mode`, and optional `cwd`.";
 	}
-	if ("tasks" in args) {
-		if (hasUnexpectedKeys(args, ["tasks", "mode"])) return "Validation error: parallel calls accept only `tasks` and optional `mode`.";
-		if (args.mode !== undefined && typeof args.mode !== "string") return "Validation error: parallel call `mode` must be a string.";
+	if (args.action === "run_parallel") {
+		if (!("tasks" in args)) return "Validation error: action `run_parallel` requires `tasks`.";
+		if (args.mode !== undefined && args.mode !== "spawn" && args.mode !== "fork") return "Validation error: action `run_parallel` `mode` must be `spawn` or `fork`.";
+		if (hasUnexpectedKeys(args, ["action", "tasks", "mode"])) return "Validation error: action `run_parallel` accepts only `tasks` and optional `mode`.";
 		const taskGuidance = taskListGuidance(args.tasks);
 		if (taskGuidance) return taskGuidance;
-		return "Validation error: parallel calls accept `tasks` as an array or JSON string, with optional `mode`.";
+		return "Validation error: action `run_parallel` accepts `tasks` as an array or JSON string, with optional `mode`.";
 	}
-	if ("agent" in args) {
-		if (typeof args.agent !== "string") return "Validation error: single subagent calls require string `agent` and `task`.";
-		if (!("task" in args)) return "Validation error: single subagent calls require `task`.";
-		if (typeof args.task !== "string") return "Validation error: single subagent `task` must be a string.";
-		if (args.mode !== undefined && typeof args.mode !== "string") return "Validation error: single call `mode` must be a string.";
-		if (args.cwd !== undefined && typeof args.cwd !== "string") return "Validation error: single call `cwd` must be a string.";
-		if (hasUnexpectedKeys(args, ["agent", "task", "mode", "cwd"])) return "Validation error: single calls accept only `agent`, `task`, optional `mode`, and optional `cwd`.";
-		return "Validation error: single calls accept string `agent`, `task`, optional `mode`, and optional `cwd`.";
+	if (args.action === "resume") {
+		if (typeof args.resume_id !== "string" || typeof args.task !== "string") return "Validation error: action `resume` requires string `resume_id` and `task`.";
+		if (hasUnexpectedKeys(args, ["action", "resume_id", "task"])) return "Validation error: action `resume` accepts only `resume_id` and `task`.";
+		return "Validation error: action `resume` accepts string `resume_id` and `task`.";
 	}
-	return "Validation error: use `{ agent, task }`, `{ tasks }`, or `{ resume, task }`.";
+	return "Validation error: action must be `run`, `run_parallel`, or `resume`.";
 }
 
-function validationMessage(content: ResultContent): string | undefined {
+function ctlValidationGuidance(args: unknown): string {
+	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent_ctl requires action `list`, `kill`, or `steer`.";
+	if (args.action === "list") return hasUnexpectedKeys(args, ["action"])
+		? "Validation error: action `list` does not accept other fields."
+		: "Validation error: action `list` accepts no other fields.";
+	if (args.action === "kill") {
+		if (typeof args.id !== "string") return "Validation error: action `kill` requires string `id`.";
+		return hasUnexpectedKeys(args, ["action", "id"])
+			? "Validation error: action `kill` accepts only `id`."
+			: "Validation error: action `kill` accepts string `id`.";
+	}
+	if (args.action === "steer") {
+		if (typeof args.id !== "string" || typeof args.text !== "string") return "Validation error: action `steer` requires string `id` and `text`.";
+		return hasUnexpectedKeys(args, ["action", "id", "text"])
+			? "Validation error: action `steer` accepts only `id` and `text`."
+			: "Validation error: action `steer` accepts string `id` and `text`.";
+	}
+	return "Validation error: action must be `list`, `kill`, or `steer`.";
+}
+
+function validationMessage(content: ResultContent, toolName: "subagent" | "subagent_ctl" = "subagent"): string | undefined {
 	const text = content.find((block) => block.type === "text" && typeof block.text === "string")?.text;
-	if (!text?.startsWith('Validation failed for tool "subagent":')) return undefined;
+	if (!text?.startsWith(`Validation failed for tool "${toolName}":`)) return undefined;
 	const received = text.match(/Received arguments:\s*(\{[\s\S]*\})\s*$/)?.[1];
+	const guidance = toolName === "subagent" ? validationGuidance : ctlValidationGuidance;
 	try {
-		return validationGuidance(received ? JSON.parse(received) : undefined);
+		return guidance(received ? JSON.parse(received) : undefined);
 	} catch {
-		return validationGuidance(undefined);
+		return guidance(undefined);
 	}
 }
 
-function fallbackText(content: ResultContent): string {
-	const validation = validationMessage(content);
+function fallbackText(content: ResultContent, toolName: "subagent" | "subagent_ctl" = "subagent"): string {
+	const validation = validationMessage(content, toolName);
 	if (validation) return validation;
 	const first = content[0];
 	return first?.type === "text" && first.text ? first.text : "(no output)";
@@ -222,15 +241,19 @@ export function renderCall(
 	if (context?.toolCallId && context.isPartial) registerToolCallInvalidator(context.toolCallId, context.invalidate);
 	const delegationMode = normalizeDelegationMode(args.mode);
 	const modeBadge = delegationMode === "fork" ? theme.fg("muted", " [fork]") : "";
-	const parsedTasks = parseTasksParam(args.tasks);
-	const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
-	let content: string;
-	if (tasks && tasks.length > 0) {
-		content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", `parallel (${tasks.length} tasks)`) + modeBadge;
-	} else {
-		const agentName = args.agent || (args.resume ? `resume ${args.resume}` : "...");
-		content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", agentName) + (args.resume ? "" : modeBadge);
+	let detail = "...";
+	let suffix = modeBadge;
+	if (args.action === "run_parallel") {
+		const parsedTasks = parseTasksParam(args.tasks);
+		const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
+		detail = tasks?.length ? `parallel (${tasks.length} tasks)` : "parallel";
+	} else if (args.action === "resume") {
+		detail = `resume ${args.resume_id ?? "..."}`;
+		suffix = "";
+	} else if (args.action === "run") {
+		detail = args.agent ?? "...";
 	}
+	const content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", detail) + suffix;
 	const text = context?.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	text.setText(content);
 	return text;
@@ -251,12 +274,14 @@ export function renderResult(
 		: renderParallelResult(details, theme);
 }
 
-export function renderListCall(
-	_args: Record<string, any>,
+export function renderCtlCall(
+	args: Record<string, any>,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 	_context?: RenderContext,
 ): Text {
-	return new Text(theme.fg("toolTitle", theme.bold("subagent_list")), 0, 0);
+	const title = theme.fg("toolTitle", theme.bold(`subagent_ctl ${args.action ?? "..."}`));
+	const id = args.action === "kill" || args.action === "steer" ? theme.fg("accent", ` ${args.id ?? "..."}`) : "";
+	return new Text(title + id, 0, 0);
 }
 
 export function renderListResult(
@@ -274,14 +299,6 @@ export function renderListResult(
 	return new Text(lines.join("\n"), 0, 0);
 }
 
-export function renderKillCall(
-	args: Record<string, any>,
-	theme: { fg: ThemeFg; bold: (s: string) => string },
-	_context?: RenderContext,
-): Text {
-	return new Text(theme.fg("toolTitle", theme.bold("subagent_kill ")) + theme.fg("accent", args.id ?? "..."), 0, 0);
-}
-
 export function renderKillResult(
 	result: { content: ResultContent; details?: unknown },
 	_options: unknown,
@@ -295,25 +312,31 @@ export function renderKillResult(
 	return new Text(`${theme.fg("muted", "└─ ")}${theme.fg("dim", `no running subagent [${details.id}]`)}`, 0, 0);
 }
 
-export function renderSteerCall(
-	args: Record<string, any>,
-	theme: { fg: ThemeFg; bold: (s: string) => string },
-	_context?: RenderContext,
-): Text {
-	return new Text(theme.fg("toolTitle", theme.bold("subagent_steer ")) + theme.fg("accent", args.id ?? "..."), 0, 0);
-}
-
 export function renderSteerResult(
 	result: { content: ResultContent; details?: unknown },
 	_options: unknown,
 	theme: { fg: ThemeFg; bold: (s: string) => string },
 ): Text {
 	const details = isRenderableKillDetails(result.details) ? result.details : undefined;
-	if (!details) return new Text(fallbackText(result.content), 0, 0);
+	if (!details) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 	if ("agent" in details) {
 		return new Text(`${theme.fg("muted", "└─ ")}${theme.fg("success", "✓")} ${theme.fg("success", "steered")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`, 0, 0);
 	}
-	return new Text(fallbackText(result.content), 0, 0);
+	return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
+}
+
+export function renderCtlResult(
+	result: { content: ResultContent; details?: unknown },
+	options: unknown,
+	theme: { fg: ThemeFg; bold: (s: string) => string },
+): Text {
+	if (isRenderableListDetails(result.details)) return renderListResult(result, options, theme);
+	if (isRenderableKillDetails(result.details)) {
+		return result.details.action === "kill"
+			? renderKillResult(result, options, theme)
+			: renderSteerResult(result, options, theme);
+	}
+	return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }
 
 // ---------------------------------------------------------------------------
