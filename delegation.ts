@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { AgentConfig } from "./agents.ts";
 import { registerRun } from "./registry.ts";
 import { DEFAULT_DELEGATION_MODE, emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.ts";
@@ -19,11 +20,6 @@ export function isSubagentChild(): boolean {
   return process.env[SUBAGENT_CHILD_ENV] === "1";
 }
 
-interface SessionSnapshotSource {
-  getHeader: () => unknown;
-  getBranch: () => unknown[];
-}
-
 // ---------------------------------------------------------------------------
 // Delegation mode
 // ---------------------------------------------------------------------------
@@ -36,17 +32,22 @@ export function parseDelegationMode(raw: unknown): DelegationMode | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Session snapshot (fork mode)
-// ---------------------------------------------------------------------------
-
-export function buildForkSessionSnapshotJsonl(sessionManager: SessionSnapshotSource): string | null {
-  const header = sessionManager.getHeader();
-  if (!header || typeof header !== "object") return null;
-  const branchEntries = sessionManager.getBranch();
-  const lines = [JSON.stringify(header)];
-  for (const entry of branchEntries) lines.push(JSON.stringify(entry));
-  return `${lines.join("\n")}\n`;
+export function resolveForkSource(sessionManager: {
+  getSessionFile: () => string | undefined;
+  getLeafId: () => string | null;
+}): { sourceSessionPath: string; leafId: string } | { error: string } {
+  const sourceSessionPath = sessionManager.getSessionFile();
+  if (!sourceSessionPath) {
+    return { error: "Cannot use mode=\"fork\": fork requires a persisted parent session; the parent is running without a session file (--no-session). Restart without --no-session to use fork mode." };
+  }
+  if (!fs.existsSync(sourceSessionPath)) {
+    return { error: `Cannot use mode="fork": parent session file does not exist: ${sourceSessionPath}. Wait for it to persist before forking.` };
+  }
+  const leafId = sessionManager.getLeafId();
+  if (!leafId) {
+    return { error: "Cannot use mode=\"fork\": parent session has no entries to fork from. Add a session entry before forking." };
+  }
+  return { sourceSessionPath, leafId };
 }
 
 // ---------------------------------------------------------------------------

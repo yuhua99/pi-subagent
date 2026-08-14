@@ -16,7 +16,7 @@ import {
 import type { AgentConfig } from "./agents.ts";
 import { stripCwdTail } from "./prompt_injection.ts";
 import { getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
-import { createManagedResumeSessionFile, createManagedSessionFile } from "./session_files.ts";
+import { allocateManagedSessionDir, registerManagedSessionPath } from "./session_files.ts";
 import { KILL_TOOL_DESCRIPTION, LIST_TOOL_DESCRIPTION, SubagentKillParams, SubagentListParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 import {
 	type DelegationMode,
@@ -237,7 +237,8 @@ export interface RunAgentOptions {
 	task: string;
 	taskCwd?: string;
 	delegationMode: DelegationMode;
-	forkSessionSnapshotJsonl?: string;
+	sourceSessionPath?: string;
+	leafId?: string;
 	sessionPath?: string;
 	parentSessionId?: string;
 	workingDirectory?: string;
@@ -328,13 +329,26 @@ async function createRunSession(
 	}
 
 	const effectiveCwd = opts.taskCwd ?? opts.cwd;
-	const managedSessionPath = opts.sessionPath
-		? createManagedResumeSessionFile(agent.name, opts.sessionPath)
-		: createManagedSessionFile(
-			agent.name,
-			opts.delegationMode === "fork" ? opts.forkSessionSnapshotJsonl : undefined,
-		).filePath;
 	try {
+		const managedDir = allocateManagedSessionDir(agent.name);
+		let manager: SessionManager;
+		if (opts.sessionPath) {
+			manager = SessionManager.forkFrom(opts.sessionPath, effectiveCwd, managedDir);
+		} else if (opts.delegationMode === "fork") {
+			manager = SessionManager.open(opts.sourceSessionPath!, managedDir, effectiveCwd);
+			if (!manager.createBranchedSession(opts.leafId!)) {
+				failedResult(result, "Cannot run in fork mode: failed to create a persisted branched session.");
+				return undefined;
+			}
+		} else {
+			manager = SessionManager.create(effectiveCwd, managedDir);
+		}
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			failedResult(result, "Cannot create a managed session file for the subagent.");
+			return undefined;
+		}
+		const managedSessionPath = registerManagedSessionPath(sessionFile);
 		const loader = await createResourceLoader(effectiveCwd, agent, opts.delegationMode, opts.parentSystemPrompt);
 		const thinkingLevel = isFreshSpawn
 			? (agent.thinking as ThinkingLevel | undefined) ?? resolved.thinkingLevel
@@ -344,7 +358,7 @@ async function createRunSession(
 			cwd: effectiveCwd,
 			agentDir: getAgentDir(),
 			resourceLoader: loader,
-			sessionManager: SessionManager.open(managedSessionPath, undefined, effectiveCwd),
+			sessionManager: manager,
 			...(tools !== undefined ? { tools } : {}),
 			...(opts.delegationMode === "fork" ? { customTools: createForkStubTools() } : {}),
 			...("modelRuntime" in resolved && resolved.modelRuntime ? { modelRuntime: resolved.modelRuntime } : {}),
@@ -487,11 +501,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			`Unknown agent: "${opts.agentName}". Available agents: ${available}.`,
 		);
 	}
-	if (opts.delegationMode === "fork" && !opts.sessionPath && !opts.forkSessionSnapshotJsonl?.trim()) {
+	if (opts.delegationMode === "fork" && !opts.sessionPath && (!opts.sourceSessionPath || !opts.leafId)) {
 		return createEarlyFailure(
 			opts,
 			agent.source,
-			"Cannot run in fork mode: missing parent session snapshot context.",
+			"Cannot run in fork mode: missing parent session source path or leaf entry.",
 			agent.model,
 		);
 	}

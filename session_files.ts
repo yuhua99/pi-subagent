@@ -5,24 +5,16 @@ import * as path from "node:path";
 const managedSessionDirs = new Set<string>();
 const managedSessionPaths = new Set<string>();
 
-export function createManagedSessionFile(
-	agentName: string,
-	sessionJsonl?: string,
-): { dir: string; filePath: string } {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-"));
+export function allocateManagedSessionDir(agentName: string): string {
 	const safeName = agentName.replace(/[^\w.-]+/g, "_");
-	const filePath = path.join(dir, `session-${safeName}.jsonl`);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pi-subagent-${safeName}-`));
 	managedSessionDirs.add(dir);
-	managedSessionPaths.add(filePath);
-	if (sessionJsonl !== undefined) {
-		fs.writeFileSync(filePath, sessionJsonl, { encoding: "utf-8", mode: 0o600 });
-	}
-	return { dir, filePath };
+	return dir;
 }
 
-export function createManagedResumeSessionFile(agentName: string, sessionPath: string): string {
-	const sessionJsonl = fs.readFileSync(sessionPath, "utf-8");
-	return createManagedSessionFile(agentName, sessionJsonl).filePath;
+export function registerManagedSessionPath(sessionPath: string): string {
+	managedSessionPaths.add(sessionPath);
+	return sessionPath;
 }
 
 export function hasManagedSessionPath(sessionPath: string): boolean {

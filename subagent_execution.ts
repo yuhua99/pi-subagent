@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import {
-	buildForkSessionSnapshotJsonl,
+	resolveForkSource,
 	failedPlaceholderResult,
 	formatAgentNames,
 	makeDetailsFactory,
@@ -49,8 +49,8 @@ export interface SubagentToolParams {
 export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
 	cwd: string;
 	sessionManager: {
-		getHeader: () => unknown;
-		getBranch: () => unknown[];
+		getSessionFile: () => string | undefined;
+		getLeafId: () => string | null;
 		getSessionId: () => string;
 	};
 	getSystemPrompt: () => string;
@@ -106,7 +106,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		task: string,
 		cwd: string | undefined,
 		delegationMode: DelegationMode,
-		forkSessionSnapshotJsonl: string | undefined,
+		sourceSessionPath: string | undefined,
+		leafId: string | undefined,
 		parentSystemPrompt: string | undefined,
 		agents: AgentConfig[],
 		defaultCwd: string,
@@ -134,7 +135,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			task,
 			taskCwd: cwd,
 			delegationMode,
-			forkSessionSnapshotJsonl,
+			sourceSessionPath,
+			leafId,
 			parentSystemPrompt,
 			sessionPath,
 			parentSessionId,
@@ -238,7 +240,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 	const executeParallel = async (
 		tasks: TaskSpec[],
 		delegationMode: DelegationMode,
-		forkSessionSnapshotJsonl: string | undefined,
+		sourceSessionPath: string | undefined,
+		leafId: string | undefined,
 		parentSystemPrompt: string | undefined,
 		agents: AgentConfig[],
 		defaultCwd: string,
@@ -272,7 +275,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					task: t.task,
 					taskCwd: t.cwd,
 					delegationMode,
-					forkSessionSnapshotJsonl,
+					sourceSessionPath,
+					leafId,
 					parentSystemPrompt,
 					parentSessionId,
 					workingDirectory: t.cwd ?? defaultCwd,
@@ -373,6 +377,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				undefined,
 				delegationMode,
 				undefined,
+				undefined,
 				delegationMode === "fork" ? ctx.getSystemPrompt() : undefined,
 				agents,
 				source.workingDirectory ?? ctx.cwd,
@@ -398,16 +403,19 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			};
 		}
 		const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
-		let forkSessionSnapshotJsonl: string | undefined;
+		let sourceSessionPath: string | undefined;
+		let leafId: string | undefined;
 		if (delegationMode === "fork") {
-			forkSessionSnapshotJsonl = buildForkSessionSnapshotJsonl(ctx.sessionManager) ?? undefined;
-			if (!forkSessionSnapshotJsonl) {
+			const forkSource = resolveForkSource(ctx.sessionManager);
+			if ("error" in forkSource) {
 				return {
-					content: [{ type: "text", text: 'Cannot use mode="fork": failed to snapshot current session context.' }],
+					content: [{ type: "text", text: forkSource.error }],
 					details: makeDetails("single")([]),
 					isError: true,
 				};
 			}
+			sourceSessionPath = forkSource.sourceSessionPath;
+			leafId = forkSource.leafId;
 		}
 		const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
 		if (invocationShape !== "single" && invocationShape !== "parallel") {
@@ -421,7 +429,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			return executeParallel(
 				tasks!,
 				delegationMode,
-				forkSessionSnapshotJsonl,
+				sourceSessionPath,
+				leafId,
 				parentSystemPrompt,
 				agents,
 				ctx.cwd,
@@ -437,7 +446,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			params.task!,
 			params.cwd,
 			delegationMode,
-			forkSessionSnapshotJsonl,
+			sourceSessionPath,
+			leafId,
 			parentSystemPrompt,
 			agents,
 			ctx.cwd,
