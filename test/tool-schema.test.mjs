@@ -27,7 +27,7 @@ test("subagent control schema has a required action", () => {
   assert.equal(SubagentCtlParams.additionalProperties, false);
   assert.deepEqual(SubagentCtlParams.required, ["action"]);
   assert.deepEqual(SubagentCtlParams.properties.action.anyOf.map((schema) => schema.const), ["list", "kill", "steer", "inspect"]);
-  assert.equal(SubagentCtlParams.properties.run_id.minLength, 1);
+  assert.equal(SubagentCtlParams.properties.id.minLength, 1);
 });
 
 test("subagent action validation accepts each legal invocation", () => {
@@ -57,13 +57,13 @@ test("subagent control validation enforces each action", () => {
   assert.deepEqual(parseSubagentCtlInvocation({ action: "list" }), { action: "list" });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "kill", id: "id" }), { action: "kill", id: "id" });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "id", text: "focus" }), { action: "steer", id: "id", text: "focus" });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", run_id: "id" }), { action: "inspect", run_id: "id" });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "id" }), { action: "inspect", id: "id" });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "list", id: "id" }), { error: 'action "list" does not accept "id"' });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "kill" }), { error: 'action "kill" requires "id"' });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "id" }), { error: 'action "steer" requires "id" and "text"' });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect" }), { error: 'action "inspect" requires a non-empty "run_id"' });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", run_id: "" }), { error: 'action "inspect" requires a non-empty "run_id"' });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", run_id: "id", id: "other" }), { error: 'action "inspect" does not accept "id"' });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect" }), { error: 'action "inspect" requires a non-empty "id"' });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "" }), { error: 'action "inspect" requires a non-empty "id"' });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "id", run_id: "other" }), { error: 'action "inspect" does not accept "run_id"' });
 });
 
 test("parseTasksParam coerces JSON-encoded task strings", () => {

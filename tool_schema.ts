@@ -62,11 +62,8 @@ export const SubagentCtlParams = Type.Object({
     Type.Literal("inspect"),
   ]),
   id: Type.Optional(Type.String({
-    description: "Registry id of the running subagent.",
-  })),
-  run_id: Type.Optional(Type.String({
     minLength: 1,
-    description: "Registry id of the subagent run to inspect.",
+    description: "Registry id of the subagent run.",
   })),
   text: Type.Optional(Type.String({
     description: "Message to deliver to the subagent.",
@@ -82,7 +79,7 @@ export type SubagentCtlInvocation =
   | { action: "list" }
   | { action: "kill"; id: string }
   | { action: "steer"; id: string; text: string }
-  | { action: "inspect"; run_id: string };
+  | { action: "inspect"; id: string };
 
 type ParseResult<T> = T | { error: string };
 
@@ -160,11 +157,11 @@ export function parseSubagentCtlInvocation(params: unknown): ParseResult<Subagen
     return rejected ? { error: rejected } : { action, id: params.id };
   }
   if (action === "inspect") {
-    if (typeof params.run_id !== "string" || params.run_id.length === 0) {
-      return { error: "action \"inspect\" requires a non-empty \"run_id\"" };
+    if (typeof params.id !== "string" || params.id.length === 0) {
+      return { error: "action \"inspect\" requires a non-empty \"id\"" };
     }
-    const rejected = rejectedField(action, params, ["action", "run_id"]);
-    return rejected ? { error: rejected } : { action, run_id: params.run_id };
+    const rejected = rejectedField(action, params, ["action", "id"]);
+    return rejected ? { error: rejected } : { action, id: params.id };
   }
   if (typeof params.id !== "string" || typeof params.text !== "string") {
     return { error: "action \"steer\" requires \"id\" and \"text\"" };
@@ -181,7 +178,7 @@ export const TOOL_DESCRIPTION = [
 
 export const CTL_TOOL_DESCRIPTION = [
   "Manage direct subagents in this session.",
-  "Set action to \"list\", \"kill\" with id, \"steer\" with id and text, or \"inspect\" with run_id.",
+  "Set action to \"list\", \"kill\" with id, \"steer\" with id and text, or \"inspect\" with id.",
 ].join("\n");
 
 export function formatSubagentSystemPrompt(agents: AgentConfig[]): string {

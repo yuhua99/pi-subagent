@@ -452,13 +452,13 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				return { content: [{ type: "text", text: formatSubagentList(runs) }], details };
 			}
 			if (invocation.action === "inspect") {
-				const live = getRun(invocation.run_id);
-				const completed = live ? undefined : listCompletedRuns().find((run) => run.id === invocation.run_id);
+				const live = getRun(invocation.id);
+				const completed = live ? undefined : listCompletedRuns().find((run) => run.id === invocation.id);
 				const entry = live ?? completed;
 				if (!entry) {
-					const details: SubagentInspectDetails = { action: "inspect", run_id: invocation.run_id };
+					const details: SubagentInspectDetails = { action: "inspect", id: invocation.id };
 					return {
-						content: [{ type: "text", text: `No subagent with id '${invocation.run_id}' found.` }],
+						content: [{ type: "text", text: `No subagent with id '${invocation.id}' found.` }],
 						details,
 					};
 				}
@@ -467,7 +467,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				const status = live ? "running" : "completed";
 				const details: SubagentInspectDetails = {
 					action: "inspect",
-					run_id: invocation.run_id,
+					id: invocation.id,
 					result: {
 						id: entry.id,
 						agent: entry.agent,

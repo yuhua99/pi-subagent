@@ -12,7 +12,7 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 - **Parallel runs** — up to 8 tasks, 4 concurrent
 - **Single-level only** — children cannot nest further subagents
 - **`/agents`** — live status and transcript preview in the TUI
-- **`subagent_ctl`** — list, stop, or steer running children
+- **`subagent_ctl`** — list, inspect, stop, or steer children
 - **Orchestrator file** — main-agent-only delegation policy via `role: orchestrator`
 
 ## Install
@@ -87,6 +87,7 @@ Delegate independent work to the most appropriate specialized agent.
 { "action": "list" }
 { "action": "kill", "id": "running-run-id" }
 { "action": "steer", "id": "running-run-id", "text": "Focus on the failing test." }
+{ "action": "inspect", "id": "run-id" }
 ```
 
 - **`spawn`** (default) — child gets only `Task: ...`; put all needed context in `task`

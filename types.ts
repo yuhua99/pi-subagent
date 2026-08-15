@@ -103,7 +103,7 @@ export interface SubagentInspectResult {
 /** Metadata attached to subagent_ctl inspect results for rendering. */
 export interface SubagentInspectDetails {
 	action: "inspect";
-	run_id: string;
+	id: string;
 	result?: SubagentInspectResult;
 }
 

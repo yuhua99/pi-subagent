@@ -48,7 +48,7 @@ test("inspect returns live state with heuristic activity", async () => {
 	});
 	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result });
 
-	const response = await execution.executeControl({ action: "inspect", run_id: run.id }, summaryContext);
+	const response = await execution.executeControl({ action: "inspect", id: run.id }, summaryContext);
 
 	assert.equal(response.content[0].text, `Subagent [${run.id}] (a) is running.\n\nActivity: Reading the repository.`);
 	assert.equal(response.details.result.status, "running");
@@ -66,7 +66,7 @@ test("inspect returns retained state with heuristic activity", async () => {
 		messages: [{ role: "assistant", content: [{ type: "text", text: "Completed the task." }] }],
 	}));
 
-	const response = await execution.executeControl({ action: "inspect", run_id: run.id }, summaryContext);
+	const response = await execution.executeControl({ action: "inspect", id: run.id }, summaryContext);
 
 	assert.equal(response.content[0].text, `Subagent [${run.id}] (a) is completed.\n\nActivity: Completed the task.`);
 	assert.equal(response.details.result.status, "completed");
@@ -79,9 +79,9 @@ test("inspect returns the existing missing-run flow", async () => {
 	clearSessionState();
 	const execution = createSubagentExecution({});
 
-	const response = await execution.executeControl({ action: "inspect", run_id: "zzzz" }, summaryContext);
+	const response = await execution.executeControl({ action: "inspect", id: "zzzz" }, summaryContext);
 
 	assert.equal(response.content[0].text, "No subagent with id 'zzzz' found.");
-	assert.deepEqual(response.details, { action: "inspect", run_id: "zzzz" });
+	assert.deepEqual(response.details, { action: "inspect", id: "zzzz" });
 	clearSessionState();
 });

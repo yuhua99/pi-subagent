@@ -97,7 +97,7 @@ function isRenderableKillDetails(value: unknown): value is SubagentCtlDetails {
 }
 
 function isRenderableInspectDetails(value: unknown): value is SubagentInspectDetails {
-	if (!isRecord(value) || value.action !== "inspect" || typeof value.run_id !== "string") return false;
+	if (!isRecord(value) || value.action !== "inspect" || typeof value.id !== "string") return false;
 	if (value.result === undefined) return true;
 	if (!isRecord(value.result)) return false;
 	return typeof value.result.id === "string" && typeof value.result.agent === "string" &&
@@ -166,10 +166,10 @@ function ctlValidationGuidance(args: unknown): string {
 			: "Validation error: action `steer` accepts string `id` and `text`.";
 	}
 	if (args.action === "inspect") {
-		if (typeof args.run_id !== "string" || args.run_id.length === 0) return "Validation error: action `inspect` requires non-empty string `run_id`.";
-		return hasUnexpectedKeys(args, ["action", "run_id"])
-			? "Validation error: action `inspect` accepts only `run_id`."
-			: "Validation error: action `inspect` accepts non-empty string `run_id`.";
+		if (typeof args.id !== "string" || args.id.length === 0) return "Validation error: action `inspect` requires non-empty string `id`.";
+		return hasUnexpectedKeys(args, ["action", "id"])
+			? "Validation error: action `inspect` accepts only `id`."
+			: "Validation error: action `inspect` accepts non-empty string `id`.";
 	}
 	return "Validation error: action must be `list`, `kill`, `steer`, or `inspect`.";
 }
@@ -298,8 +298,8 @@ export function renderCtlCall(
 	_context?: RenderContext,
 ): Text {
 	const title = theme.fg("toolTitle", theme.bold(`subagent_ctl ${args.action ?? "..."}`));
-	const id = args.action === "inspect" ? theme.fg("accent", ` ${args.run_id ?? "..."}`)
-		: args.action === "kill" || args.action === "steer" ? theme.fg("accent", ` ${args.id ?? "..."}`) : "";
+	const id = args.action === "inspect" || args.action === "kill" || args.action === "steer"
+		? theme.fg("accent", ` ${args.id ?? "..."}`) : "";
 	return new Text(title + id, 0, 0);
 }
 

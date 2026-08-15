@@ -52,6 +52,10 @@ test("renderResult gives action-oriented validation guidance", () => {
 
 test("renderCtlResult gives control action validation guidance", () => {
   assert.equal(
+    renderValidation("subagent_ctl", { action: "inspect" }, {}),
+    "Validation error: action `inspect` requires non-empty string `id`.",
+  );
+  assert.equal(
     renderValidation("subagent_ctl", { action: "kill" }, {}),
     "Validation error: action `kill` requires string `id`.",
   );
@@ -71,7 +75,7 @@ test("renderCtlCall distinguishes control actions", () => {
   assert.equal(renderCtlCall({ action: "list" }, theme).render(200).join("\n").trim(), "subagent_ctl list");
   assert.equal(renderCtlCall({ action: "kill", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl kill a1b2");
   assert.equal(renderCtlCall({ action: "steer", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl steer a1b2");
-  assert.equal(renderCtlCall({ action: "inspect", run_id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl inspect a1b2");
+  assert.equal(renderCtlCall({ action: "inspect", id: "a1b2" }, theme).render(200).join("\n").trim(), "subagent_ctl inspect a1b2");
 });
 
 test("renderCtlResult shows inspect status, agent, and activity", () => {
@@ -80,7 +84,7 @@ test("renderCtlResult shows inspect status, agent, and activity", () => {
       content: [{ type: "text", text: "unused" }],
       details: {
         action: "inspect",
-        run_id: "a1b2",
+        id: "a1b2",
         result: {
           id: "a1b2",
           agent: "worker",
