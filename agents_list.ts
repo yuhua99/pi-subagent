@@ -6,9 +6,6 @@ import { listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from
 import { isResultError } from "./types.ts";
 
 const REFRESH_MS = 1000;
-const KEY_UP = "\x1b[A";
-const KEY_DOWN = "\x1b[B";
-const KEY_ESCAPE = "\x1b";
 
 function runningLabel(entry: SubagentRun, now: number): string {
 	return `○ [${entry.id}] ${entry.agent} — ${formatElapsed(now - entry.startedAt)}`;
@@ -113,7 +110,7 @@ export function showAgentsList(
 				}),
 			invalidate: () => selectList?.invalidate(),
 			handleInput: (data: string) => {
-				if (data === KEY_ESCAPE) {
+				if (matchesKey(data, "escape")) {
 					finish(null);
 					return;
 				}
@@ -135,7 +132,7 @@ export function showAgentsList(
 					tui.requestRender();
 					return;
 				}
-				const mapped = data === "j" ? KEY_DOWN : data === "k" ? KEY_UP : data;
+				const mapped = matchesKey(data, "j") ? "\x1b[B" : matchesKey(data, "k") ? "\x1b[A" : data;
 				selectList.handleInput(mapped);
 				tui.requestRender();
 			},

@@ -8,11 +8,6 @@ import { getRun, listCompletedRuns } from "./registry.ts";
 import { isResultError, type SingleResult } from "./types.ts";
 
 const REFRESH_MS = 1000;
-const KEY_UP = "\x1b[A";
-const KEY_DOWN = "\x1b[B";
-const KEY_LEFT = "\x1b[D";
-const KEY_RIGHT = "\x1b[C";
-const KEY_ESCAPE = "\x1b";
 const PLAIN_THEME: { fg: ThemeFg } = { fg: (_color, text) => text };
 
 export interface DetailEntry {
@@ -321,7 +316,7 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 			},
 			invalidate: () => {},
 			handleInput: (data: string) => {
-				if (data === KEY_ESCAPE) {
+				if (matchesKey(data, "escape")) {
 					if (activePane === "input") {
 						activePane = "transcript";
 						tui.requestRender();
@@ -336,7 +331,7 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					tui.requestRender();
 					return;
 				}
-				if ((data === KEY_LEFT || data === KEY_RIGHT) && activePane !== "input") {
+				if ((matchesKey(data, "left") || matchesKey(data, "right")) && activePane !== "input") {
 					activePane = activePane === "task" ? "transcript" : "task";
 					tui.requestRender();
 					return;
@@ -348,7 +343,7 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 				}
 				const ctrlU = matchesKey(data, "ctrl+u");
 				const ctrlD = matchesKey(data, "ctrl+d");
-				if (data === KEY_UP || data === "k" || ctrlU) {
+				if (matchesKey(data, "up") || data === "k" || ctrlU) {
 					const step = ctrlU ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
 					if (activePane === "task") {
 						taskScroll = Math.max(0, taskScroll - step);
@@ -359,7 +354,7 @@ export function showAgentsDetail(ctx: ExtensionCommandContext, entry: DetailEntr
 					tui.requestRender();
 					return;
 				}
-				if (data === KEY_DOWN || data === "j" || ctrlD) {
+				if (matchesKey(data, "down") || data === "j" || ctrlD) {
 					const step = ctrlD ? Math.max(1, Math.floor(agentsOverlayBodyRows(tui.terminal.rows) / 2)) : 1;
 					if (activePane === "task") {
 						taskScroll = Math.min(lastTaskMax, taskScroll + step);
