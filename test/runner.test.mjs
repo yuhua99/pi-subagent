@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { excludeSubagentExtensions, processSessionEvent } from "../runner.ts";
+import { excludeSubagentExtensions, processSessionEvent } from "../execution/runner.ts";
 import { getFinalAssistantText, isResultError, isResultSuccess, normalizeCompletedResult } from "../types.ts";
 
 function makeResult(overrides = {}) {

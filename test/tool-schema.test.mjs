@@ -5,7 +5,7 @@ import {
   parseSubagentInvocation,
   SubagentCtlParams,
   SubagentParams,
-} from "../tool_schema.ts";
+} from "../tool/schema.ts";
 import { parseTasksParam } from "../types.ts";
 
 test("subagent schema has an action-discriminated object root", () => {

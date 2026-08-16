@@ -4,7 +4,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getResultSummaryText, type SingleResult } from "./types.ts";
+import { getResultSummaryText, type SingleResult } from "../types.ts";
 
 export interface TaskSummaryModel {
 	provider: string;

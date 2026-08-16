@@ -1,6 +1,6 @@
 import { Type } from "typebox";
-import type { AgentConfig } from "./agents.ts";
-import { parseTasksParam, type TaskSpec } from "./types.ts";
+import type { AgentConfig } from "../agents.ts";
+import { parseTasksParam, type TaskSpec } from "../types.ts";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;

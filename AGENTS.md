@@ -7,11 +7,11 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `common.ts`, `shared.ts`); use domain names.
 
 - `index.ts` — tool registration and event wiring only
-- `agents.ts` — agent discovery/parsing; `agents_command.ts` — `/agents` orchestration; `agents_overlay.ts` — shared overlay shell geometry; `agents_list.ts` — list UI/lifecycle; `agents_detail.ts` — detail UI/lifecycle
-- `registry.ts` — in-memory run registry and status/stream subscriptions
-- `tool_schema.ts` — subagent tool schemas, descriptions, and limits
-- `task_summary.ts` — summary config and LLM completion
-- `render.ts` — tool-row rendering only; rich detail belongs in `/agents`
+- `agents.ts` — agent discovery/parsing; `agents/command.ts` — `/agents` orchestration; `agents/shell.ts` — shared overlay shell geometry; `agents/list.ts` — list UI/lifecycle; `agents/detail.ts` — detail UI/lifecycle
+- `execution/registry.ts` — in-memory run registry and status/stream subscriptions
+- `tool/schema.ts` — subagent tool schemas, descriptions, and limits
+- `tool/task_summary.ts` — summary config and LLM completion
+- `tool/render.ts` — tool-row rendering only; rich detail belongs in `/agents`
 - `types.ts` — shared types and small helpers; no I/O, no spawning
 - `test/` — `*.test.mjs` suites and fixtures; import `.ts` directly under `node --test` (no build step, no runtime TS syntax: enums, namespaces, parameter properties)
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatActivityContext, parseTaskSummaryConfig } from "../task_summary.ts";
+import { formatActivityContext, parseTaskSummaryConfig } from "../tool/task_summary.ts";
 
 test("task summary config rejects a missing file", () => {
 	assert.equal(parseTaskSummaryConfig(undefined), undefined);
@@ -24,13 +24,13 @@ test("task summary config accepts provider and model ids with slashes", () => {
 test("activity context formats assistant text, tool calls, and tool results", () => {
 	const context = formatActivityContext("Inspect the repository", [
 		{ role: "assistant", content: [{ type: "text", text: "I will inspect the files." }] },
-		{ role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "task_summary.ts" } }] },
+		{ role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "tool/task_summary.ts" } }] },
 		{ role: "toolResult", toolName: "read", toolCallId: "call-1", isError: false, content: [{ type: "text", text: "export function summarizeTask" }] },
 	]);
 
 	assert.match(context, /Task:\nInspect the repository/);
 	assert.match(context, /assistant: I will inspect the files\./);
-	assert.match(context, /tool call: read\(path=task_summary\.ts\)/);
+	assert.match(context, /tool call: read\(path=tool\/task_summary\.ts\)/);
 	assert.match(context, /tool result: export function summarizeTask/);
 });
 

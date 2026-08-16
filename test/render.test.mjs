@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderCall, renderCtlCall, renderCtlResult, renderResult, renderSteerResult } from "../render.ts";
+import { renderCall, renderCtlCall, renderCtlResult, renderResult, renderSteerResult } from "../tool/render.ts";
 
 const theme = {
   fg: (_color, text) => text,

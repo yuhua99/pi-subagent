@@ -6,10 +6,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
-import { registerAgentsCommand } from "./agents_command.ts";
-import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./render.ts";
-import { injectIntoSystemPrompt } from "./prompt_injection.ts";
-import { createSubagentExecution } from "./subagent_execution.ts";
+import { registerAgentsCommand } from "./agents/command.ts";
+import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./tool/render.ts";
+import { injectIntoSystemPrompt } from "./execution/prompt_injection.ts";
+import { createSubagentExecution } from "./execution/execution.ts";
 import {
   CTL_TOOL_DESCRIPTION,
   formatSubagentSystemPrompt,
@@ -18,7 +18,7 @@ import {
   SubagentCtlParams,
   SubagentParams,
   TOOL_DESCRIPTION,
-} from "./tool_schema.ts";
+} from "./tool/schema.ts";
 
 export default function (pi: ExtensionAPI) {
   registerAgentsCommand(pi);

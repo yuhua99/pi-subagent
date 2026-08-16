@@ -6,8 +6,8 @@
 
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { getRun, listCompletedRuns, registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
-import { parseSubagentCtlInvocation, parseSubagentInvocation } from "./tool_schema.ts";
+import { getRun, listCompletedRuns, registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "../execution/registry.ts";
+import { parseSubagentCtlInvocation, parseSubagentInvocation } from "./schema.ts";
 import {
 	type SingleResult,
 	type SubagentDetails,
@@ -17,7 +17,7 @@ import {
 	type UsageStats,
 	isResultError,
 	parseTasksParam,
-} from "./types.ts";
+} from "../types.ts";
 
 const STALE_FINISHED_MSG = "finished — result delivered separately";
 

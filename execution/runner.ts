@@ -13,7 +13,7 @@ import {
 	resolveCliModel,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig } from "./agents.ts";
+import type { AgentConfig } from "../agents.ts";
 import { attachRunSteer, getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
 import { allocateManagedSessionDir, registerManagedSessionPath } from "./session_files.ts";
 import {
@@ -22,7 +22,7 @@ import {
 	getFinalAssistantMessage,
 	hasFinalAssistantOutput,
 	normalizeCompletedResult,
-} from "./types.ts";
+} from "../types.ts";
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 

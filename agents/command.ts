@@ -1,8 +1,8 @@
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type OverlayOptions } from "@earendil-works/pi-tui";
-import { type DetailEntry, showAgentsDetail } from "./agents_detail.ts";
-import { showAgentsList } from "./agents_list.ts";
-import { getRun, listCompletedRuns } from "./registry.ts";
+import { type DetailEntry, showAgentsDetail } from "./detail.ts";
+import { showAgentsList } from "./list.ts";
+import { getRun, listCompletedRuns } from "../execution/registry.ts";
 
 export const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
 

@@ -1,11 +1,11 @@
 import { AssistantMessageComponent, ToolExecutionComponent, getMarkdownTheme, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { Input, Markdown, type OverlayOptions, type TUI, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
-import { createDetailToolRenderers, isDetailQuietTool } from "./agents_detail_tools.ts";
-import { formatElapsed, formatUsage, type ThemeFg } from "./render.ts";
-import { getRun, listCompletedRuns } from "./registry.ts";
-import { isResultError, type SingleResult } from "./types.ts";
+import { agentsOverlayBodyRows, renderAgentsOverlay } from "./shell.ts";
+import { createDetailToolRenderers, isDetailQuietTool } from "./detail_tools.ts";
+import { formatElapsed, formatUsage, type ThemeFg } from "../tool/render.ts";
+import { getRun, listCompletedRuns } from "../execution/registry.ts";
+import { isResultError, type SingleResult } from "../types.ts";
 
 const REFRESH_MS = 1000;
 const PLAIN_THEME: { fg: ThemeFg } = { fg: (_color, text) => text };

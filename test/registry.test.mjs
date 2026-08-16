@@ -20,7 +20,7 @@ import {
 	setRunPhase,
 	bindToolCallRowInvalidate,
 	updateRun,
-} from "../registry.ts";
+} from "../execution/registry.ts";
 import { makeResult, makeRun } from "./fixtures/run.mjs";
 
 function cleanup() {

@@ -7,8 +7,8 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { SingleResult } from "./types.ts";
-import { emptyUsage, isResultSuccess } from "./types.ts";
+import type { SingleResult } from "../types.ts";
+import { emptyUsage, isResultSuccess } from "../types.ts";
 
 export interface RunMetadata {
 	parentSessionId?: string;

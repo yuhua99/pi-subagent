@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AssistantMessageComponent, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { AGENTS_OVERLAY_OPTIONS, registerAgentsCommand } from "../agents_command.ts";
-import { NativeTranscriptRenderer } from "../agents_detail.ts";
-import { isDetailQuietTool } from "../agents_detail_tools.ts";
-import { renderAgentsOverlay } from "../agents_overlay.ts";
-import { clearSessionState, registerRun } from "../registry.ts";
+import { AGENTS_OVERLAY_OPTIONS, registerAgentsCommand } from "../agents/command.ts";
+import { NativeTranscriptRenderer } from "../agents/detail.ts";
+import { isDetailQuietTool } from "../agents/detail_tools.ts";
+import { renderAgentsOverlay } from "../agents/shell.ts";
+import { clearSessionState, registerRun } from "../execution/registry.ts";
 import { makeRun } from "./fixtures/run.mjs";
 
 function commandHarness() {

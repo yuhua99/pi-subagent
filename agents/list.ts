@@ -1,9 +1,9 @@
 import { type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type OverlayOptions, type SelectItem, SelectList, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
-import { agentsOverlayBodyRows, renderAgentsOverlay } from "./agents_overlay.ts";
-import { formatElapsed } from "./render.ts";
-import { listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "./registry.ts";
-import { isResultError } from "./types.ts";
+import { agentsOverlayBodyRows, renderAgentsOverlay } from "./shell.ts";
+import { formatElapsed } from "../tool/render.ts";
+import { listCompletedRuns, listRuns, type CompletedRun, type SubagentRun } from "../execution/registry.ts";
+import { isResultError } from "../types.ts";
 
 const REFRESH_MS = 1000;
 

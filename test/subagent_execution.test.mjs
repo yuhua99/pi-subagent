@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clearSessionState, completeRun, registerRun } from "../registry.ts";
-import { createSubagentExecution } from "../subagent_execution.ts";
+import { clearSessionState, completeRun, registerRun } from "../execution/registry.ts";
+import { createSubagentExecution } from "../execution/execution.ts";
 import { makeResult, makeRun } from "./fixtures/run.mjs";
 
 test("steer rejects completed run ids", () => {

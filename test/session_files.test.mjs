@@ -7,7 +7,7 @@ import {
   cleanupManagedSessions,
   hasManagedSessionPath,
   registerManagedSessionPath,
-} from "../session_files.ts";
+} from "../execution/session_files.ts";
 
 test("managed session paths are registered in allocated agent directories", () => {
   const dir = allocateManagedSessionDir("agent");

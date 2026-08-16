@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type AgentConfig, discoverAgents } from "./agents.ts";
+import { type AgentConfig, discoverAgents } from "../agents.ts";
 import {
 	failedPlaceholderResult,
 	makeRunningPlaceholder,
@@ -18,9 +18,9 @@ import {
 	setRunTaskSummary,
 	type SubagentRun,
 } from "./registry.ts";
-import { formatSubagentList } from "./render.ts";
+import { formatSubagentList } from "../tool/render.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
-import { fallbackActivitySummary, summarizeActivity, summarizeTask } from "./task_summary.ts";
+import { fallbackActivitySummary, summarizeActivity, summarizeTask } from "../tool/task_summary.ts";
 import {
 	getResultSummaryText,
 	isResultError,
@@ -31,8 +31,8 @@ import {
 	type SubagentInspectDetails,
 	type SubagentListDetails,
 	type TaskSpec,
-} from "./types.ts";
-import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS, type SubagentCtlInvocation, type SubagentInvocation } from "./tool_schema.ts";
+} from "../types.ts";
+import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS, type SubagentCtlInvocation, type SubagentInvocation } from "../tool/schema.ts";
 
 export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
 	cwd: string;
