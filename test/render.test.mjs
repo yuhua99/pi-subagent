@@ -33,19 +33,19 @@ test("renderResult replaces malformed action validation diagnostics", () => {
   for (const details of [{}, undefined, { mode: "single", results: [null] }]) {
     assert.equal(
       renderValidation("subagent", args, details),
-      "Validation error: action `resume` accepts only `resume_id` and `task`.",
+      "Validation error: action \"resume\" does not accept \"cwd\"",
     );
   }
 });
 
 test("renderResult gives action-oriented validation guidance", () => {
   const cases = [
-    [{ action: "run", agent: "worker" }, "Validation error: action `run` requires string `agent` and `task`."],
-    [{ action: "run_parallel" }, "Validation error: action `run_parallel` requires `tasks`."],
-    [{ action: "run_parallel", tasks: [] }, "Validation error: `tasks` must be a non-empty array of `{ agent, task, cwd? }` or a JSON string."],
-    [{ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp" }, "Validation error: action `run_parallel` accepts only `tasks`."],
-    [{ action: "resume", resume_id: "a1b2" }, "Validation error: action `resume` requires string `resume_id` and `task`."],
-    [{ action: "unknown" }, "Validation error: action must be `run`, `run_parallel`, or `resume`."],
+    [{ action: "run", agent: "worker" }, "Validation error: action \"run\" requires \"agent\" and \"task\""],
+    [{ action: "run_parallel" }, "Validation error: action \"run_parallel\" requires \"tasks\""],
+    [{ action: "run_parallel", tasks: [] }, "Validation error: Invalid `tasks`: expected a non-empty array of { agent, task, cwd? } objects."],
+    [{ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp" }, "Validation error: action \"run_parallel\" does not accept \"cwd\""],
+    [{ action: "resume", resume_id: "a1b2" }, "Validation error: action \"resume\" requires \"resume_id\" and \"task\""],
+    [{ action: "unknown" }, "Validation error: action must be \"run\", \"run_parallel\", or \"resume\""],
   ];
   for (const [args, expected] of cases) assert.equal(renderValidation("subagent", args, {}), expected);
 });
@@ -53,15 +53,15 @@ test("renderResult gives action-oriented validation guidance", () => {
 test("renderCtlResult gives control action validation guidance", () => {
   assert.equal(
     renderValidation("subagent_ctl", { action: "inspect" }, {}),
-    "Validation error: action `inspect` requires non-empty string `id`.",
+    "Validation error: action \"inspect\" requires a non-empty \"id\"",
   );
   assert.equal(
     renderValidation("subagent_ctl", { action: "kill" }, {}),
-    "Validation error: action `kill` requires string `id`.",
+    "Validation error: action \"kill\" requires \"id\"",
   );
   assert.equal(
     renderValidation("subagent_ctl", { action: "list", id: "a1b2" }, {}),
-    "Validation error: action `list` does not accept other fields.",
+    "Validation error: action \"list\" does not accept \"id\"",
   );
 });
 

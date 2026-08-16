@@ -7,6 +7,7 @@
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { getRun, listCompletedRuns, registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
+import { parseSubagentCtlInvocation, parseSubagentInvocation } from "./tool_schema.ts";
 import {
 	type SingleResult,
 	type SubagentDetails,
@@ -101,81 +102,18 @@ function isRenderableInspectDetails(value: unknown): value is SubagentInspectDet
 		(value.result.status === "running" || value.result.status === "completed") && isRenderableResult(value.result.result);
 }
 
-function hasUnexpectedKeys(args: Record<string, unknown>, allowed: string[]): boolean {
-	return Object.keys(args).some((key) => !allowed.includes(key));
-}
-
-function taskListGuidance(value: unknown): string | undefined {
-	if (typeof value === "string") return undefined;
-	if (!Array.isArray(value) || value.length === 0) return "Validation error: `tasks` must be a non-empty array of `{ agent, task, cwd? }` or a JSON string.";
-	for (const task of value) {
-		if (!isRecord(task)) return "Validation error: task items must be `{ agent, task, cwd? }`.";
-		if (hasUnexpectedKeys(task, ["agent", "task", "cwd"])) return "Validation error: task items accept only `agent`, `task`, and optional `cwd`.";
-		if (typeof task.agent !== "string") return "Validation error: task item `agent` must be a string.";
-		if (typeof task.task !== "string") return "Validation error: task item `task` must be a string.";
-		if (task.cwd !== undefined && typeof task.cwd !== "string") return "Validation error: task item `cwd` must be a string.";
-	}
-}
-
-function validationGuidance(args: unknown): string {
-	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent requires action `run`, `run_parallel`, or `resume`.";
-	if (args.action === "run") {
-		if (typeof args.agent !== "string" || typeof args.task !== "string") return "Validation error: action `run` requires string `agent` and `task`.";
-		if (args.cwd !== undefined && typeof args.cwd !== "string") return "Validation error: action `run` `cwd` must be a string.";
-		if (hasUnexpectedKeys(args, ["action", "agent", "task", "cwd"])) return "Validation error: action `run` accepts only `agent`, `task`, and optional `cwd`.";
-		return "Validation error: action `run` accepts string `agent`, `task`, and optional `cwd`.";
-	}
-	if (args.action === "run_parallel") {
-		if (!("tasks" in args)) return "Validation error: action `run_parallel` requires `tasks`.";
-		if (hasUnexpectedKeys(args, ["action", "tasks"])) return "Validation error: action `run_parallel` accepts only `tasks`.";
-		const taskGuidance = taskListGuidance(args.tasks);
-		if (taskGuidance) return taskGuidance;
-		return "Validation error: action `run_parallel` accepts `tasks` as an array or JSON string.";
-	}
-	if (args.action === "resume") {
-		if (typeof args.resume_id !== "string" || typeof args.task !== "string") return "Validation error: action `resume` requires string `resume_id` and `task`.";
-		if (hasUnexpectedKeys(args, ["action", "resume_id", "task"])) return "Validation error: action `resume` accepts only `resume_id` and `task`.";
-		return "Validation error: action `resume` accepts string `resume_id` and `task`.";
-	}
-	return "Validation error: action must be `run`, `run_parallel`, or `resume`.";
-}
-
-function ctlValidationGuidance(args: unknown): string {
-	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent_ctl requires action `list`, `kill`, `steer`, or `inspect`.";
-	if (args.action === "list") return hasUnexpectedKeys(args, ["action"])
-		? "Validation error: action `list` does not accept other fields."
-		: "Validation error: action `list` accepts no other fields.";
-	if (args.action === "kill") {
-		if (typeof args.id !== "string") return "Validation error: action `kill` requires string `id`.";
-		return hasUnexpectedKeys(args, ["action", "id"])
-			? "Validation error: action `kill` accepts only `id`."
-			: "Validation error: action `kill` accepts string `id`.";
-	}
-	if (args.action === "steer") {
-		if (typeof args.id !== "string" || typeof args.text !== "string") return "Validation error: action `steer` requires string `id` and `text`.";
-		return hasUnexpectedKeys(args, ["action", "id", "text"])
-			? "Validation error: action `steer` accepts only `id` and `text`."
-			: "Validation error: action `steer` accepts string `id` and `text`.";
-	}
-	if (args.action === "inspect") {
-		if (typeof args.id !== "string" || args.id.length === 0) return "Validation error: action `inspect` requires non-empty string `id`.";
-		return hasUnexpectedKeys(args, ["action", "id"])
-			? "Validation error: action `inspect` accepts only `id`."
-			: "Validation error: action `inspect` accepts non-empty string `id`.";
-	}
-	return "Validation error: action must be `list`, `kill`, `steer`, or `inspect`.";
-}
-
 function validationMessage(content: ResultContent, toolName: "subagent" | "subagent_ctl" = "subagent"): string | undefined {
 	const text = content.find((block) => block.type === "text" && typeof block.text === "string")?.text;
 	if (!text?.startsWith(`Validation failed for tool "${toolName}":`)) return undefined;
 	const received = text.match(/Received arguments:\s*(\{[\s\S]*\})\s*$/)?.[1];
-	const guidance = toolName === "subagent" ? validationGuidance : ctlValidationGuidance;
+	let args: unknown;
 	try {
-		return guidance(received ? JSON.parse(received) : undefined);
+		args = received ? JSON.parse(received) : undefined;
 	} catch {
-		return guidance(undefined);
+		args = undefined;
 	}
+	const parsed = toolName === "subagent" ? parseSubagentInvocation(args) : parseSubagentCtlInvocation(args);
+	return "error" in parsed ? `Validation error: ${parsed.error}` : undefined;
 }
 
 function fallbackText(content: ResultContent, toolName: "subagent" | "subagent_ctl" = "subagent"): string {
@@ -250,18 +188,16 @@ export function renderCall(
 ): Text {
 	if (context?.toolCallId && context.isPartial) registerToolCallInvalidator(context.toolCallId, context.invalidate);
 	let detail = "...";
-	let suffix = "";
 	if (args.action === "run_parallel") {
 		const parsedTasks = parseTasksParam(args.tasks);
 		const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
 		detail = tasks?.length ? `parallel (${tasks.length} tasks)` : "parallel";
 	} else if (args.action === "resume") {
 		detail = `resume ${args.resume_id ?? "..."}`;
-		suffix = "";
 	} else if (args.action === "run") {
 		detail = args.agent ?? "...";
 	}
-	const content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", detail) + suffix;
+	const content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", detail);
 	const text = context?.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	text.setText(content);
 	return text;
