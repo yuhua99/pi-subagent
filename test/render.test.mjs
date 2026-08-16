@@ -79,7 +79,7 @@ test("renderCtlResult gives control action validation guidance", () => {
   );
   assert.equal(
     renderValidation("subagent_ctl", { action: "kill" }, {}),
-    'Validation error: action "kill" requires "id"',
+    'Validation error: action "kill" requires a non-empty "id"',
   );
   assert.equal(
     renderValidation("subagent_ctl", { action: "list", id: "a1b2" }, {}),

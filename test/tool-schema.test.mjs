@@ -102,10 +102,16 @@ test("subagent control validation enforces each action", () => {
     error: 'action "list" does not accept "id"',
   });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "kill" }), {
-    error: 'action "kill" requires "id"',
+    error: 'action "kill" requires a non-empty "id"',
+  });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "kill", id: "" }), {
+    error: 'action "kill" requires a non-empty "id"',
+  });
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "" }), {
+    error: 'action "steer" requires a non-empty "id"',
   });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "id" }), {
-    error: 'action "steer" requires "id" and "text"',
+    error: 'action "steer" requires "text"',
   });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect" }), {
     error: 'action "inspect" requires a non-empty "id"',

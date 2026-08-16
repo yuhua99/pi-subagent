@@ -235,7 +235,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       content: [
         {
           type: "text",
-          text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered to you automatically as a new message when it finishes. Do NOT poll subagent_ctl or sleep. End your turn immediately.`,
+          text: `Started subagent [${raced.id}] (${agentName}). Result arrives automatically as a new message — do not poll or sleep; end your turn now. Use subagent_ctl only to intervene in a long run.`,
         },
       ],
       details: makeDetails("single", [makeRunningPlaceholder(agentName, task, agents, raced.id)]),
@@ -339,7 +339,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       content: [
         {
           type: "text",
-          text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT poll subagent_ctl or sleep. End your turn immediately.`,
+          text: `Started ${tasks.length} parallel subagent(s). Combined result arrives automatically when all finish — do not poll or sleep; end your turn now. Use subagent_ctl only to intervene in a long run.`,
         },
       ],
       details: makeDetails("parallel", placeholders),
