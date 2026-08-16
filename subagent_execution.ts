@@ -2,7 +2,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import {
 	failedPlaceholderResult,
-	makeDetailsFactory,
 	makeRunningPlaceholder,
 	reserveParallelPlaceholders,
 } from "./delegation.ts";
@@ -20,8 +19,8 @@ import {
 	type SubagentRun,
 } from "./registry.ts";
 import { formatSubagentList } from "./render.ts";
-import { runAgent } from "./runner.ts";
-import { summarizeActivity, summarizeTask } from "./task_summary.ts";
+import { runAgent, type RunAgentOptions } from "./runner.ts";
+import { fallbackActivitySummary, summarizeActivity, summarizeTask } from "./task_summary.ts";
 import {
 	getResultSummaryText,
 	isResultError,
@@ -57,6 +56,7 @@ interface SubagentExecution {
 }
 
 export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): SubagentExecution {
+	const makeDetails = (mode: SubagentDetails["mode"], results: SingleResult[]): SubagentDetails => ({ mode, results });
 	const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
 		void summarizeTask(task, ctx).then((summary) => {
 			if (summary) setRunTaskSummary(id, task, summary);
@@ -90,21 +90,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 	};
 
 	const executeSingle = async (
-		agentName: string,
-		task: string,
-		cwd: string | undefined,
-		agents: AgentConfig[],
-		defaultCwd: string,
-		ctx: SubagentExecutionContext,
-		makeDetails: ReturnType<typeof makeDetailsFactory>,
-		reservedRegistryId?: string,
-		sessionPath?: string,
-		parentSessionId?: string,
-		sourceRunId?: string,
-		lineageId?: string,
-		toolCallId?: string,
-		signal?: AbortSignal,
+		{ ctx, toolCallId, ...runOptions }: RunAgentOptions & { ctx: SubagentExecutionContext; toolCallId?: string },
 	): Promise<ToolResult> => {
+		const { agentName, task, agents, cwd, reservedRegistryId } = runOptions;
 		let onSpawn: (id: string) => void;
 		const spawned = new Promise<string>((resolve) => {
 			onSpawn = resolve;
@@ -113,18 +101,8 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		if (reservedRegistryId) startTaskSummary(reservedRegistryId, task, ctx);
 
 		const runPromise = runAgent({
-			cwd: defaultCwd,
-			agents,
-			agentName,
-			task,
-			taskCwd: cwd,
-			sessionPath,
-			parentSessionId,
-			workingDirectory: defaultCwd,
-			sourceRunId,
-			lineageId,
-			reservedRegistryId,
-			signal,
+			...runOptions,
+			workingDirectory: cwd,
 			onSpawn: (id) => {
 				if (toolCallId) bindToolCallRowInvalidate(toolCallId, id);
 				if (!reservedRegistryId) startTaskSummary(id, task, ctx);
@@ -154,7 +132,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			completeSubagentRun(reservedRegistryId, r);
 			return {
 				content: [{ type: "text", text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
-				details: makeDetails("single")([r]),
+				details: makeDetails("single", [r]),
 				isError: true,
 			};
 		}
@@ -169,13 +147,13 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			if (isResultError(r)) {
 				return {
 					content: [{ type: "text", text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` }],
-					details: makeDetails("single")([r]),
+					details: makeDetails("single", [r]),
 					isError: true,
 				};
 			}
 			return {
 				content: [{ type: "text", text: r.registryId ? `Completed subagent [${r.registryId}]:\n\n${getResultSummaryText(r)}` : getResultSummaryText(r) }],
-				details: makeDetails("single")([r]),
+				details: makeDetails("single", [r]),
 			};
 		}
 
@@ -188,7 +166,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					customType: "subagent_result",
 					content: `Background subagent [${id}] (${result.agent}) ${status}.\n\n${getResultSummaryText(result)}`,
 					display: false,
-					details: makeDetails("single")([result]),
+					details: makeDetails("single", [result]),
 				},
 				{ triggerTurn: true, deliverAs: "steer" },
 			);
@@ -201,7 +179,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					customType: "subagent_result",
 					content: `Background subagent [${raced.id}] (${agentName}) failed: ${message}`,
 					display: false,
-					details: makeDetails("single")([r]),
+					details: makeDetails("single", [r]),
 				},
 				{ triggerTurn: true, deliverAs: "steer" },
 			);
@@ -213,7 +191,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				type: "text",
 				text: `Started subagent [${raced.id}] (${agentName}). The result will be delivered to you automatically as a new message when it finishes. Do NOT poll subagent_ctl or sleep. End your turn immediately.`,
 			}],
-			details: makeDetails("single")([makeRunningPlaceholder(agentName, task, agents, raced.id)]),
+			details: makeDetails("single", [makeRunningPlaceholder(agentName, task, agents, raced.id)]),
 		};
 	};
 
@@ -221,7 +199,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		tasks: TaskSpec[],
 		agents: AgentConfig[],
 		defaultCwd: string,
-		makeDetails: ReturnType<typeof makeDetailsFactory>,
 		ctx: SubagentExecutionContext,
 		parentSessionId: string,
 		toolCallId: string,
@@ -230,7 +207,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		if (tasks.length > MAX_PARALLEL_TASKS) {
 			return {
 				content: [{ type: "text", text: `Too many parallel tasks (${tasks.length}). Max is ${MAX_PARALLEL_TASKS}.` }],
-				details: makeDetails("parallel")([]),
+				details: makeDetails("parallel", []),
 				isError: true,
 			};
 		}
@@ -275,7 +252,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					customType: "subagent_result",
 					content: `Parallel subagent batch finished: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
 					display: false,
-					details: makeDetails("parallel")(results),
+					details: makeDetails("parallel", results),
 				},
 				{ triggerTurn: true, deliverAs: "steer" },
 			);
@@ -291,7 +268,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					customType: "subagent_result",
 					content: `Parallel subagent batch failed: ${message}`,
 					display: false,
-					details: makeDetails("parallel")(placeholders),
+					details: makeDetails("parallel", placeholders),
 				},
 				{ triggerTurn: true, deliverAs: "steer" },
 			);
@@ -303,41 +280,38 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				type: "text",
 				text: `Started ${tasks.length} parallel subagent(s). The combined result will be delivered to you automatically as a new message when all finish. Do NOT poll subagent_ctl or sleep. End your turn immediately.`,
 			}],
-			details: makeDetails("parallel")(placeholders),
+			details: makeDetails("parallel", placeholders),
 		};
 	};
 
 	const execute = async (toolCallId: string, invocation: SubagentInvocation, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
-		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
+		const { agents } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
-		const makeDetails = makeDetailsFactory(projectAgentsDir);
 
 		if (invocation.action === "resume") {
 			const reservation = reserveResumeRun(invocation.resume_id, invocation.task, parentSessionId, hasManagedSessionPath, onResumeKill);
 			if ("error" in reservation) {
 				return {
 					content: [{ type: "text", text: reservation.error }],
-					details: makeDetails("single")([]),
+					details: makeDetails("single", []),
 					isError: true,
 				};
 			}
 			const source = reservation.source;
-			return executeSingle(
-				source.agent,
-				invocation.task,
-				undefined,
+			return executeSingle({
+				cwd: source.workingDirectory ?? ctx.cwd,
 				agents,
-				source.workingDirectory ?? ctx.cwd,
+				agentName: source.agent,
+				task: invocation.task,
 				ctx,
-				makeDetails,
-				reservation.run.id,
-				source.sessionPath,
+				reservedRegistryId: reservation.run.id,
+				sessionPath: source.sessionPath,
 				parentSessionId,
-				source.id,
-				source.lineageId,
+				sourceRunId: source.id,
+				lineageId: source.lineageId,
 				toolCallId,
 				signal,
-			);
+			});
 		}
 
 		if (invocation.action === "run_parallel") {
@@ -345,29 +319,23 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 				invocation.tasks,
 				agents,
 				ctx.cwd,
-				makeDetails,
 				ctx,
 				parentSessionId,
 				toolCallId,
 				signal,
 			);
 		}
-		return executeSingle(
-			invocation.agent,
-			invocation.task,
-			invocation.cwd,
+		return executeSingle({
+			cwd: ctx.cwd,
 			agents,
-			ctx.cwd,
+			agentName: invocation.agent,
+			task: invocation.task,
+			taskCwd: invocation.cwd,
 			ctx,
-			makeDetails,
-			undefined,
-			undefined,
 			parentSessionId,
-			undefined,
-			undefined,
 			toolCallId,
 			signal,
-		);
+		});
 	};
 
 	const kill = (id: string) => {
@@ -478,25 +446,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			clearSessionState();
 		},
 	};
-}
-
-function fallbackActivitySummary(result: SingleResult): string {
-	const compact = (text: string) => {
-		const activity = text.replace(/\s+/g, " ").trim();
-		return activity.length <= 300 ? activity : `${activity.slice(0, 299)}…`;
-	};
-	const partial = result.partialMessage?.content.find((part) => part.type === "text" && part.text.trim());
-	if (partial?.type === "text") return compact(partial.text);
-	const latest = result.messages.at(-1);
-	if (latest?.role === "assistant") {
-		const text = latest.content.find((part) => part.type === "text" && part.text.trim());
-		if (text?.type === "text") return compact(text.text);
-		const toolCall = latest.content.find((part) => part.type === "toolCall");
-		if (toolCall?.type === "toolCall") return `Calling ${toolCall.name}.`;
-	}
-	if (latest?.role === "toolResult") return `Received result from ${latest.toolName}.`;
-	const summary = getResultSummaryText(result);
-	return summary === "(no output)" ? "No activity yet." : compact(summary);
 }
 
 async function mapConcurrent<TIn, TOut>(

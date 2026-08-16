@@ -1,19 +1,6 @@
 import type { AgentConfig } from "./agents.ts";
 import { registerRun } from "./registry.ts";
-import { emptyUsage, type SingleResult, type SubagentDetails } from "./types.ts";
-
-// ---------------------------------------------------------------------------
-// Helpers used in tool execute
-// ---------------------------------------------------------------------------
-
-export function makeDetailsFactory(projectAgentsDir: string | null) {
-  return (mode: "single" | "parallel") =>
-    (results: SingleResult[]): SubagentDetails => ({
-      mode,
-      projectAgentsDir,
-      results,
-    });
-}
+import { emptyUsage, type SingleResult } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Placeholder lifecycle

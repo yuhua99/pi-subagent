@@ -65,7 +65,6 @@ export function parseTasksParam(raw: unknown): { tasks: TaskSpec[] } | { error: 
 /** Metadata attached to every tool result for rendering. */
 export interface SubagentDetails {
 	mode: "single" | "parallel";
-	projectAgentsDir: string | null;
 	results: SingleResult[];
 }
 
@@ -213,7 +212,3 @@ export function getResultSummaryText(result: SingleResult): string {
 	return "(no output)";
 }
 
-/** Extract the last assistant text from a message history. */
-export function getFinalOutput(messages: Message[]): string {
-	return getFinalAssistantText(messages);
-}
