@@ -36,7 +36,6 @@ export interface SubagentRun extends RunMetadata {
 	agent: string;
 	task: string;
 	taskSummary?: string;
-	pid: number | undefined;
 	startedAt: number;
 	phase: RunPhase;
 	result: SingleResult;
@@ -118,7 +117,7 @@ export function registerRun(init: Omit<SubagentRun, "id" | "phase" | "steer" | "
 
 export function updateRun(
 	id: string,
-	patch: Partial<Pick<SubagentRun, "pid" | "startedAt" | "kill" | "result" | "sessionPath" | "workingDirectory" | "parentSessionId" | "sourceRunId" | "lineageId">>,
+	patch: Partial<Pick<SubagentRun, "startedAt" | "kill" | "result" | "sessionPath" | "workingDirectory" | "parentSessionId" | "sourceRunId" | "lineageId">>,
 ): void {
 	const entry = running.get(id);
 	if (entry) Object.assign(entry, patch);
@@ -315,7 +314,6 @@ export function reserveResumeRun(
 	const run = registerRun({
 		agent: source.agent,
 		task,
-		pid: undefined,
 		startedAt: Date.now(),
 		kill: () => onKill(runId),
 		result,

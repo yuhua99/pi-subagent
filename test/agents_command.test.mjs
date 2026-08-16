@@ -6,18 +6,7 @@ import { NativeTranscriptRenderer } from "../agents_detail.ts";
 import { isDetailQuietTool } from "../agents_detail_tools.ts";
 import { renderAgentsOverlay } from "../agents_overlay.ts";
 import { clearSessionState, registerRun } from "../registry.ts";
-
-function result() {
-	return {
-		agent: "worker",
-		agentSource: "user",
-		task: "task",
-		exitCode: -1,
-		messages: [],
-		stderr: "",
-		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-	};
-}
+import { makeRun } from "./fixtures/run.mjs";
 
 function commandHarness() {
 	const calls = [];
@@ -365,7 +354,7 @@ test("/agents uses the shared centered overlay and returns from detail to list",
 	clearSessionState();
 	let statusUnsubscribed = 0;
 	let streamUnsubscribed = 0;
-	const run = registerRun({ agent: "worker", task: "task", pid: 1, startedAt: Date.now(), kill() {}, result: result() });
+	const run = registerRun(makeRun({ agent: "worker", task: "task", startedAt: Date.now() }));
 	run.onStatus = () => () => {
 		statusUnsubscribed++;
 	};
@@ -398,7 +387,7 @@ test("/agents uses the shared centered overlay and returns from detail to list",
 test("/agents list kills and removes the selected running run", async () => {
 	clearSessionState();
 	let killed = 0;
-	registerRun({ agent: "worker", task: "task", pid: 1, startedAt: Date.now(), kill() { killed++; }, result: result() });
+	registerRun(makeRun({ agent: "worker", task: "task", startedAt: Date.now(), kill() { killed++; } }));
 	const { calls, command, ctx } = commandHarness();
 
 	const handler = command.handler([], ctx);
@@ -417,7 +406,7 @@ test("/agents list kills and removes the selected running run", async () => {
 test("/agents list clips long SelectList output within the shared shell", async () => {
 	clearSessionState();
 	for (let index = 0; index < 20; index++) {
-		registerRun({ agent: `worker-${index}`, task: "task", pid: index, startedAt: Date.now(), kill() {}, result: result() });
+		registerRun(makeRun({ agent: `worker-${index}`, task: "task", startedAt: Date.now() }));
 	}
 	const { calls, command, ctx } = commandHarness();
 

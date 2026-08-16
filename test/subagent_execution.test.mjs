@@ -2,24 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { clearSessionState, completeRun, registerRun } from "../registry.ts";
 import { createSubagentExecution } from "../subagent_execution.ts";
-
-function makeResult(overrides = {}) {
-	return {
-		agent: "a",
-		agentSource: "user",
-		task: "t",
-		exitCode: -1,
-		messages: [],
-		stderr: "",
-		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-		...overrides,
-	};
-}
+import { makeResult, makeRun } from "./fixtures/run.mjs";
 
 test("steer rejects completed run ids", () => {
 	clearSessionState();
 	const execution = createSubagentExecution({});
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	completeRun(run.id, makeResult({ exitCode: 0 }));
 
 	assert.deepEqual(execution.steer(run.id, "continue"), {
@@ -46,7 +34,7 @@ test("inspect returns live state with heuristic activity", async () => {
 	const result = makeResult({
 		partialMessage: { role: "assistant", content: [{ type: "text", text: "Reading the repository." }] },
 	});
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result });
+	const run = registerRun(makeRun({ result }));
 
 	const response = await execution.executeControl({ action: "inspect", id: run.id }, summaryContext);
 
@@ -60,7 +48,7 @@ test("inspect returns live state with heuristic activity", async () => {
 test("inspect returns retained state with heuristic activity", async () => {
 	clearSessionState();
 	const execution = createSubagentExecution({});
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	completeRun(run.id, makeResult({
 		exitCode: 0,
 		messages: [{ role: "assistant", content: [{ type: "text", text: "Completed the task." }] }],

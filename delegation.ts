@@ -49,7 +49,6 @@ export function reserveParallelPlaceholders(
     p.registryId = registerRun({
       agent: p.agent,
       task: p.task,
-      pid: undefined,
       startedAt: Date.now(),
       kill: () => {
         const r = failedPlaceholderResult(p, "killed", "Subagent was killed before it started.");

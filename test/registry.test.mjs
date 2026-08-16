@@ -21,19 +21,7 @@ import {
 	bindToolCallRowInvalidate,
 	updateRun,
 } from "../registry.ts";
-
-function makeResult(overrides = {}) {
-	return {
-		agent: "a",
-		agentSource: "user",
-		task: "t",
-		exitCode: -1,
-		messages: [],
-		stderr: "",
-		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-		...overrides,
-	};
-}
+import { makeResult, makeRun } from "./fixtures/run.mjs";
 
 function cleanup() {
 	for (const e of listRuns()) completeRun(e.id, e.result);
@@ -44,13 +32,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 test("registerRun returns a run with a 4-hex id and stores the full task", () => {
 	cleanup();
 	const long = "x".repeat(200);
-	const run = registerRun({ agent: "scout", task: long, pid: 123, startedAt: 1, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun({ agent: "scout", task: long, startedAt: 1 }));
 	assert.match(run.id, /^[0-9a-f]{4}$/);
 	assert.equal(run.task, long);
 	const list = listRuns();
 	assert.equal(list.length, 1);
 	assert.equal(list[0].agent, "scout");
-	assert.equal(list[0].pid, 123);
 	cleanup();
 });
 
@@ -58,7 +45,7 @@ test("ids are unique across concurrent entries", () => {
 	cleanup();
 	const ids = new Set();
 	for (let i = 0; i < 50; i++) {
-		ids.add(registerRun({ agent: "a", task: "t", pid: i, startedAt: 0, kill: () => {}, result: makeResult() }).id);
+		ids.add(registerRun(makeRun()).id);
 	}
 	assert.equal(ids.size, 50);
 	assert.equal(listRuns().length, 50);
@@ -68,7 +55,7 @@ test("ids are unique across concurrent entries", () => {
 test("kill closure fires; getRun returns undefined after completeRun", () => {
 	cleanup();
 	let killed = false;
-	const run = registerRun({ agent: "a", task: "t", pid: 1, startedAt: 0, kill: () => { killed = true; }, result: makeResult() });
+	const run = registerRun(makeRun({ kill: () => { killed = true; } }));
 	getRun(run.id).kill();
 	assert.equal(killed, true);
 	completeRun(run.id, makeResult({ exitCode: 0 }));
@@ -84,7 +71,7 @@ test("getRun returns undefined for unknown id", () => {
 test("steer with an attached callback delivers immediately and records history", () => {
 	cleanup();
 	const delivered = [];
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	attachRunSteer(run.id, (text) => { delivered.push(text); });
 	run.steer("focus on tests");
 	assert.deepEqual(delivered, ["focus on tests"]);
@@ -98,7 +85,7 @@ test("steer with an attached callback delivers immediately and records history",
 test("steer before callback attachment queues and flushes FIFO", () => {
 	cleanup();
 	const delivered = [];
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	run.steer("first");
 	run.steer("second");
 	attachRunSteer(run.id, (text) => { delivered.push(text); });
@@ -110,17 +97,16 @@ test("steer before callback attachment queues and flushes FIFO", () => {
 test("updateRun replaces result reference", () => {
 	cleanup();
 	const first = makeResult();
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: first });
+	const run = registerRun(makeRun({ result: first }));
 	const second = makeResult({ exitCode: 0 });
-	updateRun(run.id, { result: second, pid: 42 });
+	updateRun(run.id, { result: second });
 	assert.equal(getRun(run.id).result, second);
-	assert.equal(getRun(run.id).pid, 42);
 	cleanup();
 });
 
 test("completeRun retains status subscribers for late updates until unsubscribed", () => {
 	cleanup();
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	let calls = 0;
 	const unsubscribe = run.onStatus(() => { calls++; });
 	completeRun(run.id, makeResult({ exitCode: 0 }));
@@ -134,7 +120,7 @@ test("completeRun retains status subscribers for late updates until unsubscribed
 
 test("onStatus and onStream unsubscribe works", async () => {
 	cleanup();
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	let s = 0, m = 0;
 	const off1 = run.onStatus(() => { s++; });
 	const off2 = run.onStream(() => { m++; });
@@ -152,7 +138,7 @@ test("onStatus and onStream unsubscribe works", async () => {
 
 test("notifyStream coalesces rapid notifies into one callback", async () => {
 	cleanup();
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	let calls = 0;
 	run.onStream(() => { calls++; });
 	notifyStream(run.id);
@@ -166,7 +152,7 @@ test("notifyStream coalesces rapid notifies into one callback", async () => {
 
 test("completeRun cancels a pending stream notification", async () => {
 	cleanup();
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	let calls = 0;
 	run.onStream(() => { calls++; });
 	notifyStream(run.id);
@@ -177,7 +163,7 @@ test("completeRun cancels a pending stream notification", async () => {
 
 test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and background completion", () => {
 	cleanup();
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	let a = 0, b = 0;
 	registerToolCallInvalidator("first", () => { a++; });
 	registerToolCallInvalidator("second", () => { b++; });
@@ -189,7 +175,7 @@ test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and backgrou
 	completeRun(run.id, makeResult({ exitCode: 0 }));
 	assert.equal(b, 1);
 
-	const background = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const background = registerRun(makeRun());
 	bindToolCallRowInvalidate("second", background.id);
 	setRunPhase(background.id, "background");
 	completeRun(background.id, makeResult({ exitCode: 0 }));
@@ -198,14 +184,14 @@ test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and backgrou
 
 test("tool call row invalidator handoff works in either registration order", () => {
 	clearSessionState();
-	const before = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const before = registerRun(makeRun());
 	let beforeCalls = 0;
 	registerToolCallInvalidator("before", () => { beforeCalls++; });
 	bindToolCallRowInvalidate("before", before.id);
 	notifyStatus(before.id);
 	assert.equal(beforeCalls, 1);
 
-	const after = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const after = registerRun(makeRun());
 	let afterCalls = 0;
 	bindToolCallRowInvalidate("after", after.id);
 	registerToolCallInvalidator("after", () => { afterCalls++; });
@@ -216,8 +202,8 @@ test("tool call row invalidator handoff works in either registration order", () 
 
 test("tool call row invalidator is handed off to every parallel member", () => {
 	clearSessionState();
-	const first = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
-	const second = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const first = registerRun(makeRun());
+	const second = registerRun(makeRun());
 	let calls = 0;
 	bindToolCallRowInvalidate("batch", first.id);
 	bindToolCallRowInvalidate("batch", second.id);
@@ -230,8 +216,8 @@ test("tool call row invalidator is handed off to every parallel member", () => {
 
 test("background batch completion invalidates for each completed member", () => {
 	clearSessionState();
-	const first = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
-	const second = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const first = registerRun(makeRun());
+	const second = registerRun(makeRun());
 	let calls = 0;
 	registerToolCallInvalidator("background-batch", () => { calls++; });
 	bindToolCallRowInvalidate("background-batch", first.id);
@@ -249,7 +235,7 @@ test("resolveLiveResult is pure — accepts only one argument", () => {
 	assert.equal(resolveLiveResult.length, 1);
 	const live = makeResult();
 	assert.deepEqual(resolveLiveResult(live), { result: live, stale: false });
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult({ exitCode: 0, agent: "done" }) });
+	const run = registerRun(makeRun({ result: makeResult({ exitCode: 0, agent: "done" }) }));
 	const placeholder = makeResult({ registryId: run.id });
 	const resolved = resolveLiveResult(placeholder);
 	assert.equal(resolved.stale, false);
@@ -260,7 +246,7 @@ test("resolveLiveResult is pure — accepts only one argument", () => {
 test("getLiveStatus returns completed/running/stale correctly", () => {
 	cleanup();
 	assert.equal(getLiveStatus("zzzz").kind, "stale");
-	const run = registerRun({ agent: "a", task: "t", pid: undefined, startedAt: 0, kill: () => {}, result: makeResult() });
+	const run = registerRun(makeRun());
 	assert.equal(getLiveStatus(run.id).kind, "running");
 	completeRun(run.id, makeResult({ exitCode: 0 }));
 	assert.equal(getLiveStatus(run.id).kind, "completed");
@@ -268,16 +254,11 @@ test("getLiveStatus returns completed/running/stale correctly", () => {
 
 test("clearSessionState clears session-scoped run and resume state", () => {
 	cleanup();
-	const source = registerRun({
-		agent: "a",
+	const source = registerRun(makeRun({
 		task: "first",
-		pid: undefined,
-		startedAt: 0,
-		kill: () => {},
-		result: makeResult(),
 		parentSessionId: "parent",
 		sessionPath: "session",
-	});
+	}));
 	completeRun(source.id, makeResult({ exitCode: 0 }));
 	const reservation = reserveResumeRun(source.id, "follow up", "parent", () => true, () => {});
 	assert.equal("error" in reservation, false);
@@ -301,17 +282,12 @@ test("resume reservations require a successful completed run in the same parent 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
 	const sessionPath = path.join(dir, "session.jsonl");
 	fs.writeFileSync(sessionPath, "{}\n");
-	const source = registerRun({
-		agent: "a",
+	const source = registerRun(makeRun({
 		task: "first",
-		pid: undefined,
-		startedAt: 0,
-		kill: () => {},
-		result: makeResult(),
 		parentSessionId: "parent",
 		sessionPath,
 		workingDirectory: dir,
-	});
+	}));
 	completeRun(source.id, makeResult({ exitCode: 0 }));
 
 	const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {});
@@ -340,42 +316,27 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
 	const sessionPath = path.join(dir, "session.jsonl");
 	fs.writeFileSync(sessionPath, "{}\n");
-	const source = registerRun({
-		agent: "a",
+	const source = registerRun(makeRun({
 		task: "first",
-		pid: undefined,
-		startedAt: 0,
-		kill: () => {},
-		result: makeResult(),
 		parentSessionId: "parent",
 		sessionPath,
-	});
+	}));
 	completeRun(source.id, makeResult({ exitCode: 1 }));
 	assert.match(reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {}).error, /successfully completed/);
 
-	const foreign = registerRun({
-		agent: "a",
+	const foreign = registerRun(makeRun({
 		task: "foreign",
-		pid: undefined,
-		startedAt: 0,
-		kill: () => {},
-		result: makeResult(),
 		parentSessionId: "other",
 		sessionPath,
-	});
+	}));
 	completeRun(foreign.id, makeResult({ exitCode: 0 }));
 	assert.match(reserveResumeRun(foreign.id, "follow up", "parent", fs.existsSync, () => {}).error, /different parent/);
 
-	const missing = registerRun({
-		agent: "a",
+	const missing = registerRun(makeRun({
 		task: "missing",
-		pid: undefined,
-		startedAt: 0,
-		kill: () => {},
-		result: makeResult(),
 		parentSessionId: "parent",
 		sessionPath: path.join(dir, "missing.jsonl"),
-	});
+	}));
 	completeRun(missing.id, makeResult({ exitCode: 0 }));
 	assert.match(reserveResumeRun(missing.id, "follow up", "parent", fs.existsSync, () => {}).error, /retain a session/);
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -386,16 +347,11 @@ test("killing a reserved resume removes it and releases its lineage lock", () =>
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
 	const sessionPath = path.join(dir, "session.jsonl");
 	fs.writeFileSync(sessionPath, "{}\n");
-	const source = registerRun({
-		agent: "a",
+	const source = registerRun(makeRun({
 		task: "first",
-		pid: undefined,
-		startedAt: 0,
-		kill: () => {},
-		result: makeResult(),
 		parentSessionId: "parent",
 		sessionPath,
-	});
+	}));
 	completeRun(source.id, makeResult({ exitCode: 0 }));
 
 	let killCalls = 0;

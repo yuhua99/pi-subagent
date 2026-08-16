@@ -373,7 +373,6 @@ function attachRun(
 		registryId = opts.reservedRegistryId;
 		updateRun(registryId, {
 			...runMetadata,
-			pid: undefined,
 			startedAt: Date.now(),
 			kill,
 			result,
@@ -383,7 +382,6 @@ function attachRun(
 		registryId = registerRun({
 			agent: agent.name,
 			task: opts.task,
-			pid: undefined,
 			startedAt: Date.now(),
 			kill,
 			result,
