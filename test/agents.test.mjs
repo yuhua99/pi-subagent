@@ -23,7 +23,9 @@ function writeConfiguredAgent(dir, name, fields = {}) {
   };
   fs.writeFileSync(
     path.join(dir, `${name}.md`),
-    `---\n${Object.entries(frontmatter).map(([key, value]) => `${key}: ${value}`).join("\n")}\n---\n\nYou are ${name}.\n`,
+    `---\n${Object.entries(frontmatter)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n")}\n---\n\nYou are ${name}.\n`,
   );
 }
 
@@ -54,10 +56,7 @@ function createTestableAgentsModule() {
 
   const source = fs
     .readFileSync(sourcePath, "utf-8")
-    .replace(
-      'from "@earendil-works/pi-coding-agent"',
-      'from "./pi-coding-agent-stub.mjs"',
-    );
+    .replace('from "@earendil-works/pi-coding-agent"', 'from "./pi-coding-agent-stub.mjs"');
   fs.writeFileSync(modulePath, source);
 
   return {
@@ -147,8 +146,13 @@ test("orchestrator files are excluded from callable agents", () => {
   writeConfiguredAgent(path.join(configDir, "agents"), "policy", { role: "orchestrator" });
 
   try {
-    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
-    assert.deepEqual(discovery.agents.map((agent) => agent.name), ["callable"]);
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", {
+      PI_CODING_AGENT_DIR: configDir,
+    });
+    assert.deepEqual(
+      discovery.agents.map((agent) => agent.name),
+      ["callable"],
+    );
     assert.equal(discovery.orchestrator.name, "policy");
   } finally {
     cleanup();
@@ -162,10 +166,14 @@ test("project orchestrator overrides user orchestrator", () => {
   const projectDir = path.join(tmpDir, "project");
   const { moduleUrl, cleanup } = createTestableAgentsModule();
   writeConfiguredAgent(path.join(configDir, "agents"), "user-policy", { role: "orchestrator" });
-  writeConfiguredAgent(path.join(projectDir, ".pi", "agents"), "project-policy", { role: "orchestrator" });
+  writeConfiguredAgent(path.join(projectDir, ".pi", "agents"), "project-policy", {
+    role: "orchestrator",
+  });
 
   try {
-    const discovery = runDiscoverAgents(moduleUrl, projectDir, "both", { PI_CODING_AGENT_DIR: configDir });
+    const discovery = runDiscoverAgents(moduleUrl, projectDir, "both", {
+      PI_CODING_AGENT_DIR: configDir,
+    });
     assert.equal(discovery.orchestrator.name, "project-policy");
     assert.equal(discovery.orchestrator.source, "project");
   } finally {
@@ -182,7 +190,9 @@ test("the first alphabetical orchestrator wins within a scope", () => {
   writeConfiguredAgent(path.join(configDir, "agents"), "a-policy", { role: "orchestrator" });
 
   try {
-    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", {
+      PI_CODING_AGENT_DIR: configDir,
+    });
     assert.equal(discovery.orchestrator.name, "a-policy");
   } finally {
     cleanup();
@@ -197,8 +207,13 @@ test("an invalid role value leaves the agent callable", () => {
   writeConfiguredAgent(path.join(configDir, "agents"), "ordinary", { role: "worker" });
 
   try {
-    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
-    assert.deepEqual(discovery.agents.map((agent) => agent.name), ["ordinary"]);
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", {
+      PI_CODING_AGENT_DIR: configDir,
+    });
+    assert.deepEqual(
+      discovery.agents.map((agent) => agent.name),
+      ["ordinary"],
+    );
     assert.equal(discovery.agents[0].role, undefined);
     assert.equal(discovery.orchestrator, null);
   } finally {
@@ -219,7 +234,9 @@ test("orchestrator model, tools, and thinking are dropped", () => {
   });
 
   try {
-    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", { PI_CODING_AGENT_DIR: configDir });
+    const discovery = runDiscoverAgents(moduleUrl, tmpDir, "user", {
+      PI_CODING_AGENT_DIR: configDir,
+    });
     assert.equal(discovery.orchestrator.model, undefined);
     assert.equal(discovery.orchestrator.tools, undefined);
     assert.equal(discovery.orchestrator.thinking, undefined);

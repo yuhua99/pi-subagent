@@ -25,10 +25,10 @@ pi install git:github.com/yuhua99/pi-subagent
 
 Markdown + YAML frontmatter:
 
-| Location | Path |
-| -------- | ---- |
-| User | `~/.pi/agent/agents/*.md` or `$PI_CODING_AGENT_DIR/agents/*.md` |
-| Project | `.pi/agents/*.md` (walks up from cwd; project wins on name clash) |
+| Location | Path                                                              |
+| -------- | ----------------------------------------------------------------- |
+| User     | `~/.pi/agent/agents/*.md` or `$PI_CODING_AGENT_DIR/agents/*.md`   |
+| Project  | `.pi/agents/*.md` (walks up from cwd; project wins on name clash) |
 
 ```markdown
 ---
@@ -42,14 +42,14 @@ tools: read, write
 You are an expert technical writer. Improve clarity and conciseness.
 ```
 
-| Field | Required | Notes |
-| ----- | -------- | ----- |
-| `name` | yes | Exact id used in tool calls |
-| `description` | yes | Shown to the main agent for routing |
-| `role` | no | `orchestrator` marks the file as main-agent-only policy; not callable |
-| `model` | no | Optional `provider/model`; else parent default |
-| `thinking` | no | `off` … `xhigh` (same as `--thinking`) |
-| `tools` | no | Built-ins only; default `read,bash,edit,write` |
+| Field         | Required | Notes                                                                 |
+| ------------- | -------- | --------------------------------------------------------------------- |
+| `name`        | yes      | Exact id used in tool calls                                           |
+| `description` | yes      | Shown to the main agent for routing                                   |
+| `role`        | no       | `orchestrator` marks the file as main-agent-only policy; not callable |
+| `model`       | no       | Optional `provider/model`; else parent default                        |
+| `thinking`    | no       | `off` … `xhigh` (same as `--thinking`)                                |
+| `tools`       | no       | Built-ins only; default `read,bash,edit,write`                        |
 
 Body is **appended** to Pi’s system prompt. Built-ins: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`.
 
@@ -63,6 +63,7 @@ name: delegation-policy
 description: Delegation and orchestration rules
 role: orchestrator
 ---
+
 Delegate independent work to the most appropriate specialized agent.
 ```
 

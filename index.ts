@@ -36,11 +36,14 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI && (discoveredAgents.length > 0 || discoveredOrchestrator)) {
       const lines = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`);
       if (discoveredOrchestrator) {
-        lines.push(`  - ${discoveredOrchestrator.name} (${discoveredOrchestrator.source}, orchestrator)`);
+        lines.push(
+          `  - ${discoveredOrchestrator.name} (${discoveredOrchestrator.source}, orchestrator)`,
+        );
       }
-      const header = discoveredAgents.length > 0
-        ? `Found ${discoveredAgents.length} subagent(s):`
-        : "Found orchestrator:";
+      const header =
+        discoveredAgents.length > 0
+          ? `Found ${discoveredAgents.length} subagent(s):`
+          : "Found orchestrator:";
       ctx.ui.notify(`${header}\n${lines.join("\n")}`, "info");
     }
   });

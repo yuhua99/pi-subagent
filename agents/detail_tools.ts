@@ -17,15 +17,7 @@ type ToolMember = {
   error?: string;
 };
 
-const QUIET_TOOLS = new Set([
-  "bash",
-  "edit",
-  "write",
-  "read",
-  "grep",
-  "find",
-  "ls",
-]);
+const QUIET_TOOLS = new Set(["bash", "edit", "write", "read", "grep", "find", "ls"]);
 const MAX_TEXT = 80;
 
 export function isDetailQuietTool(toolName: string): boolean {
@@ -34,16 +26,11 @@ export function isDetailQuietTool(toolName: string): boolean {
 
 function shorten(text: string): string {
   const singleLine = text.replace(/\s*[\r\n]+\s*/g, " ");
-  return singleLine.length > MAX_TEXT
-    ? `${singleLine.slice(0, MAX_TEXT - 1)}…`
-    : singleLine;
+  return singleLine.length > MAX_TEXT ? `${singleLine.slice(0, MAX_TEXT - 1)}…` : singleLine;
 }
 
-function firstError(result: {
-  content?: Array<{ type: string; text?: string }>;
-}): string {
-  const text =
-    result.content?.find((content) => content.type === "text")?.text ?? "";
+function firstError(result: { content?: Array<{ type: string; text?: string }> }): string {
+  const text = result.content?.find((content) => content.type === "text")?.text ?? "";
   return shorten(text.split("\n", 1)[0]?.trim() || "error");
 }
 
@@ -55,8 +42,7 @@ function target(toolName: string, args: Record<string, unknown>): string {
     }
     case "grep":
     case "find": {
-      const pattern =
-        typeof args.pattern === "string" ? args.pattern : toolName;
+      const pattern = typeof args.pattern === "string" ? args.pattern : toolName;
       const path = typeof args.path === "string" ? args.path : "";
       return path ? `${pattern} in ${path}` : pattern;
     }
@@ -85,8 +71,7 @@ export function createDetailToolRenderers(cwd: string) {
   };
 
   const renderCall =
-    (toolName: string) =>
-    (args: Record<string, unknown>, theme: any, context: any) => {
+    (toolName: string) => (args: Record<string, unknown>, theme: any, context: any) => {
       const member = memberFor(context.toolCallId);
       const intent = typeof args.intent === "string" ? args.intent.trim() : "";
       const t = target(toolName, args);
@@ -112,19 +97,13 @@ export function createDetailToolRenderers(cwd: string) {
   ) => {
     const member = members.get(context.toolCallId);
     if (member) {
-      member.status = options.isPartial
-        ? "pending"
-        : context.isError
-          ? "error"
-          : "ok";
+      member.status = options.isPartial ? "pending" : context.isError ? "error" : "ok";
       member.error = context.isError ? firstError(result) : undefined;
     }
     return new Container();
   };
 
-  const definition = (
-    toolName: string,
-  ): ToolDefinition<any, any> | undefined => {
+  const definition = (toolName: string): ToolDefinition<any, any> | undefined => {
     let original: ToolDefinition<any, any>;
     switch (toolName) {
       case "read":

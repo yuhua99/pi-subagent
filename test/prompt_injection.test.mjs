@@ -5,7 +5,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 function runInject(basePrompt, block) {
-  const moduleUrl = pathToFileURL(path.join(process.cwd(), "execution", "prompt_injection.ts")).href;
+  const moduleUrl = pathToFileURL(
+    path.join(process.cwd(), "execution", "prompt_injection.ts"),
+  ).href;
   const script = `
     import { injectIntoSystemPrompt } from ${JSON.stringify(moduleUrl)};
     process.stdout.write(JSON.stringify(injectIntoSystemPrompt(${JSON.stringify(basePrompt)}, ${JSON.stringify(block)})));
