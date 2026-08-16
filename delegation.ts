@@ -1,35 +1,15 @@
-import * as fs from "node:fs";
 import type { AgentConfig } from "./agents.ts";
 import { registerRun } from "./registry.ts";
-import { emptyUsage, type DelegationMode, type SingleResult, type SubagentDetails } from "./types.ts";
-
-export function resolveForkSource(sessionManager: {
-  getSessionFile: () => string | undefined;
-  getLeafId: () => string | null;
-}): { sourceSessionPath: string; leafId: string } | { error: string } {
-  const sourceSessionPath = sessionManager.getSessionFile();
-  if (!sourceSessionPath) {
-    return { error: "Cannot use mode=\"fork\": fork requires a persisted parent session; the parent is running without a session file (--no-session). Restart without --no-session to use fork mode." };
-  }
-  if (!fs.existsSync(sourceSessionPath)) {
-    return { error: `Cannot use mode="fork": parent session file does not exist: ${sourceSessionPath}. Wait for it to persist before forking.` };
-  }
-  const leafId = sessionManager.getLeafId();
-  if (!leafId) {
-    return { error: "Cannot use mode=\"fork\": parent session has no entries to fork from. Add a session entry before forking." };
-  }
-  return { sourceSessionPath, leafId };
-}
+import { emptyUsage, type SingleResult, type SubagentDetails } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers used in tool execute
 // ---------------------------------------------------------------------------
 
-export function makeDetailsFactory(projectAgentsDir: string | null, delegationMode: DelegationMode) {
+export function makeDetailsFactory(projectAgentsDir: string | null) {
   return (mode: "single" | "parallel") =>
     (results: SingleResult[]): SubagentDetails => ({
       mode,
-      delegationMode,
       projectAgentsDir,
       results,
     });

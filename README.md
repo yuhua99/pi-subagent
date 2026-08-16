@@ -6,7 +6,7 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 
 ## Features
 
-- **`spawn` / `fork` context** — fresh task-only context, or a session snapshot plus the task
+- **Isolated task-only context** — each run receives only its task
 - **Native session resume** — continue a successfully completed child with `{ "action": "resume", "resume_id": "run-id", "task": "..." }`
 - **Async by default** — tool returns as soon as the child starts; results arrive as a follow-up message
 - **Parallel runs** — up to 8 tasks, 4 concurrent
@@ -75,9 +75,8 @@ Delegate independent work to the most appropriate specialized agent.
 `subagent`:
 
 ```json
-{ "action": "run", "agent": "writer", "task": "Document the API", "mode": "spawn" }
-{ "action": "run", "agent": "review", "task": "Check this migration", "mode": "fork" }
-{ "action": "run_parallel", "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }], "mode": "spawn" }
+{ "action": "run", "agent": "writer", "task": "Document the API" }
+{ "action": "run_parallel", "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }] }
 { "action": "resume", "resume_id": "completed-run-id", "task": "Continue the previous work" }
 ```
 
@@ -90,9 +89,8 @@ Delegate independent work to the most appropriate specialized agent.
 { "action": "inspect", "id": "run-id" }
 ```
 
-- **`spawn`** (default) — child gets only `Task: ...`; put all needed context in `task`
-- **`fork`** — session branch snapshot + task; better for follow-ups, higher cost / possible leakage. Cache-aligned: the child rebuilds the parent's request prefix (system prompt, tool schemas, history) to hit the provider prompt cache; misalignment only costs a cache miss. Agent `tools`/`thinking` are ignored (persona moves into the task message); `model` is respected.
-- **`resume`** — continue a successful completed run from this parent session using its native JSONL session. It creates a new run id and preserves lineage; only one resume per lineage may run at a time.
+- **Runs** — always receive an isolated `Task: ...` context; put all needed context in `task`.
+- **`resume`** — continues a successfully completed child session from this parent session. It creates a new run id and preserves lineage; only one resume per lineage may run at a time.
 
 Single-level delegation is a construction-time capability: child sessions load the parent's extensions except pi-subagent, so they physically lack the subagent tools. The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
 

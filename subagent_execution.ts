@@ -1,7 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import {
-	resolveForkSource,
 	failedPlaceholderResult,
 	makeDetailsFactory,
 	makeRunningPlaceholder,
@@ -24,11 +23,9 @@ import { formatSubagentList } from "./render.ts";
 import { runAgent } from "./runner.ts";
 import { summarizeActivity, summarizeTask } from "./task_summary.ts";
 import {
-	DEFAULT_DELEGATION_MODE,
 	getResultSummaryText,
 	isResultError,
 	isResultSuccess,
-	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentCtlDetails,
@@ -41,11 +38,8 @@ import { MAX_CONCURRENCY, MAX_PARALLEL_TASKS, type SubagentCtlInvocation, type S
 export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
 	cwd: string;
 	sessionManager: {
-		getSessionFile: () => string | undefined;
-		getLeafId: () => string | null;
 		getSessionId: () => string;
 	};
-	getSystemPrompt: () => string;
 }
 
 interface ToolResult {
@@ -75,7 +69,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			if (entry.sessionPath) paths.add(entry.sessionPath);
 		}
 		for (const entry of listCompletedRuns()) {
-			if (isResultSuccess(entry.result) && entry.delegationMode && entry.sessionPath) {
+			if (isResultSuccess(entry.result) && entry.sessionPath) {
 				paths.add(entry.sessionPath);
 			}
 		}
@@ -99,10 +93,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 		agentName: string,
 		task: string,
 		cwd: string | undefined,
-		delegationMode: DelegationMode,
-		sourceSessionPath: string | undefined,
-		leafId: string | undefined,
-		parentSystemPrompt: string | undefined,
 		agents: AgentConfig[],
 		defaultCwd: string,
 		ctx: SubagentExecutionContext,
@@ -128,10 +118,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			agentName,
 			task,
 			taskCwd: cwd,
-			delegationMode,
-			sourceSessionPath,
-			leafId,
-			parentSystemPrompt,
 			sessionPath,
 			parentSessionId,
 			workingDirectory: defaultCwd,
@@ -233,10 +219,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 
 	const executeParallel = async (
 		tasks: TaskSpec[],
-		delegationMode: DelegationMode,
-		sourceSessionPath: string | undefined,
-		leafId: string | undefined,
-		parentSystemPrompt: string | undefined,
 		agents: AgentConfig[],
 		defaultCwd: string,
 		makeDetails: ReturnType<typeof makeDetailsFactory>,
@@ -268,10 +250,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 					agentName: t.agent,
 					task: t.task,
 					taskCwd: t.cwd,
-					delegationMode,
-					sourceSessionPath,
-					leafId,
-					parentSystemPrompt,
 					parentSessionId,
 					workingDirectory: t.cwd ?? defaultCwd,
 					signal,
@@ -332,28 +310,22 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 	const execute = async (toolCallId: string, invocation: SubagentInvocation, ctx: SubagentExecutionContext, signal?: AbortSignal): Promise<ToolResult> => {
 		const { agents, projectAgentsDir } = discoverAgents(ctx.cwd, "both");
 		const parentSessionId = ctx.sessionManager.getSessionId();
+		const makeDetails = makeDetailsFactory(projectAgentsDir);
 
 		if (invocation.action === "resume") {
-			const defaultDetails = makeDetailsFactory(projectAgentsDir, DEFAULT_DELEGATION_MODE);
 			const reservation = reserveResumeRun(invocation.resume_id, invocation.task, parentSessionId, hasManagedSessionPath, onResumeKill);
 			if ("error" in reservation) {
 				return {
 					content: [{ type: "text", text: reservation.error }],
-					details: defaultDetails("single")([]),
+					details: makeDetails("single")([]),
 					isError: true,
 				};
 			}
 			const source = reservation.source;
-			const delegationMode = source.delegationMode!;
-			const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
 			return executeSingle(
 				source.agent,
 				invocation.task,
 				undefined,
-				delegationMode,
-				undefined,
-				undefined,
-				delegationMode === "fork" ? ctx.getSystemPrompt() : undefined,
 				agents,
 				source.workingDirectory ?? ctx.cwd,
 				ctx,
@@ -368,30 +340,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			);
 		}
 
-		const delegationMode = invocation.mode ?? DEFAULT_DELEGATION_MODE;
-		const makeDetails = makeDetailsFactory(projectAgentsDir, delegationMode);
-		let sourceSessionPath: string | undefined;
-		let leafId: string | undefined;
-		if (delegationMode === "fork") {
-			const forkSource = resolveForkSource(ctx.sessionManager);
-			if ("error" in forkSource) {
-				return {
-					content: [{ type: "text", text: forkSource.error }],
-					details: makeDetails("single")([]),
-					isError: true,
-				};
-			}
-			sourceSessionPath = forkSource.sourceSessionPath;
-			leafId = forkSource.leafId;
-		}
-		const parentSystemPrompt = delegationMode === "fork" ? ctx.getSystemPrompt() : undefined;
 		if (invocation.action === "run_parallel") {
 			return executeParallel(
 				invocation.tasks,
-				delegationMode,
-				sourceSessionPath,
-				leafId,
-				parentSystemPrompt,
 				agents,
 				ctx.cwd,
 				makeDetails,
@@ -405,10 +356,6 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
 			invocation.agent,
 			invocation.task,
 			invocation.cwd,
-			delegationMode,
-			sourceSessionPath,
-			leafId,
-			parentSystemPrompt,
 			agents,
 			ctx.cwd,
 			ctx,

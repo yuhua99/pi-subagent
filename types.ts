@@ -4,12 +4,6 @@
 
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 
-/** Context mode for delegated runs. */
-export type DelegationMode = "spawn" | "fork";
-
-/** Default context mode for delegated runs. */
-export const DEFAULT_DELEGATION_MODE: DelegationMode = "spawn";
-
 /** Aggregated token usage from a subagent run. */
 export interface UsageStats {
 	input: number;
@@ -71,7 +65,6 @@ export function parseTasksParam(raw: unknown): { tasks: TaskSpec[] } | { error: 
 /** Metadata attached to every tool result for rendering. */
 export interface SubagentDetails {
 	mode: "single" | "parallel";
-	delegationMode: DelegationMode;
 	projectAgentsDir: string | null;
 	results: SingleResult[];
 }

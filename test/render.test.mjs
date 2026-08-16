@@ -43,7 +43,7 @@ test("renderResult gives action-oriented validation guidance", () => {
     [{ action: "run", agent: "worker" }, "Validation error: action `run` requires string `agent` and `task`."],
     [{ action: "run_parallel" }, "Validation error: action `run_parallel` requires `tasks`."],
     [{ action: "run_parallel", tasks: [] }, "Validation error: `tasks` must be a non-empty array of `{ agent, task, cwd? }` or a JSON string."],
-    [{ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp" }, "Validation error: action `run_parallel` accepts only `tasks` and optional `mode`."],
+    [{ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp" }, "Validation error: action `run_parallel` accepts only `tasks`."],
     [{ action: "resume", resume_id: "a1b2" }, "Validation error: action `resume` requires string `resume_id` and `task`."],
     [{ action: "unknown" }, "Validation error: action must be `run`, `run_parallel`, or `resume`."],
   ];

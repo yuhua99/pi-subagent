@@ -7,12 +7,11 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { DelegationMode, SingleResult } from "./types.ts";
+import type { SingleResult } from "./types.ts";
 import { emptyUsage, isResultSuccess } from "./types.ts";
 
 export interface RunMetadata {
 	parentSessionId?: string;
-	delegationMode?: DelegationMode;
 	sessionPath?: string;
 	workingDirectory?: string;
 	sourceRunId?: string;
@@ -119,7 +118,7 @@ export function registerRun(init: Omit<SubagentRun, "id" | "phase" | "steer" | "
 
 export function updateRun(
 	id: string,
-	patch: Partial<Pick<SubagentRun, "pid" | "startedAt" | "kill" | "result" | "sessionPath" | "workingDirectory" | "parentSessionId" | "delegationMode" | "sourceRunId" | "lineageId">>,
+	patch: Partial<Pick<SubagentRun, "pid" | "startedAt" | "kill" | "result" | "sessionPath" | "workingDirectory" | "parentSessionId" | "sourceRunId" | "lineageId">>,
 ): void {
 	const entry = running.get(id);
 	if (entry) Object.assign(entry, patch);
@@ -232,7 +231,6 @@ export function completeRun(id: string, result: SingleResult): void {
 		startedAt: entry?.startedAt ?? finishedAt,
 		finishedAt,
 		parentSessionId: entry?.parentSessionId,
-		delegationMode: entry?.delegationMode,
 		sessionPath: entry?.sessionPath,
 		workingDirectory: entry?.workingDirectory,
 		sourceRunId: entry?.sourceRunId,
@@ -292,7 +290,7 @@ export function reserveResumeRun(
 	if (source.parentSessionId !== parentSessionId) {
 		return { error: `Cannot resume subagent [${id}]: run belongs to a different parent Pi session.` };
 	}
-	if (!source.delegationMode || !source.sessionPath || !hasSessionPath(source.sessionPath)) {
+	if (!source.sessionPath || !hasSessionPath(source.sessionPath)) {
 		return { error: `Cannot resume subagent [${id}]: completed run did not retain a session.` };
 	}
 	if (!isResultSuccess(source.result)) {
@@ -322,7 +320,6 @@ export function reserveResumeRun(
 		kill: () => onKill(runId),
 		result,
 		parentSessionId,
-		delegationMode: source.delegationMode,
 		sessionPath: source.sessionPath,
 		workingDirectory: source.workingDirectory,
 		sourceRunId: source.id,

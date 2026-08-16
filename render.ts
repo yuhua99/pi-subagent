@@ -8,14 +8,12 @@ import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { getRun, listCompletedRuns, registerToolCallInvalidator, resolveLiveResult, type ResolvedResult, type SubagentRun } from "./registry.ts";
 import {
-	type DelegationMode,
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentCtlDetails,
 	type SubagentInspectDetails,
 	type SubagentListDetails,
 	type UsageStats,
-	DEFAULT_DELEGATION_MODE,
 	isResultError,
 	parseTasksParam,
 } from "./types.ts";
@@ -66,10 +64,6 @@ export function formatUsage(usage: Partial<UsageStats>, model?: string): string 
 	if (usage.contextTokens && usage.contextTokens > 0) parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
 	if (model) parts.push(model);
 	return parts.join(" ");
-}
-
-function normalizeDelegationMode(raw: unknown): DelegationMode {
-	return raw === "fork" ? "fork" : DEFAULT_DELEGATION_MODE;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -127,18 +121,16 @@ function validationGuidance(args: unknown): string {
 	if (!isRecord(args) || typeof args.action !== "string") return "Validation error: subagent requires action `run`, `run_parallel`, or `resume`.";
 	if (args.action === "run") {
 		if (typeof args.agent !== "string" || typeof args.task !== "string") return "Validation error: action `run` requires string `agent` and `task`.";
-		if (args.mode !== undefined && args.mode !== "spawn" && args.mode !== "fork") return "Validation error: action `run` `mode` must be `spawn` or `fork`.";
 		if (args.cwd !== undefined && typeof args.cwd !== "string") return "Validation error: action `run` `cwd` must be a string.";
-		if (hasUnexpectedKeys(args, ["action", "agent", "task", "mode", "cwd"])) return "Validation error: action `run` accepts only `agent`, `task`, optional `mode`, and optional `cwd`.";
-		return "Validation error: action `run` accepts string `agent`, `task`, optional `mode`, and optional `cwd`.";
+		if (hasUnexpectedKeys(args, ["action", "agent", "task", "cwd"])) return "Validation error: action `run` accepts only `agent`, `task`, and optional `cwd`.";
+		return "Validation error: action `run` accepts string `agent`, `task`, and optional `cwd`.";
 	}
 	if (args.action === "run_parallel") {
 		if (!("tasks" in args)) return "Validation error: action `run_parallel` requires `tasks`.";
-		if (args.mode !== undefined && args.mode !== "spawn" && args.mode !== "fork") return "Validation error: action `run_parallel` `mode` must be `spawn` or `fork`.";
-		if (hasUnexpectedKeys(args, ["action", "tasks", "mode"])) return "Validation error: action `run_parallel` accepts only `tasks` and optional `mode`.";
+		if (hasUnexpectedKeys(args, ["action", "tasks"])) return "Validation error: action `run_parallel` accepts only `tasks`.";
 		const taskGuidance = taskListGuidance(args.tasks);
 		if (taskGuidance) return taskGuidance;
-		return "Validation error: action `run_parallel` accepts `tasks` as an array or JSON string, with optional `mode`.";
+		return "Validation error: action `run_parallel` accepts `tasks` as an array or JSON string.";
 	}
 	if (args.action === "resume") {
 		if (typeof args.resume_id !== "string" || typeof args.task !== "string") return "Validation error: action `resume` requires string `resume_id` and `task`.";
@@ -257,10 +249,8 @@ export function renderCall(
 	context?: RenderContext,
 ): Text {
 	if (context?.toolCallId && context.isPartial) registerToolCallInvalidator(context.toolCallId, context.invalidate);
-	const delegationMode = normalizeDelegationMode(args.mode);
-	const modeBadge = delegationMode === "fork" ? theme.fg("muted", " [fork]") : "";
 	let detail = "...";
-	let suffix = modeBadge;
+	let suffix = "";
 	if (args.action === "run_parallel") {
 		const parsedTasks = parseTasksParam(args.tasks);
 		const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;

@@ -31,4 +31,4 @@ Manual check: `pi -e .` · Publish check: `bun pm pack --dry-run`
 
 ## Commit format
 
-`<type>: <imperative summary>`, sentence case. Types: `feat`, `fix`, `refactor`, `docs`, `chore` (e.g. `feat: add cache-aligned fork mode`). One logical change per commit; no vague messages (`update`, `cleanup`, `wip`).
+`<type>: <imperative summary>`, sentence case. Types: `feat`, `fix`, `refactor`, `docs`, `chore` (e.g. `feat: add run cancellation`). One logical change per commit; no vague messages (`update`, `cleanup`, `wip`).

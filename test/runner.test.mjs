@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildTaskMessage, excludeSubagentExtensions, processSessionEvent } from "../runner.ts";
+import { excludeSubagentExtensions, processSessionEvent } from "../runner.ts";
 import { getFinalAssistantText, isResultError, isResultSuccess, normalizeCompletedResult } from "../types.ts";
 
 function makeResult(overrides = {}) {
@@ -222,18 +222,3 @@ test("excludeSubagentExtensions preserves an empty extension list", () => {
 	assert.deepEqual(excludeSubagentExtensions(base), base);
 });
 
-test("buildTaskMessage keeps fork instructions in the task message", () => {
-	const agent = {
-		name: "oracle",
-		description: "",
-		source: "user",
-		filePath: "/tmp/oracle.md",
-		systemPrompt: "Persona",
-	};
-
-	assert.equal(buildTaskMessage(agent, "repro", "spawn"), "Task: repro");
-	assert.equal(
-		buildTaskMessage(agent, "repro", "fork"),
-		"Task instructions:\n\nPersona\n\nTask: repro",
-	);
-});

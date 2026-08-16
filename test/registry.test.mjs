@@ -276,7 +276,6 @@ test("clearSessionState clears session-scoped run and resume state", () => {
 		kill: () => {},
 		result: makeResult(),
 		parentSessionId: "parent",
-		delegationMode: "spawn",
 		sessionPath: "session",
 	});
 	completeRun(source.id, makeResult({ exitCode: 0 }));
@@ -310,7 +309,6 @@ test("resume reservations require a successful completed run in the same parent 
 		kill: () => {},
 		result: makeResult(),
 		parentSessionId: "parent",
-		delegationMode: "spawn",
 		sessionPath,
 		workingDirectory: dir,
 	});
@@ -350,7 +348,6 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
 		kill: () => {},
 		result: makeResult(),
 		parentSessionId: "parent",
-		delegationMode: "fork",
 		sessionPath,
 	});
 	completeRun(source.id, makeResult({ exitCode: 1 }));
@@ -364,7 +361,6 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
 		kill: () => {},
 		result: makeResult(),
 		parentSessionId: "other",
-		delegationMode: "spawn",
 		sessionPath,
 	});
 	completeRun(foreign.id, makeResult({ exitCode: 0 }));
@@ -378,7 +374,6 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
 		kill: () => {},
 		result: makeResult(),
 		parentSessionId: "parent",
-		delegationMode: "spawn",
 		sessionPath: path.join(dir, "missing.jsonl"),
 	});
 	completeRun(missing.id, makeResult({ exitCode: 0 }));
@@ -399,7 +394,6 @@ test("killing a reserved resume removes it and releases its lineage lock", () =>
 		kill: () => {},
 		result: makeResult(),
 		parentSessionId: "parent",
-		delegationMode: "spawn",
 		sessionPath,
 	});
 	completeRun(source.id, makeResult({ exitCode: 0 }));

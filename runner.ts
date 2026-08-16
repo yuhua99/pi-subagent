@@ -8,19 +8,15 @@ import type { LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
-	defineTool,
 	getAgentDir,
 	ModelRuntime,
 	resolveCliModel,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "./agents.ts";
-import { stripCwdTail } from "./prompt_injection.ts";
 import { attachRunSteer, getRun, notifyStatus, notifyStream, registerRun, updateRun, type RunMetadata } from "./registry.ts";
 import { allocateManagedSessionDir, registerManagedSessionPath } from "./session_files.ts";
-import { CTL_TOOL_DESCRIPTION, SubagentCtlParams, SubagentParams, TOOL_DESCRIPTION } from "./tool_schema.ts";
 import {
-	type DelegationMode,
 	type SingleResult,
 	emptyUsage,
 	getFinalAssistantMessage,
@@ -29,33 +25,6 @@ import {
 } from "./types.ts";
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
-async function unavailableToolResult() {
-	return {
-		content: [{ type: "text" as const, text: "Delegation is single-level: this subagent cannot delegate further." }],
-		details: undefined,
-		isError: true,
-	};
-}
-
-function createForkStubTools() {
-	return [
-		defineTool({
-			name: "subagent",
-			label: "Subagent",
-			description: TOOL_DESCRIPTION,
-			parameters: SubagentParams,
-			execute: unavailableToolResult,
-		}),
-		defineTool({
-			name: "subagent_ctl",
-			label: "Subagent control",
-			description: CTL_TOOL_DESCRIPTION,
-			parameters: SubagentCtlParams,
-			execute: unavailableToolResult,
-		}),
-	];
-}
 
 function stableStringify(value: unknown): string {
 	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
@@ -188,38 +157,18 @@ export function processSessionEvent(result: SingleResult, event: unknown): "stat
 	}
 }
 
-/** Build the task message sent to the child session. */
-export function buildTaskMessage(agent: AgentConfig, task: string, delegationMode: DelegationMode): string {
-	if (delegationMode === "fork" && agent.systemPrompt.trim()) {
-		return `Task instructions:\n\n${agent.systemPrompt.trim()}\n\nTask: ${task}`;
-	}
-	return `Task: ${task}`;
-}
-
 export function excludeSubagentExtensions(base: LoadExtensionsResult): LoadExtensionsResult {
 	return { ...base, extensions: base.extensions.filter((ext) => !ext.tools.has("subagent")) };
 }
 
-async function createResourceLoader(
-	cwd: string,
-	agent: AgentConfig,
-	delegationMode: DelegationMode,
-	parentSystemPrompt: string | undefined,
-): Promise<DefaultResourceLoader> {
-	const fork = delegationMode === "fork";
+async function createResourceLoader(cwd: string, agent: AgentConfig): Promise<DefaultResourceLoader> {
 	const loader = new DefaultResourceLoader({
 		cwd,
 		agentDir: getAgentDir(),
 		extensionsOverride: excludeSubagentExtensions,
-		...(fork ? {
-			noSkills: true,
-			noContextFiles: true,
-			systemPromptOverride: () => stripCwdTail(parentSystemPrompt ?? ""),
-		} : {
-			appendSystemPromptOverride: (base) => agent.systemPrompt.trim()
-				? [...base, agent.systemPrompt]
-				: base,
-		}),
+		appendSystemPromptOverride: (base) => agent.systemPrompt.trim()
+			? [...base, agent.systemPrompt]
+			: base,
 	});
 	await loader.reload();
 	return loader;
@@ -246,15 +195,11 @@ export interface RunAgentOptions {
 	agentName: string;
 	task: string;
 	taskCwd?: string;
-	delegationMode: DelegationMode;
-	sourceSessionPath?: string;
-	leafId?: string;
 	sessionPath?: string;
 	parentSessionId?: string;
 	workingDirectory?: string;
 	sourceRunId?: string;
 	lineageId?: string;
-	parentSystemPrompt?: string;
 	signal?: AbortSignal;
 	onSpawn?: (registryId: string) => void;
 	reservedRegistryId?: string;
@@ -311,12 +256,12 @@ async function createRunSession(
 	agent: AgentConfig,
 	result: SingleResult,
 ): Promise<PreparedRunSession | undefined> {
-	const isFreshSpawn = opts.delegationMode === "spawn" && !opts.sessionPath;
-	if (isFreshSpawn && agent.model === undefined) {
-		failedResult(result, `Agent "${agent.name}" config must specify a model for fresh spawn runs.`);
+	const isFreshRun = !opts.sessionPath;
+	if (isFreshRun && agent.model === undefined) {
+		failedResult(result, `Agent "${agent.name}" config must specify a model for fresh runs.`);
 		return undefined;
 	}
-	if (isFreshSpawn && agent.thinking !== undefined && !THINKING_LEVELS.includes(agent.thinking as ThinkingLevel)) {
+	if (isFreshRun && agent.thinking !== undefined && !THINKING_LEVELS.includes(agent.thinking as ThinkingLevel)) {
 		failedResult(
 			result,
 			`Invalid thinking level "${agent.thinking}" for agent "${agent.name}". Expected one of: ${THINKING_LEVELS.join(", ")}.`,
@@ -325,7 +270,7 @@ async function createRunSession(
 	}
 
 	let resolved: Awaited<ReturnType<typeof resolveSpawnModel>> = {};
-	if (isFreshSpawn) {
+	if (isFreshRun) {
 		try {
 			resolved = await resolveSpawnModel(agent);
 		} catch (error) {
@@ -333,7 +278,7 @@ async function createRunSession(
 			return undefined;
 		}
 		if (agent.thinking === undefined && resolved.thinkingLevel === undefined) {
-			failedResult(result, `Agent "${agent.name}" config must specify a thinking level for fresh spawn runs.`);
+			failedResult(result, `Agent "${agent.name}" config must specify a thinking level for fresh runs.`);
 			return undefined;
 		}
 	}
@@ -345,12 +290,6 @@ async function createRunSession(
 		let manager: SessionManager;
 		if (opts.sessionPath) {
 			manager = SessionManager.forkFrom(opts.sessionPath, effectiveCwd, managedDir);
-		} else if (opts.delegationMode === "fork") {
-			manager = SessionManager.open(opts.sourceSessionPath!, managedDir, effectiveCwd);
-			if (!manager.createBranchedSession(opts.leafId!)) {
-				failedResult(result, "Cannot run in fork mode: failed to create a persisted branched session.");
-				return undefined;
-			}
 		} else {
 			manager = SessionManager.create(effectiveCwd, managedDir);
 		}
@@ -360,18 +299,17 @@ async function createRunSession(
 			return undefined;
 		}
 		const managedSessionPath = registerManagedSessionPath(sessionFile);
-		const loader = await createResourceLoader(effectiveCwd, agent, opts.delegationMode, opts.parentSystemPrompt);
-		const thinkingLevel = isFreshSpawn
+		const loader = await createResourceLoader(effectiveCwd, agent);
+		const thinkingLevel = isFreshRun
 			? (agent.thinking as ThinkingLevel | undefined) ?? resolved.thinkingLevel
 			: undefined;
-		const tools = isFreshSpawn ? agent.tools : undefined;
+		const tools = isFreshRun ? agent.tools : undefined;
 		const created = await createAgentSession({
 			cwd: effectiveCwd,
 			agentDir: getAgentDir(),
 			resourceLoader: loader,
 			sessionManager: manager,
 			...(tools !== undefined ? { tools } : {}),
-			...(opts.delegationMode === "fork" ? { customTools: createForkStubTools() } : {}),
 			...("modelRuntime" in resolved && resolved.modelRuntime ? { modelRuntime: resolved.modelRuntime } : {}),
 			...("model" in resolved && resolved.model ? { model: resolved.model } : {}),
 			...(thinkingLevel ? { thinkingLevel } : {}),
@@ -425,7 +363,6 @@ function attachRun(
 		sessionPath: managedSessionPath,
 		workingDirectory: opts.taskCwd ?? opts.workingDirectory ?? opts.cwd,
 		parentSessionId: opts.parentSessionId,
-		delegationMode: opts.delegationMode,
 		sourceRunId: opts.sourceRunId,
 		lineageId: opts.lineageId,
 	};
@@ -484,7 +421,7 @@ async function runSessionPrompt(
 			result.exitCode = 130;
 		} else {
 			try {
-				await session.prompt(buildTaskMessage(agent, opts.task, opts.delegationMode));
+				await session.prompt(`Task: ${opts.task}`);
 				const finalAssistant = getFinalAssistantMessage(result.messages);
 				if (!finalAssistant) {
 					failedResult(result, "Subagent completed without an assistant response.");
@@ -529,15 +466,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			`Unknown agent: "${opts.agentName}". Available agents: ${available}.`,
 		);
 	}
-	if (opts.delegationMode === "fork" && !opts.sessionPath && (!opts.sourceSessionPath || !opts.leafId)) {
-		return createEarlyFailure(
-			opts,
-			agent.source,
-			"Cannot run in fork mode: missing parent session source path or leaf entry.",
-			agent.model,
-		);
-	}
-
 	const result = createRunningResult(opts, agent);
 	const prepared = await createRunSession(opts, agent, result);
 	if (!prepared) return result;

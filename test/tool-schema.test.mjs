@@ -11,10 +11,9 @@ import { parseTasksParam } from "../types.ts";
 test("subagent schema has an action-discriminated object root", () => {
   assert.equal(SubagentParams.type, "object");
   assert.equal(SubagentParams.additionalProperties, false);
-  assert.deepEqual(Object.keys(SubagentParams.properties), ["action", "agent", "task", "tasks", "resume_id", "mode", "cwd"]);
+  assert.deepEqual(Object.keys(SubagentParams.properties), ["action", "agent", "task", "tasks", "resume_id", "cwd"]);
   assert.deepEqual(SubagentParams.required, ["action"]);
   assert.deepEqual(SubagentParams.properties.action.anyOf.map((schema) => schema.const), ["run", "run_parallel", "resume"]);
-  assert.deepEqual(SubagentParams.properties.mode.anyOf.map((schema) => schema.const), ["spawn", "fork"]);
   const tasksSchema = SubagentParams.properties.tasks;
   const tasksArray = tasksSchema.anyOf.find((schema) => schema.type === "array");
   assert.equal(tasksArray.items.additionalProperties, false);
@@ -31,8 +30,8 @@ test("subagent control schema has a required action", () => {
 });
 
 test("subagent action validation accepts each legal invocation", () => {
-  assert.deepEqual(parseSubagentInvocation({ action: "run", agent: "a", task: "t", mode: "fork", cwd: "/tmp" }), {
-    action: "run", agent: "a", task: "t", mode: "fork", cwd: "/tmp",
+  assert.deepEqual(parseSubagentInvocation({ action: "run", agent: "a", task: "t", cwd: "/tmp" }), {
+    action: "run", agent: "a", task: "t", cwd: "/tmp",
   });
   assert.deepEqual(parseSubagentInvocation({ action: "run_parallel", tasks: '[{"agent":"a","task":"t"}]' }), {
     action: "run_parallel", tasks: [{ agent: "a", task: "t" }],
@@ -47,7 +46,7 @@ test("subagent action validation reports action-specific invalid fields", () => 
     [{ action: "run", agent: "a" }, 'action "run" requires "agent" and "task"'],
     [{ action: "run", agent: "a", task: "t", tasks: [] }, 'action "run" does not accept "tasks"'],
     [{ action: "run_parallel", tasks: [{ agent: "a", task: "t" }], cwd: "/tmp" }, 'action "run_parallel" does not accept "cwd"'],
-    [{ action: "resume", resume_id: "id", task: "t", mode: "fork" }, 'action "resume" does not accept "mode"'],
+    [{ action: "run", agent: "a", task: "t", mode: "spawn" }, 'action "run" does not accept "mode"'],
     [{ action: "other" }, 'action must be "run", "run_parallel", or "resume"'],
   ];
   for (const [params, error] of cases) assert.deepEqual(parseSubagentInvocation(params), { error });

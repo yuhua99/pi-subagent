@@ -1,9 +1,6 @@
 import { Type } from "typebox";
 import type { AgentConfig } from "./agents.ts";
-import { DEFAULT_DELEGATION_MODE, parseTasksParam, type DelegationMode, type TaskSpec } from "./types.ts";
-
-const MODE_PARAM_DESCRIPTION =
-  "Context mode for new runs. 'spawn' (default): child gets only the task prompt; isolated and cheaper. 'fork': child inherits a snapshot of this session's context; costlier and may leak sensitive context.";
+import { parseTasksParam, type TaskSpec } from "./types.ts";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
@@ -13,7 +10,7 @@ const TaskItem = Type.Object({
     description: "Must match an available agent name exactly.",
   }),
   task: Type.String({
-    description: "In spawn mode it must be self-contained.",
+    description: "It must be self-contained.",
   }),
   cwd: Type.Optional(
     Type.String({ description: "Working directory for this agent's process." }),
@@ -26,21 +23,13 @@ const DelegationAction = Type.Union([
   Type.Literal("resume"),
 ]);
 
-const DelegationModeParam = Type.Union([
-  Type.Literal("spawn"),
-  Type.Literal("fork"),
-], {
-  description: MODE_PARAM_DESCRIPTION,
-  default: DEFAULT_DELEGATION_MODE,
-});
-
 export const SubagentParams = Type.Object({
   action: DelegationAction,
   agent: Type.Optional(Type.String({
     description: "Must match an available agent name exactly.",
   })),
   task: Type.Optional(Type.String({
-    description: "In spawn mode it must be self-contained.",
+    description: "It must be self-contained.",
   })),
   tasks: Type.Optional(Type.Union([Type.Array(TaskItem, { minItems: 1 }), Type.String()], {
     description: "Parallel runs as an array of task objects or a JSON-encoded array.",
@@ -48,7 +37,6 @@ export const SubagentParams = Type.Object({
   resume_id: Type.Optional(Type.String({
     description: "Completed subagent run id from this parent Pi session.",
   })),
-  mode: Type.Optional(DelegationModeParam),
   cwd: Type.Optional(Type.String({
     description: "Working directory for the agent process.",
   })),
@@ -71,8 +59,8 @@ export const SubagentCtlParams = Type.Object({
 }, { additionalProperties: false });
 
 export type SubagentInvocation =
-  | { action: "run"; agent: string; task: string; mode?: DelegationMode; cwd?: string }
-  | { action: "run_parallel"; tasks: TaskSpec[]; mode?: DelegationMode }
+  | { action: "run"; agent: string; task: string; cwd?: string }
+  | { action: "run_parallel"; tasks: TaskSpec[] }
   | { action: "resume"; resume_id: string; task: string };
 
 export type SubagentCtlInvocation =
@@ -92,12 +80,6 @@ function rejectedField(action: string, params: Record<string, unknown>, allowed:
   return field === undefined ? undefined : `action "${action}" does not accept "${field}"`;
 }
 
-function parseMode(action: string, mode: unknown): DelegationMode | { error: string } | undefined {
-  if (mode === undefined) return undefined;
-  if (mode === "spawn" || mode === "fork") return mode;
-  return { error: `action "${action}" requires "mode" to be "spawn" or "fork"` };
-}
-
 /** Validate and normalize a subagent delegation action. */
 export function parseSubagentInvocation(params: unknown): ParseResult<SubagentInvocation> {
   if (!isRecord(params)) return { error: "subagent requires an action" };
@@ -110,26 +92,22 @@ export function parseSubagentInvocation(params: unknown): ParseResult<SubagentIn
     if (typeof params.agent !== "string" || typeof params.task !== "string") {
       return { error: "action \"run\" requires \"agent\" and \"task\"" };
     }
-    const rejected = rejectedField(action, params, ["action", "agent", "task", "mode", "cwd"]);
+    const rejected = rejectedField(action, params, ["action", "agent", "task", "cwd"]);
     if (rejected) return { error: rejected };
     if (params.cwd !== undefined && typeof params.cwd !== "string") {
       return { error: "action \"run\" requires \"cwd\" to be a string" };
     }
-    const mode = parseMode(action, params.mode);
-    if (mode && typeof mode === "object") return mode;
-    return { action, agent: params.agent, task: params.task, ...(mode ? { mode } : {}), ...(params.cwd !== undefined ? { cwd: params.cwd } : {}) };
+    return { action, agent: params.agent, task: params.task, ...(params.cwd !== undefined ? { cwd: params.cwd } : {}) };
   }
 
   if (action === "run_parallel") {
     if (params.tasks === undefined) return { error: "action \"run_parallel\" requires \"tasks\"" };
-    const rejected = rejectedField(action, params, ["action", "tasks", "mode"]);
+    const rejected = rejectedField(action, params, ["action", "tasks"]);
     if (rejected) return { error: rejected };
     const parsedTasks = parseTasksParam(params.tasks);
     if (!parsedTasks) return { error: "action \"run_parallel\" requires \"tasks\"" };
     if ("error" in parsedTasks) return parsedTasks;
-    const mode = parseMode(action, params.mode);
-    if (mode && typeof mode === "object") return mode;
-    return { action, tasks: parsedTasks.tasks, ...(mode ? { mode } : {}) };
+    return { action, tasks: parsedTasks.tasks };
   }
 
   if (typeof params.resume_id !== "string" || typeof params.task !== "string") {
