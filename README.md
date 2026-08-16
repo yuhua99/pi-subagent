@@ -51,7 +51,7 @@ You are an expert technical writer. Improve clarity and conciseness.
 | `thinking` | no | `off` … `xhigh` (same as `--thinking`) |
 | `tools` | no | Built-ins only; default `read,bash,edit,write` |
 
-Body is **appended** to Pi’s system prompt. Built-ins: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`. Sample: `agents/oracle.md`.
+Body is **appended** to Pi’s system prompt. Built-ins: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`.
 
 ## Orchestrator
 
