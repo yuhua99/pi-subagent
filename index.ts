@@ -7,6 +7,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { registerAgentsCommand } from "./agents/command.ts";
+import { createSubagentToggle } from "./agents/toggle.ts";
 import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./tool/render.ts";
 import { injectIntoSystemPrompt } from "./execution/prompt_injection.ts";
 import { createSubagentExecution } from "./execution/execution.ts";
@@ -21,7 +22,8 @@ import {
 } from "./tool/schema.ts";
 
 export default function (pi: ExtensionAPI) {
-  registerAgentsCommand(pi);
+  const toggle = createSubagentToggle(pi);
+  registerAgentsCommand(pi, toggle);
   const execution = createSubagentExecution(pi);
   let discoveredAgents: AgentConfig[] = [];
   let discoveredOrchestrator: AgentConfig | null = null;
@@ -29,6 +31,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => execution.shutdown());
 
   pi.on("session_start", async (_event, ctx) => {
+    toggle.restoreFromBranch(ctx.sessionManager.getBranch());
+
     const discovery = discoverAgents(ctx.cwd, "both");
     discoveredAgents = discovery.agents;
     discoveredOrchestrator = discovery.orchestrator;
@@ -49,6 +53,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event) => {
+    if (!toggle.isEnabled()) return undefined;
     const parts: string[] = [];
     const orchestratorPrompt = discoveredOrchestrator?.systemPrompt.trim();
     if (orchestratorPrompt) parts.push(orchestratorPrompt);

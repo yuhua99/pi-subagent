@@ -3,6 +3,7 @@ import { type OverlayOptions } from "@earendil-works/pi-tui";
 import { type DetailEntry, showAgentsDetail } from "./detail.ts";
 import { showAgentsList } from "./list.ts";
 import { getRun, listCompletedRuns } from "../execution/registry.ts";
+import { type SubagentToggle } from "../types.ts";
 
 export const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
 
@@ -33,11 +34,36 @@ function resolveDetailEntry(id: string): DetailEntry | undefined {
   };
 }
 
-export function registerAgentsCommand(pi: ExtensionAPI) {
+export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) {
   pi.registerCommand("agents", {
-    description: "Manage running subagents",
-    handler: async (_args, ctx) => {
+    description: "Manage subagent runs; '/agents on|off' toggles delegation",
+    handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
+
+      const argument = (args ?? "").trim();
+      if (argument) {
+        if (argument !== "on" && argument !== "off") {
+          ctx.ui.notify("/agents [on|off]", "info");
+          return;
+        }
+
+        const conversationStarted = ctx.sessionManager
+          .getBranch()
+          .some((entry) => entry.type === "message" && entry.message.role === "user");
+        if (conversationStarted) {
+          ctx.ui.notify("Cannot toggle subagent delegation after the conversation has started", "info");
+          return;
+        }
+
+        const enabled = argument === "on";
+        if (enabled === toggle.isEnabled()) {
+          ctx.ui.notify(`Subagent delegation already ${enabled ? "enabled" : "disabled"}`, "info");
+          return;
+        }
+        toggle.setEnabled(enabled);
+        ctx.ui.notify(`Subagent delegation ${enabled ? "enabled" : "disabled"}`, "info");
+        return;
+      }
 
       const killedIds = new Set<string>();
       const killRun = (id: string) => {

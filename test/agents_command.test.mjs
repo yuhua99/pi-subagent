@@ -12,13 +12,18 @@ import { renderAgentsOverlay } from "../agents/shell.ts";
 import { clearSessionState, registerRun } from "../execution/registry.ts";
 import { makeRun } from "./fixtures/run.mjs";
 
-function commandHarness() {
+function commandHarness(toggle = { isEnabled: () => true, setEnabled: () => {} }) {
   const calls = [];
+  const notifications = [];
   const tui = { terminal: { rows: 24 }, requestRender() {} };
   const theme = { fg: (_color, text) => text, bold: (text) => text };
   const ctx = {
     hasUI: true,
+    sessionManager: { getBranch: () => [] },
     ui: {
+      notify(message) {
+        notifications.push(message);
+      },
       custom(factory, options) {
         let resolve;
         const promise = new Promise((done) => {
@@ -30,12 +35,15 @@ function commandHarness() {
     },
   };
   let command;
-  registerAgentsCommand({
-    registerCommand(_name, definition) {
-      command = definition;
+  registerAgentsCommand(
+    {
+      registerCommand(_name, definition) {
+        command = definition;
+      },
     },
-  });
-  return { calls, ctx, command };
+    toggle,
+  );
+  return { calls, ctx, command, notifications };
 }
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -434,6 +442,59 @@ test("agents overlay renders at narrow widths", () => {
   }
 });
 
+test("/agents rejects unknown toggle arguments", async () => {
+  const setEnabledCalls = [];
+  const { command, ctx, notifications } = commandHarness({
+    isEnabled: () => true,
+    setEnabled: (value) => setEnabledCalls.push(value),
+  });
+
+  await command.handler("bogus", ctx);
+
+  assert.deepEqual(notifications, ["/agents [on|off]"]);
+  assert.deepEqual(setEnabledCalls, []);
+});
+
+test("/agents cannot toggle after conversation starts", async () => {
+  const setEnabledCalls = [];
+  const { command, ctx, notifications } = commandHarness({
+    isEnabled: () => true,
+    setEnabled: (value) => setEnabledCalls.push(value),
+  });
+  ctx.sessionManager.getBranch = () => [{ type: "message", message: { role: "user" } }];
+
+  await command.handler("off", ctx);
+
+  assert.deepEqual(notifications, ["Cannot toggle subagent delegation after the conversation has started"]);
+  assert.deepEqual(setEnabledCalls, []);
+});
+
+test("/agents off disables delegation before conversation starts", async () => {
+  const setEnabledCalls = [];
+  const { command, ctx, notifications } = commandHarness({
+    isEnabled: () => true,
+    setEnabled: (value) => setEnabledCalls.push(value),
+  });
+
+  await command.handler("off", ctx);
+
+  assert.deepEqual(setEnabledCalls, [false]);
+  assert.deepEqual(notifications, ["Subagent delegation disabled"]);
+});
+
+test("/agents on reports enabled when delegation is already enabled", async () => {
+  const setEnabledCalls = [];
+  const { command, ctx, notifications } = commandHarness({
+    isEnabled: () => true,
+    setEnabled: (value) => setEnabledCalls.push(value),
+  });
+
+  await command.handler("on", ctx);
+
+  assert.deepEqual(notifications, ["Subagent delegation already enabled"]);
+  assert.deepEqual(setEnabledCalls, []);
+});
+
 test("/agents uses the shared centered overlay and returns from detail to list", async () => {
   clearSessionState();
   let statusUnsubscribed = 0;
@@ -447,7 +508,7 @@ test("/agents uses the shared centered overlay and returns from detail to list",
   };
   const { calls, command, ctx } = commandHarness();
 
-  const handler = command.handler([], ctx);
+  const handler = command.handler("", ctx);
   assert.deepEqual(calls[0].options, { overlay: true, overlayOptions: AGENTS_OVERLAY_OPTIONS });
   const listLines = calls[0].component.render(100);
   assertOverlayFrame(listLines, 100);
@@ -483,7 +544,7 @@ test("/agents list kills and removes the selected running run", async () => {
   );
   const { calls, command, ctx } = commandHarness();
 
-  const handler = command.handler([], ctx);
+  const handler = command.handler("", ctx);
   const populatedLines = calls[0].component.render(100);
   calls[0].component.handleInput("x");
   assert.equal(killed, 1);
@@ -503,7 +564,7 @@ test("/agents list clips long SelectList output within the shared shell", async 
   }
   const { calls, command, ctx } = commandHarness();
 
-  const handler = command.handler([], ctx);
+  const handler = command.handler("", ctx);
   const lines = calls[0].component.render(100);
   assertOverlayFrame(lines, 100);
   assert.match(lines.join("\n"), /\(1\/20\)/);

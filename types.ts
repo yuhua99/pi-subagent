@@ -4,6 +4,11 @@
 
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 
+export interface SubagentToggle {
+  isEnabled(): boolean;
+  setEnabled(value: boolean): void;
+}
+
 /** Aggregated token usage from a subagent run. */
 export interface UsageStats {
   input: number;
