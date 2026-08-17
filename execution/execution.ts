@@ -445,11 +445,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
         const runs = listRuns();
         const details: SubagentListDetails = {
           action: "list",
-          runs: runs.map(({ id, agent, taskSummary, startedAt }) => ({
-            id,
-            agent,
-            taskSummary,
-            startedAt,
+          results: runs.map((run) => ({
+            ...run.result,
+            registryId: run.id,
+            ...(run.taskSummary ? { taskSummary: run.taskSummary } : {}),
           })),
         };
         return {

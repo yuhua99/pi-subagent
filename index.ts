@@ -93,6 +93,7 @@ export default function (pi: ExtensionAPI) {
       return execution.executeControl(invocation, ctx, signal);
     },
     renderCall: (args, theme, context) => renderCtlCall(args, theme, context),
-    renderResult: (result, options, theme) => renderCtlResult(result, options, theme),
+    renderResult: (result, options, theme, context) =>
+      renderCtlResult(result, options, theme, context),
   });
 }

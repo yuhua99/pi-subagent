@@ -25,6 +25,7 @@ export interface SingleResult {
   agent: string;
   agentSource: "user" | "project" | "unknown";
   task: string;
+  taskSummary?: string;
   exitCode: number;
   messages: Message[];
   stderr: string;
@@ -87,12 +88,7 @@ export interface SubagentDetails {
 /** Metadata attached to subagent_ctl list results for rendering. */
 export interface SubagentListDetails {
   action: "list";
-  runs: Array<{
-    id: string;
-    agent: string;
-    taskSummary?: string;
-    startedAt: number;
-  }>;
+  results: SingleResult[];
 }
 
 /** Inspectable state of a subagent run. */

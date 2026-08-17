@@ -7,6 +7,7 @@
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import {
+  getLiveStatus,
   getRun,
   listCompletedRuns,
   registerToolCallInvalidator,
@@ -101,15 +102,8 @@ function isRenderableListDetails(value: unknown): value is SubagentListDetails {
   return (
     isRecord(value) &&
     value.action === "list" &&
-    Array.isArray(value.runs) &&
-    value.runs.every(
-      (run) =>
-        isRecord(run) &&
-        typeof run.id === "string" &&
-        typeof run.agent === "string" &&
-        (run.taskSummary === undefined || typeof run.taskSummary === "string") &&
-        typeof run.startedAt === "number",
-    )
+    Array.isArray(value.results) &&
+    value.results.every(isRenderableResult)
   );
 }
 
@@ -203,7 +197,8 @@ function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
   if (!r.registryId) return "";
   const taskSummary =
     getRun(r.registryId)?.taskSummary ??
-    listCompletedRuns().find((run) => run.id === r.registryId)?.taskSummary;
+    listCompletedRuns().find((run) => run.id === r.registryId)?.taskSummary ??
+    r.taskSummary;
   return taskSummary ? theme.fg("dim", ` — ${taskSummary}`) : "";
 }
 
@@ -238,6 +233,21 @@ function statusMessage(r: SingleResult): string {
     return `failed (exit ${r.exitCode})${detail ? ` — ${detail}` : ""}`;
   }
   return "completed";
+}
+
+function renderResolvedRow(
+  { original, result, stale }: ResolvedRow,
+  prefix: string,
+  theme: { fg: ThemeFg },
+  elapsedMs?: number,
+): string {
+  if (stale)
+    return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
+  const elapsed =
+    elapsedMs !== undefined && result.exitCode === -1
+      ? theme.fg("muted", ` ${formatElapsed(elapsedMs)}`)
+      : "";
+  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${statusIcon(result, theme)} ${theme.fg(statusColor(result), statusMessage(result))}${elapsed}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,17 +305,69 @@ export function renderCtlCall(
   return new Text(title + id, 0, 0);
 }
 
+function liveListedRuns(listed: SingleResult[]): ResolvedRow[] {
+  const rows: ResolvedRow[] = [];
+  for (const original of listed) {
+    const id = original.registryId;
+    if (id && getLiveStatus(id).kind === "completed") continue;
+    rows.push({ original, ...resolveLiveResult(original) });
+  }
+  return rows;
+}
+
+function syncListRowSubscriptions(ids: string[], context?: RenderContext): void {
+  if (!context) return;
+  let unsubs = context.state.listUnsubs as Map<string, () => void> | undefined;
+  if (!unsubs) {
+    unsubs = new Map();
+    context.state.listUnsubs = unsubs;
+  }
+  for (const [id, unsub] of unsubs) {
+    if (!ids.includes(id) || getLiveStatus(id).kind !== "running") {
+      unsub();
+      unsubs.delete(id);
+    }
+  }
+  for (const id of ids) {
+    if (unsubs.has(id) || getLiveStatus(id).kind !== "running") continue;
+    const run = getRun(id);
+    if (!run) continue;
+    unsubs.set(id, run.onStatus(context.invalidate));
+  }
+}
+
 export function renderListResult(
   result: { content: ResultContent; details?: unknown },
   _options: unknown,
   theme: { fg: ThemeFg; bold: (s: string) => string },
+  context?: RenderContext,
 ): Text {
   const details = isRenderableListDetails(result.details) ? result.details : undefined;
-  if (!details || details.runs.length === 0) return new Text(fallbackText(result.content), 0, 0);
-  const lines = details.runs.map((run, index) => {
-    const prefix = index === details.runs.length - 1 ? "└─ " : "├─ ";
-    const summary = run.taskSummary ? theme.fg("dim", ` — ${run.taskSummary}`) : "";
-    return `${theme.fg("muted", prefix)}${theme.fg("accent", run.agent)}${summary}${theme.fg("dim", ` [${run.id}]`)} ${theme.fg("warning", "○")} ${theme.fg("muted", `running ${formatElapsed(Date.now() - run.startedAt)}`)}`;
+  if (!details) return new Text(fallbackText(result.content), 0, 0);
+  syncListRowSubscriptions(
+    details.results.flatMap(({ registryId }) => (registryId ? [registryId] : [])),
+    context,
+  );
+  const liveRuns = liveListedRuns(details.results);
+  if (liveRuns.length === 0) {
+    return new Text(
+      details.results.length === 0
+        ? fallbackText(result.content)
+        : "No subagents currently running.",
+      0,
+      0,
+    );
+  }
+  const lines = liveRuns.map((row, index) => {
+    const prefix = index === liveRuns.length - 1 ? "└─ " : "├─ ";
+    const startedAt = row.original.registryId
+      ? getRun(row.original.registryId)?.startedAt
+      : undefined;
+    const elapsedMs =
+      !row.stale && row.result.exitCode === -1 && startedAt !== undefined
+        ? Date.now() - startedAt
+        : undefined;
+    return renderResolvedRow(row, prefix, theme, elapsedMs);
   });
   return new Text(lines.join("\n"), 0, 0);
 }
@@ -375,8 +437,10 @@ export function renderCtlResult(
   result: { content: ResultContent; details?: unknown },
   options: unknown,
   theme: { fg: ThemeFg; bold: (s: string) => string },
+  context?: RenderContext,
 ): Text {
-  if (isRenderableListDetails(result.details)) return renderListResult(result, options, theme);
+  if (isRenderableListDetails(result.details))
+    return renderListResult(result, options, theme, context);
   if (isRenderableInspectDetails(result.details))
     return renderInspectResult(result, options, theme);
   if (isRenderableKillDetails(result.details)) {
@@ -392,15 +456,8 @@ export function renderCtlResult(
 // ---------------------------------------------------------------------------
 
 function renderSingleResult(original: SingleResult, theme: { fg: ThemeFg }): Text {
-  const { result: r, stale } = resolveLiveResult(original);
-  if (stale)
-    return new Text(
-      `${staleRowHeader(original, theme)} ${theme.fg("dim", STALE_FINISHED_MSG)}`,
-      0,
-      0,
-    );
   return new Text(
-    `${theme.fg("muted", "└─ ")}${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}${runningIdBadge(r, theme)}${taskSummarySuffix(r, theme)}`,
+    renderResolvedRow({ original, ...resolveLiveResult(original) }, "└─ ", theme),
     0,
     0,
   );
@@ -415,11 +472,8 @@ function renderParallelResult(details: SubagentDetails, theme: { fg: ThemeFg }):
     original,
     ...resolveLiveResult(original),
   }));
-  const lines = resolved.map(({ original, result: r, stale }, index) => {
-    const prefix = index === resolved.length - 1 ? "└─ " : "├─ ";
-    if (stale)
-      return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
-    return `${theme.fg("muted", prefix)}${theme.fg("accent", r.agent)}${taskSummarySuffix(r, theme)}${runningIdBadge(r, theme)} ${statusIcon(r, theme)} ${theme.fg(statusColor(r), statusMessage(r))}`;
-  });
+  const lines = resolved.map((row, index) =>
+    renderResolvedRow(row, index === resolved.length - 1 ? "└─ " : "├─ ", theme),
+  );
   return new Text(lines.join("\n"), 0, 0);
 }

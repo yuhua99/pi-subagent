@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { clearSessionState, completeRun, registerRun } from "../execution/registry.ts";
 import {
   renderCall,
   renderCtlCall,
@@ -7,6 +8,7 @@ import {
   renderResult,
   renderSteerResult,
 } from "../tool/render.ts";
+import { makeResult, makeRun } from "./fixtures/run.mjs";
 
 const theme = {
   fg: (_color, text) => text,
@@ -175,6 +177,81 @@ test("renderSteerResult preserves completed-run errors", () => {
   );
 });
 
+test("renderCtlResult list shares resolved rows and drops completed runs", () => {
+  clearSessionState();
+  const run = registerRun(
+    makeRun({
+      agent: "worker",
+      taskSummary: "review files",
+      startedAt: Date.now() - 5000,
+    }),
+  );
+  run.result.registryId = run.id;
+  const result = {
+    content: [{ type: "text", text: "unused" }],
+    details: {
+      action: "list",
+      results: [
+        run.result,
+        makeResult({ agent: "ghost", registryId: "dead", taskSummary: "review files" }),
+      ],
+    },
+  };
+  const live = renderCtlResult(result, undefined, theme).render(200).join("\n");
+  assert.match(live, new RegExp(`worker — review files \\[${run.id}\\] ○ running \\d+s`));
+  assert.match(live, /ghost — review files \[dead\] ◌ finished — result delivered separately/);
+  completeRun(run.id, makeResult({ exitCode: 0 }));
+  const after = renderCtlResult(result, undefined, theme).render(200).join("\n");
+  assert.doesNotMatch(after, /worker/);
+  assert.match(after, /ghost — review files \[dead\] ◌ finished — result delivered separately/);
+  clearSessionState();
+});
+
+test("renderCtlResult list keeps evicted completed placeholders stale", () => {
+  clearSessionState();
+  const run = registerRun(makeRun({ agent: "worker", taskSummary: "review files" }));
+  run.result.registryId = run.id;
+  const storedResult = { ...run.result, registryId: run.id, taskSummary: "review files" };
+  const result = {
+    content: [{ type: "text", text: "unused" }],
+    details: { action: "list", results: [storedResult] },
+  };
+  completeRun(run.id, makeResult({ exitCode: 0 }));
+  clearSessionState();
+  const output = renderCtlResult(result, undefined, theme).render(200).join("\n");
+  assert.match(
+    output,
+    /worker — review files \[[a-f0-9]+\] ◌ finished — result delivered separately/,
+  );
+  assert.doesNotMatch(output, /completed/);
+});
+
+test("renderCtlResult list invalidates when a listed run completes", () => {
+  clearSessionState();
+  const run = registerRun(makeRun({ agent: "worker", startedAt: Date.now() }));
+  run.result.registryId = run.id;
+  let invalidations = 0;
+  const context = { state: {}, invalidate: () => invalidations++ };
+  const result = {
+    content: [{ type: "text", text: "unused" }],
+    details: {
+      action: "list",
+      results: [run.result],
+    },
+  };
+  assert.match(
+    renderCtlResult(result, undefined, theme, context).render(200).join("\n"),
+    /running/,
+  );
+  completeRun(run.id, makeResult({ exitCode: 0 }));
+  assert.equal(invalidations, 1);
+  assert.equal(
+    renderCtlResult(result, undefined, theme, context).render(200).join("\n").trim(),
+    "No subagents currently running.",
+  );
+  clearSessionState();
+});
+
 test("renderResult keeps normal subagent result rendering", () => {
   const component = renderResult(
     {
@@ -183,5 +260,5 @@ test("renderResult keeps normal subagent result rendering", () => {
     },
     theme,
   );
-  assert.equal(component.render(200).join("\n").trim(), "└─ ✓ completed");
+  assert.equal(component.render(200).join("\n").trim(), "└─ worker ✓ completed");
 });
