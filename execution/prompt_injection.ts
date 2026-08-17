@@ -2,7 +2,7 @@
  * Stable system prompt injection.
  */
 
-export const CWD_MARKER = "\nCurrent working directory: ";
+const CWD_MARKER = "\nCurrent working directory: ";
 
 export function injectIntoSystemPrompt(basePrompt: string, block: string): string {
   const idx = basePrompt.lastIndexOf(CWD_MARKER);

@@ -15,8 +15,7 @@
     "@earendil-works/pi-tui": "0.83.0",
     "@types/node": "^25.2.3",
     "oxfmt": "^0.63.0",
-    "oxlint": "^1.69.0",
-    "typescript": "^5.9.3"
+    "oxlint": "^1.69.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",

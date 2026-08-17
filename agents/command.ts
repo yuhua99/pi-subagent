@@ -5,7 +5,7 @@ import { showAgentsList } from "./list.ts";
 import { getRun, listCompletedRuns } from "../execution/registry.ts";
 import { type SubagentToggle } from "../types.ts";
 
-export const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
+const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
 
 function resolveDetailEntry(id: string): DetailEntry | undefined {
   const run = getRun(id);

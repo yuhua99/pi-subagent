@@ -1,13 +1,13 @@
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-export type AgentsOverlayTheme = {
+type AgentsOverlayTheme = {
   fg: (color: ThemeColor, text: string) => string;
 };
 
-export type AgentsOverlayBody = string[] | ((contentWidth: number, bodyRows: number) => string[]);
+type AgentsOverlayBody = string[] | ((contentWidth: number, bodyRows: number) => string[]);
 
-export type AgentsOverlayRenderOptions = {
+type AgentsOverlayRenderOptions = {
   width: number;
   terminalRows: number;
   theme: AgentsOverlayTheme;

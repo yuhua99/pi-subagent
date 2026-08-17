@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-export type AgentScope = "user" | "project" | "both";
+type AgentScope = "user" | "project" | "both";
 
 export interface AgentConfig {
   name: string;
@@ -29,7 +29,7 @@ export interface AgentConfig {
   filePath: string;
 }
 
-export interface AgentDiscoveryResult {
+interface AgentDiscoveryResult {
   agents: AgentConfig[];
   orchestrator: AgentConfig | null;
   projectAgentsDir: string | null;
@@ -47,7 +47,7 @@ function isDirectory(p: string): boolean {
   }
 }
 
-export function getUserAgentsDir(): string {
+function getUserAgentsDir(): string {
   const configDir =
     process.env["PI_CODING_AGENT_DIR"]?.trim() || path.join(os.homedir(), ".pi", "agent");
   return path.join(configDir, "agents");

@@ -5,7 +5,7 @@ import {
   initTheme,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { AGENTS_OVERLAY_OPTIONS, registerAgentsCommand } from "../agents/command.ts";
+import { registerAgentsCommand } from "../agents/command.ts";
 import { NativeTranscriptRenderer } from "../agents/detail.ts";
 import { isDetailQuietTool } from "../agents/detail_tools.ts";
 import { renderAgentsOverlay } from "../agents/shell.ts";
@@ -511,13 +511,13 @@ test("/agents uses the shared centered overlay and returns from detail to list",
   const { calls, command, ctx } = commandHarness();
 
   const handler = command.handler("", ctx);
-  assert.deepEqual(calls[0].options, { overlay: true, overlayOptions: AGENTS_OVERLAY_OPTIONS });
+  assert.deepEqual(calls[0].options, { overlay: true, overlayOptions: { width: "90%" } });
   const listLines = calls[0].component.render(100);
   assertOverlayFrame(listLines, 100);
   calls[0].component.handleInput("\r");
   await nextTurn();
   assert.equal(calls.length, 2);
-  assert.deepEqual(calls[1].options, { overlay: true, overlayOptions: AGENTS_OVERLAY_OPTIONS });
+  assert.deepEqual(calls[1].options, { overlay: true, overlayOptions: { width: "90%" } });
   const detailLines = calls[1].component.render(100);
   assertOverlayFrame(detailLines, 100);
   assert.equal(detailLines.length, listLines.length);
