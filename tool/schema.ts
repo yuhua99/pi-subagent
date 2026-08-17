@@ -36,7 +36,8 @@ export const SubagentParams = Type.Object(
     ),
     task: Type.Optional(
       Type.String({
-        description: "For run: a brief the subagent can execute with zero outside context — it sees nothing else. For resume: a follow-up continuing the prior run.",
+        description:
+          "For run: a brief the subagent can execute with zero outside context — it sees nothing else. For resume: a follow-up continuing the prior run.",
       }),
     ),
     tasks: Type.Optional(

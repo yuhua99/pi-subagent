@@ -51,7 +51,10 @@ export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) 
           .getBranch()
           .some((entry) => entry.type === "message" && entry.message.role === "user");
         if (conversationStarted) {
-          ctx.ui.notify("Cannot toggle subagent delegation after the conversation has started", "info");
+          ctx.ui.notify(
+            "Cannot toggle subagent delegation after the conversation has started",
+            "info",
+          );
           return;
         }
 

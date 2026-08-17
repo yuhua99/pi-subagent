@@ -159,7 +159,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       completeSubagentRun(reservedRegistryId, r);
       return {
         content: [
-          { type: "text", text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` },
+          {
+            type: "text",
+            text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}`,
+          },
         ],
         details: makeDetails("single", [r]),
         isError: true,
@@ -176,7 +179,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       if (isResultError(r)) {
         return {
           content: [
-            { type: "text", text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}` },
+            {
+              type: "text",
+              text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}`,
+            },
           ],
           details: makeDetails("single", [r]),
           isError: true,
@@ -235,7 +241,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       content: [
         {
           type: "text",
-          text: `Started subagent [${raced.id}] (${agentName}). Result arrives automatically as a new message — do not poll or sleep; end your turn now. Use subagent_ctl only to intervene in a long run.`,
+          text: `Started subagent [${raced.id}] (${agentName}). Result arrives automatically as a new message — do not poll subagent_ctl or sleep; end your turn now.`,
         },
       ],
       details: makeDetails("single", [makeRunningPlaceholder(agentName, task, agents, raced.id)]),
@@ -339,7 +345,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       content: [
         {
           type: "text",
-          text: `Started ${tasks.length} parallel subagent(s). Combined result arrives automatically when all finish — do not poll or sleep; end your turn now. Use subagent_ctl only to intervene in a long run.`,
+          text: `Started ${tasks.length} parallel subagent(s). Combined result arrives automatically when all finish — do not poll subagent_ctl or sleep; end your turn now.`,
         },
       ],
       details: makeDetails("parallel", placeholders),
@@ -427,7 +433,9 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
         error: `Subagent [${id}] already finished. Use the subagent tool with { action: "resume", resume_id: "${id}", task } instead.`,
       };
     }
-    return { error: `No running subagent with id '${id}' (it may have already finished).` };
+    return {
+      error: `No running subagent with id '${id}' (it may have already finished).`,
+    };
   };
 
   return {
@@ -444,7 +452,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
             startedAt,
           })),
         };
-        return { content: [{ type: "text", text: formatSubagentList(runs) }], details };
+        return {
+          content: [{ type: "text", text: formatSubagentList(runs) }],
+          details,
+        };
       }
       if (invocation.action === "inspect") {
         const live = getRun(invocation.id);
@@ -453,9 +464,17 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
           : listCompletedRuns().find((run) => run.id === invocation.id);
         const entry = live ?? completed;
         if (!entry) {
-          const details: SubagentInspectDetails = { action: "inspect", id: invocation.id };
+          const details: SubagentInspectDetails = {
+            action: "inspect",
+            id: invocation.id,
+          };
           return {
-            content: [{ type: "text", text: `No subagent with id '${invocation.id}' found.` }],
+            content: [
+              {
+                type: "text",
+                text: `No subagent with id '${invocation.id}' found.`,
+              },
+            ],
             details,
           };
         }
@@ -491,7 +510,10 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       if (invocation.action === "kill") {
         const entry = kill(invocation.id);
         if (!entry) {
-          const details: SubagentCtlDetails = { action: "kill", id: invocation.id };
+          const details: SubagentCtlDetails = {
+            action: "kill",
+            id: invocation.id,
+          };
           return {
             content: [
               {
@@ -502,20 +524,41 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
             details,
           };
         }
-        const details: SubagentCtlDetails = { action: "kill", id: entry.id, agent: entry.agent };
+        const details: SubagentCtlDetails = {
+          action: "kill",
+          id: entry.id,
+          agent: entry.agent,
+        };
         return {
-          content: [{ type: "text", text: `Killed subagent [${entry.id}] (${entry.agent}).` }],
+          content: [
+            {
+              type: "text",
+              text: `Killed subagent [${entry.id}] (${entry.agent}).`,
+            },
+          ],
           details,
         };
       }
       const entry = steer(invocation.id, invocation.text);
       if ("error" in entry) {
-        const details: SubagentCtlDetails = { action: "steer", id: invocation.id };
+        const details: SubagentCtlDetails = {
+          action: "steer",
+          id: invocation.id,
+        };
         return { content: [{ type: "text", text: entry.error }], details };
       }
-      const details: SubagentCtlDetails = { action: "steer", id: entry.id, agent: entry.agent };
+      const details: SubagentCtlDetails = {
+        action: "steer",
+        id: entry.id,
+        agent: entry.agent,
+      };
       return {
-        content: [{ type: "text", text: `Steered subagent [${entry.id}] (${entry.agent}).` }],
+        content: [
+          {
+            type: "text",
+            text: `Steered subagent [${entry.id}] (${entry.agent}).`,
+          },
+        ],
         details,
       };
     },

@@ -465,7 +465,9 @@ test("/agents cannot toggle after conversation starts", async () => {
 
   await command.handler("off", ctx);
 
-  assert.deepEqual(notifications, ["Cannot toggle subagent delegation after the conversation has started"]);
+  assert.deepEqual(notifications, [
+    "Cannot toggle subagent delegation after the conversation has started",
+  ]);
   assert.deepEqual(setEnabledCalls, []);
 });
 
