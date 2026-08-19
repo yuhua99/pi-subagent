@@ -187,6 +187,82 @@ test("detail reuses components until message, args, or result references change"
   }
 });
 
+test("detail caches settled transcript lines at unchanged width", () => {
+  const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+  const originalRender = AssistantMessageComponent.prototype.render;
+  let renders = 0;
+  AssistantMessageComponent.prototype.render = function (width) {
+    renders++;
+    return originalRender.call(this, width);
+  };
+  try {
+    const transcript = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "settled output" }], timestamp: 1 },
+      ],
+    };
+    const first = renderer.render(transcript, 60);
+    const second = renderer.render(transcript, 60);
+    assert.deepEqual(second, first);
+    assert.equal(renders, 1);
+  } finally {
+    AssistantMessageComponent.prototype.render = originalRender;
+    renderer.dispose();
+  }
+});
+
+test("detail rewraps cached transcript lines after a resize", () => {
+  const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+  const originalRender = AssistantMessageComponent.prototype.render;
+  let renders = 0;
+  AssistantMessageComponent.prototype.render = function (width) {
+    renders++;
+    return originalRender.call(this, width);
+  };
+  try {
+    const transcript = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "word ".repeat(40) }], timestamp: 1 },
+      ],
+    };
+    const wide = renderer.render(transcript, 60);
+    const narrow = renderer.render(transcript, 20);
+    assert.notDeepEqual(narrow, wide);
+    assert.equal(renders, 2);
+  } finally {
+    AssistantMessageComponent.prototype.render = originalRender;
+    renderer.dispose();
+  }
+});
+
+test("detail updates cached tool lines when a result arrives", () => {
+  const renderer = new NativeTranscriptRenderer({ requestRender() {} }, process.cwd());
+  const transcript = {
+    messages: [
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_1", name: "unknown", arguments: {} }],
+        timestamp: 1,
+      },
+    ],
+  };
+  try {
+    renderer.render(transcript, 60);
+    transcript.messages.push({
+      role: "toolResult",
+      toolCallId: "call_1",
+      toolName: "unknown",
+      content: [{ type: "text", text: "delivered result" }],
+      isError: true,
+      timestamp: 2,
+    });
+    const lines = renderer.render(transcript, 60).join("\n");
+    assert.match(lines, /delivered result/);
+  } finally {
+    renderer.dispose();
+  }
+});
+
 function detailTranscript(calls, results = []) {
   return {
     messages: [

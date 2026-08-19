@@ -60,20 +60,33 @@ function paneView(
   return view;
 }
 
-type AssistantCacheEntry = {
+type LineCache = {
+  lines?: string[];
+  linesWidth?: number;
+  nonCacheable?: boolean;
+};
+
+type AssistantCacheEntry = LineCache & {
   component: AssistantMessageComponent;
   message: AssistantMessage;
 };
 
-type ToolCacheEntry = {
+type ToolCacheEntry = LineCache & {
   component: ToolExecutionComponent;
   args: Record<string, unknown>;
   result?: ToolResultMessage;
 };
 
+type TranscriptComponent = {
+  component: { render(width: number): string[] };
+  cache?: LineCache;
+};
+
 export class NativeTranscriptRenderer {
   assistants = new Map<string, AssistantCacheEntry>();
   tools = new Map<string, ToolCacheEntry>();
+  userLines = new Map<string, LineCache>();
+  steerLines = new Map<string, LineCache>();
   detailTools: ReturnType<typeof createDetailToolRenderers>;
   transcript: Pick<SingleResult, "messages" | "partialMessage"> | undefined;
   tui: TUI;
@@ -88,6 +101,8 @@ export class NativeTranscriptRenderer {
   clear() {
     this.assistants.clear();
     this.tools.clear();
+    this.userLines.clear();
+    this.steerLines.clear();
     this.detailTools.clear();
   }
 
@@ -99,11 +114,11 @@ export class NativeTranscriptRenderer {
   ): string[] {
     if (this.transcript && this.transcript !== result) this.clear();
     this.transcript = result;
-    const components: Array<{ render(width: number): string[] }> = [];
+    const components: TranscriptComponent[] = [];
     const toolCalls = new Map<string, ToolCacheEntry>();
     const activeAssistants = new Set<string>();
     const activeTools = new Set<string>();
-    const quietTools: ToolExecutionComponent[] = [];
+    const quietTools: ToolCacheEntry[] = [];
     const toolCallIds: string[] = [];
     const messages = result.partialMessage
       ? [...result.messages, result.partialMessage]
@@ -113,6 +128,7 @@ export class NativeTranscriptRenderer {
     );
     const deliveredSteers = new Map<string, number>();
     let assistantIndex = 0;
+    let userIndex = 0;
     let quietChanged = false;
 
     for (const message of messages) {
@@ -125,9 +141,10 @@ export class NativeTranscriptRenderer {
         } else if (assistant.message !== message) {
           assistant.component.updateContent(message);
           assistant.message = message;
+          assistant.lines = undefined;
         }
         activeAssistants.add(assistantKey);
-        components.push(assistant.component);
+        components.push({ component: assistant.component, cache: assistant });
         for (const content of message.content) {
           if (content.type !== "toolCall") continue;
           const toolKey = `${assistantKey}:${content.id}`;
@@ -157,26 +174,36 @@ export class NativeTranscriptRenderer {
           } else if (tool.args !== content.arguments) {
             tool.component.updateArgs(content.arguments);
             tool.args = content.arguments;
+            tool.lines = undefined;
             quietChanged ||= quiet;
           }
           activeTools.add(toolKey);
           toolCalls.set(content.id, tool);
           toolCallIds.push(content.id);
-          if (quiet) quietTools.push(tool.component);
-          components.push(tool.component);
+          if (quiet) quietTools.push(tool);
+          components.push({ component: tool.component, cache: tool });
         }
       } else if (message.role === "user") {
         const text = userMessageText(message);
+        const key = `${userIndex++}:${text}`;
+        const cache = this.userLines.get(key) ?? {};
+        this.userLines.set(key, cache);
         deliveredSteers.set(text, (deliveredSteers.get(text) ?? 0) + 1);
         components.push({
-          render: (renderWidth) =>
-            wrapTextWithAnsi(theme.fg("userMessageText", `» ${text}`), renderWidth),
+          component: {
+            render: (renderWidth) =>
+              wrapTextWithAnsi(theme.fg("userMessageText", `» ${text}`), renderWidth),
+          },
+          cache,
         });
       } else if (message.role === "toolResult") {
         const tool = toolCalls.get(message.toolCallId);
         if (!tool) continue;
         if (tool.result !== message) {
           tool.component.updateResult(message);
+          tool.lines = undefined;
+          tool.nonCacheable ||= !isDetailQuietTool(message.toolName) &&
+            message.content.some((content) => content.type === "image");
           quietChanged ||= isDetailQuietTool(message.toolName);
         }
         tool.result = message;
@@ -189,15 +216,24 @@ export class NativeTranscriptRenderer {
         deliveredSteers.set(steer.text, delivered - 1);
         continue;
       }
+      const key = JSON.stringify([steer.at, steer.text]);
+      const cache = this.steerLines.get(key) ?? {};
+      this.steerLines.set(key, cache);
       components.push({
-        render: (renderWidth) =>
-          wrapTextWithAnsi(theme.fg("dim", `» steer: ${steer.text}`), renderWidth),
+        component: {
+          render: (renderWidth) =>
+            wrapTextWithAnsi(theme.fg("dim", `» steer: ${steer.text}`), renderWidth),
+        },
+        cache,
       });
     }
 
     this.detailTools.sync(toolCallIds);
     if (quietChanged) {
-      for (const component of quietTools) component.invalidate();
+      for (const tool of quietTools) {
+        tool.component.invalidate();
+        tool.lines = undefined;
+      }
     }
 
     for (const key of this.assistants.keys()) {
@@ -206,9 +242,15 @@ export class NativeTranscriptRenderer {
     for (const key of this.tools.keys()) {
       if (!activeTools.has(key)) this.tools.delete(key);
     }
-    return components.flatMap((component) =>
-      component.render(width).flatMap((line) => wrapTextWithAnsi(line, width)),
-    );
+    return components.flatMap(({ component, cache }) => {
+      if (cache?.lines && cache.linesWidth === width && !cache.nonCacheable) return cache.lines;
+      const lines = component.render(width).flatMap((line) => wrapTextWithAnsi(line, width));
+      if (cache && !cache.nonCacheable) {
+        cache.lines = lines;
+        cache.linesWidth = width;
+      }
+      return lines;
+    });
   }
 
   dispose() {
@@ -226,6 +268,9 @@ export function showAgentsDetail(
     (tui, theme, _kb, done) => {
       let timer: NodeJS.Timeout | undefined;
       const transcriptRenderer = new NativeTranscriptRenderer(tui, ctx.cwd);
+      const taskMarkdown = new Markdown(entry.task, 0, 0, getMarkdownTheme(), {
+        color: (text) => theme.fg("text", text),
+      });
       const unsubscribeStatus = entry.onStatus?.(() => tui.requestRender());
       const unsubscribeStream = entry.onStream?.(() => tui.requestRender());
 
@@ -326,9 +371,7 @@ export function showAgentsDetail(
               const paneRows = running ? bodyRows - 1 : bodyRows;
               const taskWidth = Math.max(5, Math.floor(bodyWidth * 0.3));
               const transcriptWidth = Math.max(1, bodyWidth - taskWidth - 3);
-              const taskWrapped = new Markdown(entry.task, 0, 0, getMarkdownTheme(), {
-                color: (text) => theme.fg("text", text),
-              }).render(taskWidth);
+              const taskWrapped = taskMarkdown.render(taskWidth);
               lastTaskMax = Math.max(0, taskWrapped.length - paneRows);
               taskScroll = Math.min(Math.max(0, taskScroll), lastTaskMax);
               const taskColumn = paneView(taskWrapped, taskScroll, paneRows, theme);
