@@ -1,11 +1,17 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../agents.ts";
 import {
   failedPlaceholderResult,
   makeRunningPlaceholder,
   reserveParallelPlaceholders,
 } from "./delegation.ts";
-import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
+import {
+  cleanupManagedSessions,
+  hasManagedSessionPath,
+} from "./session_files.ts";
 import {
   clearSessionState,
   completeRun,
@@ -20,7 +26,11 @@ import {
 } from "./registry.ts";
 import { formatSubagentList } from "../tool/render.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
-import { fallbackActivitySummary, summarizeActivity, summarizeTask } from "../tool/task_summary.ts";
+import {
+  fallbackActivitySummary,
+  summarizeActivity,
+  summarizeTask,
+} from "../tool/task_summary.ts";
 import {
   getResultSummaryText,
   isResultError,
@@ -38,7 +48,10 @@ import {
   type SubagentInvocation,
 } from "../tool/schema.ts";
 
-export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
+export interface SubagentExecutionContext extends Pick<
+  ExtensionContext,
+  "modelRegistry"
+> {
   cwd: string;
   sessionManager: {
     getSessionId: () => string;
@@ -47,7 +60,11 @@ export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelR
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
-  details?: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
+  details?:
+    | SubagentDetails
+    | SubagentListDetails
+    | SubagentInspectDetails
+    | SubagentCtlDetails;
   isError?: boolean;
 }
 
@@ -76,7 +93,11 @@ export function createSubagentExecution(
     mode: SubagentDetails["mode"],
     results: SingleResult[],
   ): SubagentDetails => ({ mode, results });
-  const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
+  const startTaskSummary = (
+    id: string,
+    task: string,
+    ctx: SubagentExecutionContext,
+  ) => {
     void summarizeTask(task, ctx)
       .then((summary) => {
         if (summary) setRunTaskSummary(id, task, summary);
@@ -109,7 +130,11 @@ export function createSubagentExecution(
     if (!entry) return;
     completeSubagentRun(
       id,
-      failedPlaceholderResult(entry.result, "killed", "Subagent was killed before it started."),
+      failedPlaceholderResult(
+        entry.result,
+        "killed",
+        "Subagent was killed before it started.",
+      ),
     );
   };
 
@@ -206,7 +231,9 @@ export function createSubagentExecution(
     runPromise.then(
       (result) => {
         const id = result.registryId ?? raced.id;
-        const status = isResultError(result) ? result.stopReason || "failed" : "completed";
+        const status = isResultError(result)
+          ? result.stopReason || "failed"
+          : "completed";
         completeSubagentRun(id, result);
         pi.sendMessage(
           {
@@ -243,10 +270,12 @@ export function createSubagentExecution(
       content: [
         {
           type: "text",
-          text: `Started subagent [${raced.id}] (${agentName}). Result arrives automatically as a new message — do not poll subagent_ctl or sleep; end your turn now.`,
+          text: `Started subagent [${raced.id}] (${agentName}). Result arrives automatically as a new message. Do not poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
-      details: makeDetails("single", [makeRunningPlaceholder(agentName, task, agents, raced.id)]),
+      details: makeDetails("single", [
+        makeRunningPlaceholder(agentName, task, agents, raced.id),
+      ]),
     };
   };
 
@@ -281,30 +310,34 @@ export function createSubagentExecution(
       bindToolCallRowInvalidate(toolCallId, p.registryId!);
       startTaskSummary(p.registryId!, p.task, ctx);
     }
-    const batchPromise = mapConcurrent(tasks, MAX_PARALLEL_TASKS, async (t, i) => {
-      const killed = killedResults[i];
-      if (killed) return killed;
-      try {
-        const r = await runAgent({
-          cwd: defaultCwd,
-          agents,
-          agentName: t.agent,
-          task: t.task,
-          taskCwd: t.cwd,
-          parentSessionId,
-          workingDirectory: t.cwd ?? defaultCwd,
-          signal,
-          reservedRegistryId: placeholders[i].registryId,
-        });
-        completeSubagentRun(r.registryId ?? placeholders[i].registryId!, r);
-        return r;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const r = failedPlaceholderResult(placeholders[i], "error", message);
-        completeSubagentRun(placeholders[i].registryId!, r);
-        return r;
-      }
-    });
+    const batchPromise = mapConcurrent(
+      tasks,
+      MAX_PARALLEL_TASKS,
+      async (t, i) => {
+        const killed = killedResults[i];
+        if (killed) return killed;
+        try {
+          const r = await runAgent({
+            cwd: defaultCwd,
+            agents,
+            agentName: t.agent,
+            task: t.task,
+            taskCwd: t.cwd,
+            parentSessionId,
+            workingDirectory: t.cwd ?? defaultCwd,
+            signal,
+            reservedRegistryId: placeholders[i].registryId,
+          });
+          completeSubagentRun(r.registryId ?? placeholders[i].registryId!, r);
+          return r;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const r = failedPlaceholderResult(placeholders[i], "error", message);
+          completeSubagentRun(placeholders[i].registryId!, r);
+          return r;
+        }
+      },
+    );
 
     batchPromise.then(
       (results) => {
@@ -327,7 +360,10 @@ export function createSubagentExecution(
         const message = err instanceof Error ? err.message : String(err);
         for (const p of placeholders) {
           if (p.registryId && getRun(p.registryId)) {
-            completeSubagentRun(p.registryId, failedPlaceholderResult(p, "error", message));
+            completeSubagentRun(
+              p.registryId,
+              failedPlaceholderResult(p, "error", message),
+            );
           }
         }
         pi.sendMessage(
@@ -342,12 +378,13 @@ export function createSubagentExecution(
       },
     );
 
-    for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
+    for (const placeholder of placeholders)
+      setRunPhase(placeholder.registryId!, "background");
     return {
       content: [
         {
           type: "text",
-          text: `Started ${tasks.length} parallel subagent(s). Combined result arrives automatically when all finish — do not poll subagent_ctl or sleep; end your turn now.`,
+          text: `Started ${tasks.length} parallel subagent(s). Combined result arrives automatically when all finish. Do not poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
       details: makeDetails("parallel", placeholders),
@@ -480,8 +517,12 @@ export function createSubagentExecution(
           };
         }
         const activitySummary =
-          (await summarizeActivity(entry.task, entry.result.messages, ctx, signal)) ??
-          fallbackActivitySummary(entry.result);
+          (await summarizeActivity(
+            entry.task,
+            entry.result.messages,
+            ctx,
+            signal,
+          )) ?? fallbackActivitySummary(entry.result);
         const status = live ? "running" : "completed";
         const details: SubagentInspectDetails = {
           action: "inspect",
