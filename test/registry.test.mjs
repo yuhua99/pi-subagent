@@ -170,7 +170,7 @@ test("notifyStream coalesces rapid notifies into one callback", async () => {
   notifyStream(run.id);
   notifyStream(run.id);
   assert.equal(calls, 0);
-  await sleep(40);
+  await sleep(120);
   assert.equal(calls, 1);
   cleanup();
 });

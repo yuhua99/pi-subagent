@@ -66,7 +66,7 @@ interface CompletedRunState extends CompletedRun {
 }
 
 const MAX_COMPLETED = 50;
-const STREAM_COALESCE_MS = 16;
+const STREAM_COALESCE_MS = 100;
 
 const running = new Map<string, RunState>();
 const completed = new Map<string, CompletedRunState>();
