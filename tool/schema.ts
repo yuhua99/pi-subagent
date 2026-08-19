@@ -2,8 +2,7 @@ import { Type } from "typebox";
 import type { AgentConfig } from "../agents.ts";
 import { parseTasksParam, type TaskSpec } from "../types.ts";
 
-export const MAX_PARALLEL_TASKS = 8;
-export const MAX_CONCURRENCY = 4;
+export const MAX_PARALLEL_TASKS = 5;
 
 const AGENT_NAME_DESCRIPTION = "Agent name from the Available Subagents list.";
 

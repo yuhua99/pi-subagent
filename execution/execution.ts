@@ -33,7 +33,6 @@ import {
   type TaskSpec,
 } from "../types.ts";
 import {
-  MAX_CONCURRENCY,
   MAX_PARALLEL_TASKS,
   type SubagentCtlInvocation,
   type SubagentInvocation,
@@ -279,7 +278,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
       bindToolCallRowInvalidate(toolCallId, p.registryId!);
       startTaskSummary(p.registryId!, p.task, ctx);
     }
-    const batchPromise = mapConcurrent(tasks, MAX_CONCURRENCY, async (t, i) => {
+    const batchPromise = mapConcurrent(tasks, MAX_PARALLEL_TASKS, async (t, i) => {
       const killed = killedResults[i];
       if (killed) return killed;
       try {

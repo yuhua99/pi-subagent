@@ -9,7 +9,7 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 - **Isolated task-only context** — each run receives only its task
 - **Native session resume** — continue a successfully completed child with `{ "action": "resume", "resume_id": "run-id", "task": "..." }`
 - **Async by default** — tool returns as soon as the child starts; results arrive as a follow-up message
-- **Parallel runs** — up to 8 tasks, 4 concurrent
+- **Parallel runs** — up to 5 concurrent tasks
 - **Single-level only** — children cannot nest further subagents
 - **`/agents`** — live status and transcript preview in the TUI
 - **`subagent_ctl`** — list, inspect, stop, or steer children
