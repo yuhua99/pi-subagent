@@ -202,7 +202,8 @@ export class NativeTranscriptRenderer {
         if (tool.result !== message) {
           tool.component.updateResult(message);
           tool.lines = undefined;
-          tool.nonCacheable ||= !isDetailQuietTool(message.toolName) &&
+          tool.nonCacheable ||=
+            !isDetailQuietTool(message.toolName) &&
             message.content.some((content) => content.type === "image");
           quietChanged ||= isDetailQuietTool(message.toolName);
         }
