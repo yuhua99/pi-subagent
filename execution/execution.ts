@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type AgentConfig, discoverAgents } from "../agents.ts";
+import type { AgentConfig } from "../agents.ts";
 import {
   failedPlaceholderResult,
   makeRunningPlaceholder,
@@ -68,7 +68,10 @@ interface SubagentExecution {
   shutdown(): Promise<void>;
 }
 
-export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): SubagentExecution {
+export function createSubagentExecution(
+  pi: Pick<ExtensionAPI, "sendMessage">,
+  getAgents: () => AgentConfig[],
+): SubagentExecution {
   const makeDetails = (
     mode: SubagentDetails["mode"],
     results: SingleResult[],
@@ -357,7 +360,7 @@ export function createSubagentExecution(pi: Pick<ExtensionAPI, "sendMessage">): 
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
   ): Promise<ToolResult> => {
-    const { agents } = discoverAgents(ctx.cwd, "both");
+    const agents = getAgents();
     const parentSessionId = ctx.sessionManager.getSessionId();
 
     if (invocation.action === "resume") {

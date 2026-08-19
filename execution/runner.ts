@@ -306,6 +306,10 @@ async function createRunSession(
     return undefined;
   }
 
+  const effectiveCwd = opts.taskCwd ?? opts.cwd;
+  const loaderPromise = createResourceLoader(effectiveCwd, agent);
+  void loaderPromise.catch(() => {});
+
   let resolved: Awaited<ReturnType<typeof resolveSpawnModel>> = {};
   if (isFreshRun) {
     try {
@@ -323,7 +327,6 @@ async function createRunSession(
     }
   }
 
-  const effectiveCwd = opts.taskCwd ?? opts.cwd;
   let createdSession: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   try {
     const managedDir = allocateManagedSessionDir(agent.name);
@@ -339,7 +342,7 @@ async function createRunSession(
       return undefined;
     }
     const managedSessionPath = registerManagedSessionPath(sessionFile);
-    const loader = await createResourceLoader(effectiveCwd, agent);
+    const loader = await loaderPromise;
     const thinkingLevel = isFreshRun
       ? ((agent.thinking as ThinkingLevel | undefined) ?? resolved.thinkingLevel)
       : undefined;

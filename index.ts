@@ -24,9 +24,9 @@ import {
 export default function (pi: ExtensionAPI) {
   const toggle = createSubagentToggle(pi);
   registerAgentsCommand(pi, toggle);
-  const execution = createSubagentExecution(pi);
   let discoveredAgents: AgentConfig[] = [];
   let discoveredOrchestrator: AgentConfig | null = null;
+  const execution = createSubagentExecution(pi, () => discoveredAgents);
 
   pi.on("session_shutdown", () => execution.shutdown());
 
