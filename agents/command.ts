@@ -1,5 +1,5 @@
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type OverlayOptions } from "@earendil-works/pi-tui";
+import { type AutocompleteItem, type OverlayOptions } from "@earendil-works/pi-tui";
 import { type DetailEntry, showAgentsDetail } from "./detail.ts";
 import { showAgentsList } from "./list.ts";
 import { getRun, listCompletedRuns } from "../execution/registry.ts";
@@ -37,6 +37,12 @@ function resolveDetailEntry(id: string): DetailEntry | undefined {
 export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) {
   pi.registerCommand("agents", {
     description: "Manage subagent runs; '/agents on|off' toggles delegation",
+    getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+      const items = ["on", "off"]
+        .filter((v) => v.startsWith(prefix))
+        .map((v) => ({ value: v, label: v }));
+      return items.length > 0 ? items : null;
+    },
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
 
