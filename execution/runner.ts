@@ -42,24 +42,16 @@ const THINKING_LEVELS: readonly ThinkingLevel[] = [
   "max",
 ];
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
-  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
-}
-
 function updateAssistantMetadata(result: SingleResult, message: AssistantMessage): void {
   if (!result.model && message.model) result.model = message.model;
   if (message.stopReason) result.stopReason = message.stopReason;
   if (message.errorMessage) result.errorMessage = message.errorMessage;
 }
 
-function isInitialTaskPrompt(result: SingleResult, signature: string): boolean {
-  const state = result as SingleResult & { initialTaskPromptSignature?: string };
-  if (state.initialTaskPromptSignature !== undefined)
-    return state.initialTaskPromptSignature === signature;
-  Object.defineProperty(state, "initialTaskPromptSignature", { value: signature });
+function isInitialTaskPrompt(result: SingleResult, key: string): boolean {
+  const state = result as SingleResult & { initialTaskPromptKey?: string };
+  if (state.initialTaskPromptKey !== undefined) return state.initialTaskPromptKey === key;
+  Object.defineProperty(state, "initialTaskPromptKey", { value: key });
   return true;
 }
 
@@ -70,27 +62,28 @@ function addTranscriptMessage(result: SingleResult, message: Message | undefined
   )
     return false;
 
-  const signature = stableStringify(message);
-  const seen = getSeenMessageSignatures(result);
-  if (message.role === "user" && isInitialTaskPrompt(result, signature)) {
-    seen.add(signature);
-    return false;
-  }
-
   if (message.role === "toolResult") {
-    const index = result.messages.findIndex(
-      (existing) => existing.role === "toolResult" && existing.toolCallId === message.toolCallId,
-    );
-    if (index >= 0) {
+    const indexes = getToolResultIndexes(result);
+    const index = indexes.get(message.toolCallId);
+    if (index !== undefined) {
       result.messages[index] = message;
       return false;
     }
-  } else {
-    updateAssistantMetadata(result, message);
+    indexes.set(message.toolCallId, result.messages.length);
+    result.messages.push(message);
+    return true;
   }
 
-  if (seen.has(signature)) return false;
-  seen.add(signature);
+  if (message.role === "assistant") updateAssistantMetadata(result, message);
+  const key = `${message.role}:${message.timestamp}`;
+  const seen = getSeenMessageKeys(result);
+  if (message.role === "user" && isInitialTaskPrompt(result, key)) {
+    seen.add(key);
+    return false;
+  }
+
+  if (seen.has(key)) return false;
+  seen.add(key);
   result.messages.push(message);
 
   if (message.role === "assistant") {
@@ -109,12 +102,20 @@ function addTranscriptMessage(result: SingleResult, message: Message | undefined
   return true;
 }
 
-function getSeenMessageSignatures(result: SingleResult): Set<string> {
-  const state = result as SingleResult & { seenMessageSignatures?: Set<string> };
-  if (!state.seenMessageSignatures) {
-    Object.defineProperty(state, "seenMessageSignatures", { value: new Set<string>() });
+function getSeenMessageKeys(result: SingleResult): Set<string> {
+  const state = result as SingleResult & { seenMessageKeys?: Set<string> };
+  if (!state.seenMessageKeys) {
+    Object.defineProperty(state, "seenMessageKeys", { value: new Set<string>() });
   }
-  return state.seenMessageSignatures;
+  return state.seenMessageKeys;
+}
+
+function getToolResultIndexes(result: SingleResult): Map<string, number> {
+  const state = result as SingleResult & { toolResultIndexes?: Map<string, number> };
+  if (!state.toolResultIndexes) {
+    Object.defineProperty(state, "toolResultIndexes", { value: new Map<string, number>() });
+  }
+  return state.toolResultIndexes;
 }
 
 function addToolExecutionResult(
@@ -127,13 +128,6 @@ function addToolExecutionResult(
   },
 ): boolean {
   if (!event.result || !event.toolCallId || !event.toolName) return false;
-  if (
-    result.messages.some(
-      (message) => message.role === "toolResult" && message.toolCallId === event.toolCallId,
-    )
-  ) {
-    return false;
-  }
   return addTranscriptMessage(result, {
     role: "toolResult",
     toolCallId: event.toolCallId,
