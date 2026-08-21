@@ -6,6 +6,7 @@ import { getRun, listCompletedRuns } from "../execution/registry.ts";
 import { type SubagentToggle } from "../types.ts";
 
 const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
+const AGENT_TOGGLE_ARGUMENTS = ["on", "off", "enable", "disable"];
 
 function resolveDetailEntry(id: string): DetailEntry | undefined {
   const run = getRun(id);
@@ -36,11 +37,13 @@ function resolveDetailEntry(id: string): DetailEntry | undefined {
 
 export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) {
   pi.registerCommand("agents", {
-    description: "Manage subagent runs; '/agents on|off' toggles delegation",
+    description:
+      "Manage subagent runs; '/agents on|off' (aliases: enable|disable) toggles delegation",
     getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-      const items = ["on", "off"]
-        .filter((v) => v.startsWith(prefix))
-        .map((v) => ({ value: v, label: v }));
+      const items = AGENT_TOGGLE_ARGUMENTS.filter((v) => v.startsWith(prefix)).map((v) => ({
+        value: v,
+        label: v,
+      }));
       return items.length > 0 ? items : null;
     },
     handler: async (args, ctx) => {
@@ -48,8 +51,8 @@ export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) 
 
       const argument = (args ?? "").trim();
       if (argument) {
-        if (argument !== "on" && argument !== "off") {
-          ctx.ui.notify("/agents [on|off]", "info");
+        if (!AGENT_TOGGLE_ARGUMENTS.includes(argument)) {
+          ctx.ui.notify("/agents [on|off|enable|disable]", "info");
           return;
         }
 
@@ -64,7 +67,7 @@ export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) 
           return;
         }
 
-        const enabled = argument === "on";
+        const enabled = argument === "on" || argument === "enable";
         if (enabled === toggle.isEnabled()) {
           ctx.ui.notify(`Subagent delegation already ${enabled ? "enabled" : "disabled"}`, "info");
           return;

@@ -527,7 +527,7 @@ test("/agents rejects unknown toggle arguments", async () => {
 
   await command.handler("bogus", ctx);
 
-  assert.deepEqual(notifications, ["/agents [on|off]"]);
+  assert.deepEqual(notifications, ["/agents [on|off|enable|disable]"]);
   assert.deepEqual(setEnabledCalls, []);
 });
 
@@ -558,6 +558,32 @@ test("/agents off disables delegation before conversation starts", async () => {
 
   assert.deepEqual(setEnabledCalls, [false]);
   assert.deepEqual(notifications, ["Subagent delegation disabled"]);
+});
+
+test("/agents disable disables delegation before conversation starts", async () => {
+  const setEnabledCalls = [];
+  const { command, ctx, notifications } = commandHarness({
+    isEnabled: () => true,
+    setEnabled: (value) => setEnabledCalls.push(value),
+  });
+
+  await command.handler("disable", ctx);
+
+  assert.deepEqual(setEnabledCalls, [false]);
+  assert.deepEqual(notifications, ["Subagent delegation disabled"]);
+});
+
+test("/agents enable reports enabled when delegation is already enabled", async () => {
+  const setEnabledCalls = [];
+  const { command, ctx, notifications } = commandHarness({
+    isEnabled: () => true,
+    setEnabled: (value) => setEnabledCalls.push(value),
+  });
+
+  await command.handler("enable", ctx);
+
+  assert.deepEqual(notifications, ["Subagent delegation already enabled"]);
+  assert.deepEqual(setEnabledCalls, []);
 });
 
 test("/agents on reports enabled when delegation is already enabled", async () => {
