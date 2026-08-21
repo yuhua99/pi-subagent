@@ -339,9 +339,11 @@ export function showAgentsDetail(
           updateInputFocus();
           const icon = running
             ? theme.fg("warning", "○")
-            : isResultError(result)
-              ? theme.fg("error", "✗")
-              : theme.fg("success", "✓");
+            : result.stopReason === "killed"
+              ? theme.fg("muted", "■")
+              : isResultError(result)
+                ? theme.fg("error", "✗")
+                : theme.fg("success", "✓");
           const startedAt = live?.startedAt ?? entry.startedAt;
           const status = running
             ? formatElapsed(Date.now() - startedAt)

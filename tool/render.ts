@@ -204,7 +204,7 @@ function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
   if (r.exitCode === -1) return theme.fg("warning", "○");
-  if (r.stopReason === "killed") return theme.fg("warning", "■");
+  if (r.stopReason === "killed") return theme.fg("muted", "■");
   return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
@@ -212,7 +212,7 @@ function statusColor(r: SingleResult): ThemeColor {
   return r.exitCode === -1
     ? "muted"
     : r.stopReason === "killed"
-      ? "warning"
+      ? "muted"
       : isResultError(r)
         ? "error"
         : "success";
@@ -381,7 +381,7 @@ export function renderKillResult(
   if (!details) return new Text(fallbackText(result.content), 0, 0);
   if ("agent" in details) {
     return new Text(
-      `${theme.fg("muted", "└─ ")}${theme.fg("warning", "■")} ${theme.fg("warning", "killed")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`,
+      `${theme.fg("muted", "└─ ")}${theme.fg("muted", "■")} ${theme.fg("muted", "killed")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`,
       0,
       0,
     );
@@ -421,9 +421,11 @@ export function renderInspectResult(
   const icon =
     inspected.status === "running"
       ? theme.fg("warning", "○")
-      : isResultError(inspected.result)
-        ? theme.fg("error", "✗")
-        : theme.fg("success", "✓");
+      : inspected.result.stopReason === "killed"
+        ? theme.fg("muted", "■")
+        : isResultError(inspected.result)
+          ? theme.fg("error", "✗")
+          : theme.fg("success", "✓");
   const status = theme.fg(inspected.status === "running" ? "warning" : "muted", inspected.status);
   const activity = theme.fg("dim", inspected.activitySummary ?? "No activity yet.");
   return new Text(

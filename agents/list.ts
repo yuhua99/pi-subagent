@@ -4,6 +4,7 @@ import {
   type SelectItem,
   SelectList,
   matchesKey,
+  truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { agentsOverlayBodyRows, renderAgentsOverlay } from "./shell.ts";
@@ -17,6 +18,16 @@ import {
 import { isResultError } from "../types.ts";
 
 const REFRESH_MS = 1000;
+const ABORTED_SUFFIX = " · aborted";
+
+type StatusColor = "warning" | "success" | "error" | "muted";
+
+const GLYPH_COLORS: Record<string, StatusColor> = {
+  "○": "warning",
+  "■": "muted",
+  "✗": "error",
+  "✓": "success",
+};
 
 function runningLabel(entry: SubagentRun, now: number): string {
   return `○ [${entry.id}] ${entry.agent} — ${formatElapsed(now - entry.startedAt)}`;
@@ -25,7 +36,7 @@ function runningLabel(entry: SubagentRun, now: number): string {
 function completedLabel(entry: CompletedRun): string {
   const duration = formatElapsed(entry.finishedAt - entry.startedAt);
   const icon = entry.result.stopReason === "killed" ? "■" : isResultError(entry.result) ? "✗" : "✓";
-  const abortedSuffix = entry.result.stopReason === "aborted" ? " · aborted" : "";
+  const abortedSuffix = entry.result.stopReason === "aborted" ? ABORTED_SUFFIX : "";
   return `${icon} [${entry.id}] ${entry.agent} — ${duration}${abortedSuffix}`;
 }
 
@@ -99,7 +110,28 @@ export function showAgentsList(
             items,
             Math.min(allIds.length, agentsOverlayBodyRows(tui.terminal.rows) - 1),
             listTheme,
-            { maxPrimaryColumnWidth },
+            {
+              maxPrimaryColumnWidth,
+              truncatePrimary: ({ text, maxWidth, isSelected }) => {
+                const truncated = truncateToWidth(text, maxWidth, "");
+                if (isSelected) return truncated;
+
+                const color = GLYPH_COLORS[truncated[0]];
+                if (!color) return truncated;
+
+                const coloredGlyph = theme.fg(color, truncated[0]);
+                const abortedIndex = text.lastIndexOf(ABORTED_SUFFIX);
+                if (abortedIndex < 0 || truncated.length <= abortedIndex) {
+                  return `${coloredGlyph}${truncated.slice(1)}`;
+                }
+                const abortedEnd = Math.min(truncated.length, abortedIndex + ABORTED_SUFFIX.length);
+                return (
+                  `${coloredGlyph}${truncated.slice(1, abortedIndex)}` +
+                  theme.fg("dim", truncated.slice(abortedIndex, abortedEnd)) +
+                  truncated.slice(abortedEnd)
+                );
+              },
+            },
           );
           selectList.onCancel = () => finish(null);
           selectList.onSelect = (item) => finish(item.value);
