@@ -112,9 +112,11 @@ export interface SubagentInspectDetails {
 }
 
 /** Metadata attached to subagent_ctl kill and steer results for rendering. */
-export type SubagentCtlDetails =
-  | { action: "kill" | "steer"; id: string; agent: string }
-  | { action: "kill" | "steer"; id: string };
+export interface SubagentCtlDetails {
+  action: "kill" | "steer";
+  id: string;
+  agent?: string;
+}
 
 /** Create an empty UsageStats object. */
 export function emptyUsage(): UsageStats {

@@ -47,7 +47,7 @@ export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelR
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
-  details?: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
+  details: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
   isError?: boolean;
 }
 

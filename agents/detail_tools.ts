@@ -34,6 +34,10 @@ function firstError(result: { content?: Array<{ type: string; text?: string }> }
   return shorten(text.split("\n", 1)[0]?.trim() || "error");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function target(toolName: string, args: Record<string, unknown>): string {
   switch (toolName) {
     case "read": {
@@ -71,10 +75,12 @@ export function createDetailToolRenderers(cwd: string) {
   };
 
   const renderCall =
-    (toolName: string) => (args: Record<string, unknown>, theme: any, context: any) => {
+    (toolName: string): NonNullable<ToolDefinition["renderCall"]> =>
+    (args, theme, context) => {
+      const toolArgs = isRecord(args) ? args : {};
       const member = memberFor(context.toolCallId);
-      const intent = typeof args.intent === "string" ? args.intent.trim() : "";
-      const t = target(toolName, args);
+      const intent = typeof toolArgs.intent === "string" ? toolArgs.intent.trim() : "";
+      const t = target(toolName, toolArgs);
       const symbol =
         member.status === "error"
           ? theme.fg("error", "✗")

@@ -4,8 +4,14 @@
  * Registers delegation and control tools plus session event wiring.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
+import type {
+  SubagentCtlDetails,
+  SubagentDetails,
+  SubagentInspectDetails,
+  SubagentListDetails,
+} from "./types.ts";
 import { registerAgentsCommand } from "./agents/command.ts";
 import { createSubagentToggle } from "./agents/toggle.ts";
 import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./tool/render.ts";
@@ -20,6 +26,14 @@ import {
   SubagentParams,
   TOOL_DESCRIPTION,
 } from "./tool/schema.ts";
+
+type SubagentToolDetails =
+  | SubagentDetails
+  | SubagentListDetails
+  | SubagentInspectDetails
+  | SubagentCtlDetails
+  | undefined;
+type SubagentToolResult = AgentToolResult<SubagentToolDetails> & { isError?: boolean };
 
 export default function (pi: ExtensionAPI) {
   const toggle = createSubagentToggle(pi);
@@ -64,15 +78,19 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  pi.registerTool({
+  pi.registerTool<typeof SubagentParams, SubagentToolDetails>({
     name: "subagent",
     label: "Subagent",
     description: TOOL_DESCRIPTION,
     parameters: SubagentParams,
-    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<SubagentToolResult> {
       const invocation = parseSubagentInvocation(params);
       if ("error" in invocation) {
-        return { content: [{ type: "text" as const, text: invocation.error }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: invocation.error }],
+          details: undefined,
+          isError: true,
+        };
       }
       return execution.execute(toolCallId, invocation, ctx, signal);
     },
@@ -80,15 +98,19 @@ export default function (pi: ExtensionAPI) {
     renderResult: (result, _options, theme) => renderResult(result, theme),
   });
 
-  pi.registerTool({
+  pi.registerTool<typeof SubagentCtlParams, SubagentToolDetails>({
     name: "subagent_ctl",
     label: "Subagent control",
     description: CTL_TOOL_DESCRIPTION,
     parameters: SubagentCtlParams,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<SubagentToolResult> {
       const invocation = parseSubagentCtlInvocation(params);
       if ("error" in invocation) {
-        return { content: [{ type: "text" as const, text: invocation.error }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: invocation.error }],
+          details: undefined,
+          isError: true,
+        };
       }
       return execution.executeControl(invocation, ctx, signal);
     },

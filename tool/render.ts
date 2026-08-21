@@ -18,8 +18,8 @@ import {
 import { parseSubagentCtlInvocation, parseSubagentInvocation } from "./schema.ts";
 import {
   type SingleResult,
-  type SubagentDetails,
   type SubagentCtlDetails,
+  type SubagentDetails,
   type SubagentInspectDetails,
   type SubagentListDetails,
   type UsageStats,
@@ -379,7 +379,7 @@ export function renderKillResult(
 ): Text {
   const details = isRenderableKillDetails(result.details) ? result.details : undefined;
   if (!details) return new Text(fallbackText(result.content), 0, 0);
-  if ("agent" in details) {
+  if (typeof details.agent === "string") {
     return new Text(
       `${theme.fg("muted", "└─ ")}${theme.fg("muted", "■")} ${theme.fg("muted", "killed")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`,
       0,
@@ -400,7 +400,7 @@ export function renderSteerResult(
 ): Text {
   const details = isRenderableKillDetails(result.details) ? result.details : undefined;
   if (!details) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
-  if ("agent" in details) {
+  if (typeof details.agent === "string") {
     return new Text(
       `${theme.fg("muted", "└─ ")}${theme.fg("success", "✓")} ${theme.fg("success", "steered")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`,
       0,

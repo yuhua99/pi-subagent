@@ -104,18 +104,22 @@ function addTranscriptMessage(result: SingleResult, message: Message | undefined
 
 function getSeenMessageKeys(result: SingleResult): Set<string> {
   const state = result as SingleResult & { seenMessageKeys?: Set<string> };
-  if (!state.seenMessageKeys) {
-    Object.defineProperty(state, "seenMessageKeys", { value: new Set<string>() });
-  }
-  return state.seenMessageKeys;
+  const existing = state.seenMessageKeys;
+  if (existing) return existing;
+
+  const created = new Set<string>();
+  Object.defineProperty(state, "seenMessageKeys", { value: created });
+  return created;
 }
 
 function getToolResultIndexes(result: SingleResult): Map<string, number> {
   const state = result as SingleResult & { toolResultIndexes?: Map<string, number> };
-  if (!state.toolResultIndexes) {
-    Object.defineProperty(state, "toolResultIndexes", { value: new Map<string, number>() });
-  }
-  return state.toolResultIndexes;
+  const existing = state.toolResultIndexes;
+  if (existing) return existing;
+
+  const created = new Map<string, number>();
+  Object.defineProperty(state, "toolResultIndexes", { value: created });
+  return created;
 }
 
 function addToolExecutionResult(
