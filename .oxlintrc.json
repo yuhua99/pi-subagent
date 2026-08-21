@@ -1,0 +1,11 @@
+{
+  "overrides": [
+    {
+      "files": ["test/**/*.mjs"],
+      "rules": {
+        "typescript/no-floating-promises": "off",
+        "typescript/unbound-method": "off"
+      }
+    }
+  ]
+}

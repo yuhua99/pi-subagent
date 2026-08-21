@@ -21,8 +21,9 @@ Reach for Pi built-ins first: check `@earendil-works/pi-coding-agent` and `@eare
 
 ```bash
 bun install
-bun run lint    # oxlint
-bun run test    # node --test
+bun run lint       # oxlint
+bun run typecheck  # oxlint --type-aware --type-check via tsgolint
+bun run test       # node --test
 ```
 
 Manual check: `pi -e .` · Publish check: `bun pm pack --dry-run`

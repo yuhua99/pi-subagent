@@ -3,19 +3,26 @@
   "version": "3.0.0",
   "description": "Subagent extension for Pi coding agent. Delegate tasks to specialized agents.",
   "license": "MIT",
+  "files": [
+    "**/*.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "main": "index.ts",
   "scripts": {
     "test": "node --test",
     "fmt": "oxfmt",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "typecheck": "oxlint --type-aware --type-check"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@earendil-works/pi-tui": "0.83.0",
     "@types/node": "^25.2.3",
     "oxfmt": "^0.63.0",
-    "oxlint": "^1.69.0"
+    "oxlint": "^1.69.0",
+    "oxlint-tsgolint": "^7.0.2001"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
