@@ -4,7 +4,7 @@
  * Registers delegation and control tools plus session event wiring.
  */
 
-import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import type {
   SubagentCtlDetails,
@@ -33,7 +33,6 @@ type SubagentToolDetails =
   | SubagentInspectDetails
   | SubagentCtlDetails
   | undefined;
-type SubagentToolResult = AgentToolResult<SubagentToolDetails> & { isError?: boolean };
 
 export default function (pi: ExtensionAPI) {
   const toggle = createSubagentToggle(pi);
@@ -83,13 +82,12 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent",
     description: TOOL_DESCRIPTION,
     parameters: SubagentParams,
-    async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<SubagentToolResult> {
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
       const invocation = parseSubagentInvocation(params);
       if ("error" in invocation) {
         return {
           content: [{ type: "text" as const, text: invocation.error }],
           details: undefined,
-          isError: true,
         };
       }
       return execution.execute(toolCallId, invocation, ctx, signal);
@@ -103,13 +101,12 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent control",
     description: CTL_TOOL_DESCRIPTION,
     parameters: SubagentCtlParams,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<SubagentToolResult> {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const invocation = parseSubagentCtlInvocation(params);
       if ("error" in invocation) {
         return {
           content: [{ type: "text" as const, text: invocation.error }],
           details: undefined,
-          isError: true,
         };
       }
       return execution.executeControl(invocation, ctx, signal);

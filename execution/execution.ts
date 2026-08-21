@@ -48,7 +48,6 @@ export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelR
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   details: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
-  isError?: boolean;
 }
 
 interface SubagentExecution {
@@ -167,7 +166,6 @@ export function createSubagentExecution(
           },
         ],
         details: makeDetails("single", [r]),
-        isError: true,
       };
     }
 
@@ -187,7 +185,6 @@ export function createSubagentExecution(
             },
           ],
           details: makeDetails("single", [r]),
-          isError: true,
         };
       }
       return {
@@ -268,7 +265,6 @@ export function createSubagentExecution(
           },
         ],
         details: makeDetails("parallel", []),
-        isError: true,
       };
     }
 
@@ -375,7 +371,6 @@ export function createSubagentExecution(
         return {
           content: [{ type: "text", text: reservation.error }],
           details: makeDetails("single", []),
-          isError: true,
         };
       }
       const source = reservation.source;
