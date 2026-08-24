@@ -41,7 +41,7 @@ function renderValidation(toolName, args, details) {
 
 test("renderResult replaces malformed action validation diagnostics", () => {
   const args = { action: "resume", resume_id: "a1b2", task: "continue", cwd: "/tmp" };
-  for (const details of [{}, undefined, { mode: "single", results: [null] }]) {
+  for (const details of [{}, undefined, { results: [null] }]) {
     assert.equal(
       renderValidation("subagent", args, details),
       'Validation error: action "resume" does not accept "cwd"',
@@ -51,24 +51,20 @@ test("renderResult replaces malformed action validation diagnostics", () => {
 
 test("renderResult gives action-oriented validation guidance", () => {
   const cases = [
+    [{ action: "run" }, 'Validation error: action "run" requires "tasks"'],
     [
-      { action: "run", agent: "worker" },
-      'Validation error: action "run" requires "agent" and "task"',
-    ],
-    [{ action: "run_parallel" }, 'Validation error: action "run_parallel" requires "tasks"'],
-    [
-      { action: "run_parallel", tasks: [] },
+      { action: "run", tasks: [] },
       "Validation error: Invalid `tasks`: expected a non-empty array of { agent, task, cwd? } objects.",
     ],
     [
-      { action: "run_parallel", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp" },
-      'Validation error: action "run_parallel" does not accept "cwd"',
+      { action: "run", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp", agent: "worker" },
+      'Validation error: action "run" does not accept "cwd"',
     ],
     [
       { action: "resume", resume_id: "a1b2" },
       'Validation error: action "resume" requires "resume_id" and "task"',
     ],
-    [{ action: "unknown" }, 'Validation error: action must be "run", "run_parallel", or "resume"'],
+    [{ action: "unknown" }, 'Validation error: action must be "run" or "resume"'],
   ];
   for (const [args, expected] of cases)
     assert.equal(renderValidation("subagent", args, {}), expected);
@@ -91,15 +87,27 @@ test("renderCtlResult gives control action validation guidance", () => {
 
 test("renderCall distinguishes delegation actions", () => {
   assert.equal(
-    renderCall({ action: "run", agent: "worker" }, theme).render(200).join("\n").trim(),
-    "subagent worker",
-  );
-  assert.equal(
-    renderCall({ action: "run_parallel", tasks: [{ agent: "worker", task: "work" }] }, theme)
+    renderCall({ action: "run", tasks: [{ agent: "worker", task: "work" }] }, theme)
       .render(200)
       .join("\n")
       .trim(),
-    "subagent parallel (1 tasks)",
+    "subagent worker",
+  );
+  assert.equal(
+    renderCall(
+      {
+        action: "run",
+        tasks: [
+          { agent: "worker", task: "work" },
+          { agent: "reviewer", task: "review" },
+        ],
+      },
+      theme,
+    )
+      .render(200)
+      .join("\n")
+      .trim(),
+    "subagent worker, reviewer",
   );
   assert.equal(
     renderCall({ action: "resume", resume_id: "a1b2" }, theme).render(200).join("\n").trim(),
@@ -256,7 +264,7 @@ test("renderResult keeps normal subagent result rendering", () => {
   const component = renderResult(
     {
       content: [{ type: "text", text: "unused" }],
-      details: { mode: "single", results: [{ agent: "worker", exitCode: 0, messages: [] }] },
+      details: { results: [{ agent: "worker", exitCode: 0, messages: [] }] },
     },
     theme,
   );

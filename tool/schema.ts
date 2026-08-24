@@ -19,39 +19,27 @@ const TaskItem = Type.Object(
   { additionalProperties: false },
 );
 
-const DelegationAction = Type.Union([
-  Type.Literal("run"),
-  Type.Literal("run_parallel"),
-  Type.Literal("resume"),
-]);
+const DelegationAction = Type.Union([Type.Literal("run"), Type.Literal("resume")]);
 
 export const SubagentParams = Type.Object(
   {
     action: DelegationAction,
-    agent: Type.Optional(
-      Type.String({
-        description: AGENT_NAME_DESCRIPTION,
-      }),
-    ),
     task: Type.Optional(
       Type.String({
-        description:
-          "For run: a brief the subagent can execute with zero outside context — it sees nothing else. For resume: a follow-up continuing the prior run.",
+        description: "A follow-up continuing the prior run.",
       }),
     ),
     tasks: Type.Optional(
-      Type.Union([Type.Array(TaskItem, { minItems: 1 }), Type.String()], {
-        description: "Tasks to run concurrently.",
-      }),
+      Type.Union(
+        [Type.Array(TaskItem, { minItems: 1, maxItems: MAX_PARALLEL_TASKS }), Type.String()],
+        {
+          description: "Tasks to run concurrently.",
+        },
+      ),
     ),
     resume_id: Type.Optional(
       Type.String({
         description: "The id from a completed run's result message.",
-      }),
-    ),
-    cwd: Type.Optional(
-      Type.String({
-        description: "Working directory for the agent process.",
       }),
     ),
   },
@@ -82,8 +70,7 @@ export const SubagentCtlParams = Type.Object(
 );
 
 export type SubagentInvocation =
-  | { action: "run"; agent: string; task: string; cwd?: string }
-  | { action: "run_parallel"; tasks: TaskSpec[] }
+  | { action: "run"; tasks: TaskSpec[] }
   | { action: "resume"; resume_id: string; task: string };
 
 export type SubagentCtlInvocation =
@@ -111,34 +98,20 @@ function rejectedField(
 export function parseSubagentInvocation(params: unknown): ParseResult<SubagentInvocation> {
   if (!isRecord(params)) return { error: "subagent requires an action" };
   const action = params.action;
-  if (action !== "run" && action !== "run_parallel" && action !== "resume") {
-    return { error: 'action must be "run", "run_parallel", or "resume"' };
+  if (action !== "run" && action !== "resume") {
+    return { error: 'action must be "run" or "resume"' };
   }
 
   if (action === "run") {
-    if (typeof params.agent !== "string" || typeof params.task !== "string") {
-      return { error: 'action "run" requires "agent" and "task"' };
-    }
-    const rejected = rejectedField(action, params, ["action", "agent", "task", "cwd"]);
-    if (rejected) return { error: rejected };
-    if (params.cwd !== undefined && typeof params.cwd !== "string") {
-      return { error: 'action "run" requires "cwd" to be a string' };
-    }
-    return {
-      action,
-      agent: params.agent,
-      task: params.task,
-      ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
-    };
-  }
-
-  if (action === "run_parallel") {
-    if (params.tasks === undefined) return { error: 'action "run_parallel" requires "tasks"' };
+    if (params.tasks === undefined) return { error: 'action "run" requires "tasks"' };
     const rejected = rejectedField(action, params, ["action", "tasks"]);
     if (rejected) return { error: rejected };
     const parsedTasks = parseTasksParam(params.tasks);
-    if (!parsedTasks) return { error: 'action "run_parallel" requires "tasks"' };
+    if (!parsedTasks) return { error: 'action "run" requires "tasks"' };
     if ("error" in parsedTasks) return parsedTasks;
+    if (parsedTasks.tasks.length > MAX_PARALLEL_TASKS) {
+      return { error: `action "run" accepts at most ${MAX_PARALLEL_TASKS} tasks` };
+    }
     return { action, tasks: parsedTasks.tasks };
   }
 
@@ -186,7 +159,7 @@ export function parseSubagentCtlInvocation(params: unknown): ParseResult<Subagen
 export const TOOL_DESCRIPTION = [
   "Delegate work to specialized subagents.",
   "",
-  'Set action to "run" with agent and task, "run_parallel" with tasks, or "resume" with resume_id and task.',
+  'Set action to "run" with tasks, or "resume" with resume_id and task.',
 ].join("\n");
 
 export const CTL_TOOL_DESCRIPTION = [

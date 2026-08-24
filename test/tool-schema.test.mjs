@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  MAX_PARALLEL_TASKS,
   parseSubagentCtlInvocation,
   parseSubagentInvocation,
   SubagentCtlParams,
@@ -13,19 +14,18 @@ test("subagent schema has an action-discriminated object root", () => {
   assert.equal(SubagentParams.additionalProperties, false);
   assert.deepEqual(Object.keys(SubagentParams.properties), [
     "action",
-    "agent",
     "task",
     "tasks",
     "resume_id",
-    "cwd",
   ]);
   assert.deepEqual(SubagentParams.required, ["action"]);
   assert.deepEqual(
     SubagentParams.properties.action.anyOf.map((schema) => schema.const),
-    ["run", "run_parallel", "resume"],
+    ["run", "resume"],
   );
   const tasksSchema = SubagentParams.properties.tasks;
   const tasksArray = tasksSchema.anyOf.find((schema) => schema.type === "array");
+  assert.equal(tasksArray.maxItems, MAX_PARALLEL_TASKS);
   assert.equal(tasksArray.items.additionalProperties, false);
   assert.equal("cwd" in tasksArray.items.properties, true);
   assert.equal(
@@ -46,16 +46,14 @@ test("subagent control schema has a required action", () => {
 });
 
 test("subagent action validation accepts each legal invocation", () => {
-  assert.deepEqual(parseSubagentInvocation({ action: "run", agent: "a", task: "t", cwd: "/tmp" }), {
+  assert.deepEqual(parseSubagentInvocation({ action: "run", tasks: [{ agent: "a", task: "t" }] }), {
     action: "run",
-    agent: "a",
-    task: "t",
-    cwd: "/tmp",
+    tasks: [{ agent: "a", task: "t" }],
   });
   assert.deepEqual(
-    parseSubagentInvocation({ action: "run_parallel", tasks: '[{"agent":"a","task":"t"}]' }),
+    parseSubagentInvocation({ action: "run", tasks: '[{"agent":"a","task":"t"}]' }),
     {
-      action: "run_parallel",
+      action: "run",
       tasks: [{ agent: "a", task: "t" }],
     },
   );
@@ -67,18 +65,19 @@ test("subagent action validation accepts each legal invocation", () => {
 });
 
 test("subagent action validation reports action-specific invalid fields", () => {
+  const tasks = [{ agent: "a", task: "t" }];
   const cases = [
-    [{ action: "run", agent: "a" }, 'action "run" requires "agent" and "task"'],
-    [{ action: "run", agent: "a", task: "t", tasks: [] }, 'action "run" does not accept "tasks"'],
+    [{ action: "run", agent: "a", task: "t" }, 'action "run" requires "tasks"'],
+    [{ action: "run", tasks, agent: "a" }, 'action "run" does not accept "agent"'],
+    [{ action: "run", tasks, cwd: "/tmp" }, 'action "run" does not accept "cwd"'],
+    [{ action: "run_parallel", tasks }, 'action must be "run" or "resume"'],
     [
-      { action: "run_parallel", tasks: [{ agent: "a", task: "t" }], cwd: "/tmp" },
-      'action "run_parallel" does not accept "cwd"',
+      {
+        action: "run",
+        tasks: Array.from({ length: MAX_PARALLEL_TASKS + 1 }, () => ({ agent: "a", task: "t" })),
+      },
+      `action "run" accepts at most ${MAX_PARALLEL_TASKS} tasks`,
     ],
-    [
-      { action: "run", agent: "a", task: "t", mode: "spawn" },
-      'action "run" does not accept "mode"',
-    ],
-    [{ action: "other" }, 'action must be "run", "run_parallel", or "resume"'],
   ];
   for (const [params, error] of cases) assert.deepEqual(parseSubagentInvocation(params), { error });
 });

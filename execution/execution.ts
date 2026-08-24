@@ -71,10 +71,7 @@ export function createSubagentExecution(
   pi: Pick<ExtensionAPI, "sendMessage">,
   getAgents: () => AgentConfig[],
 ): SubagentExecution {
-  const makeDetails = (
-    mode: SubagentDetails["mode"],
-    results: SingleResult[],
-  ): SubagentDetails => ({ mode, results });
+  const makeDetails = (results: SingleResult[]): SubagentDetails => ({ results });
   const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
     void summarizeTask(task, ctx)
       .then((summary) => {
@@ -138,7 +135,7 @@ export function createSubagentExecution(
             customType: "subagent_result",
             content: `Background subagent [${id}] (${result.agent}) ${status}.\n\n${getResultSummaryText(result)}`,
             display: false,
-            details: makeDetails("single", [result]),
+            details: makeDetails([result]),
           },
           { triggerTurn: true, deliverAs: "steer" },
         );
@@ -156,7 +153,7 @@ export function createSubagentExecution(
             customType: "subagent_result",
             content: `Background subagent [${reservedRegistryId}] (${agentName}) failed: ${message}`,
             display: false,
-            details: makeDetails("single", [r]),
+            details: makeDetails([r]),
           },
           { triggerTurn: true, deliverAs: "steer" },
         );
@@ -171,13 +168,11 @@ export function createSubagentExecution(
           text: `Started subagent [${reservedRegistryId}] (${agentName}). Result arrives automatically as a new message. Do not poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
-      details: makeDetails("single", [
-        makeRunningPlaceholder(agentName, task, agents, reservedRegistryId),
-      ]),
+      details: makeDetails([makeRunningPlaceholder(agentName, task, agents, reservedRegistryId)]),
     };
   };
 
-  const executeParallel = async (
+  const executeRun = async (
     tasks: TaskSpec[],
     agents: AgentConfig[],
     defaultCwd: string,
@@ -194,7 +189,7 @@ export function createSubagentExecution(
             text: `Too many parallel tasks (${tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
           },
         ],
-        details: makeDetails("parallel", []),
+        details: makeDetails([]),
       };
     }
 
@@ -236,9 +231,9 @@ export function createSubagentExecution(
         pi.sendMessage(
           {
             customType: "subagent_result",
-            content: `Parallel subagent batch finished: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
+            content: `Subagent batch finished: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
             display: false,
-            details: makeDetails("parallel", results),
+            details: makeDetails(results),
           },
           { triggerTurn: true, deliverAs: "steer" },
         );
@@ -253,9 +248,9 @@ export function createSubagentExecution(
         pi.sendMessage(
           {
             customType: "subagent_result",
-            content: `Parallel subagent batch failed: ${message}`,
+            content: `Subagent batch failed: ${message}`,
             display: false,
-            details: makeDetails("parallel", placeholders),
+            details: makeDetails(placeholders),
           },
           { triggerTurn: true, deliverAs: "steer" },
         );
@@ -267,10 +262,10 @@ export function createSubagentExecution(
       content: [
         {
           type: "text",
-          text: `Started ${tasks.length} parallel subagent(s). Combined result arrives automatically when all finish. Do not poll subagent_ctl or sleep; end your turn immediately.`,
+          text: `Started ${tasks.length} subagent(s). Combined result arrives automatically when all finish. Do not poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
-      details: makeDetails("parallel", placeholders),
+      details: makeDetails(placeholders),
     };
   };
 
@@ -294,7 +289,7 @@ export function createSubagentExecution(
       if ("error" in reservation) {
         return {
           content: [{ type: "text", text: reservation.error }],
-          details: makeDetails("single", []),
+          details: makeDetails([]),
         };
       }
       const source = reservation.source;
@@ -314,34 +309,7 @@ export function createSubagentExecution(
       });
     }
 
-    if (invocation.action === "run_parallel") {
-      return executeParallel(
-        invocation.tasks,
-        agents,
-        ctx.cwd,
-        ctx,
-        parentSessionId,
-        toolCallId,
-        signal,
-      );
-    }
-    const placeholders = reserveRunPlaceholders(
-      [{ agent: invocation.agent, task: invocation.task }],
-      agents,
-      completeSubagentRun,
-    );
-    return executeSingle({
-      cwd: ctx.cwd,
-      agents,
-      agentName: invocation.agent,
-      task: invocation.task,
-      taskCwd: invocation.cwd,
-      ctx,
-      parentSessionId,
-      toolCallId,
-      signal,
-      reservedRegistryId: placeholders[0].registryId!,
-    });
+    return executeRun(invocation.tasks, agents, ctx.cwd, ctx, parentSessionId, toolCallId, signal);
   };
 
   const kill = (id: string) => {

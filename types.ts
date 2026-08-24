@@ -38,7 +38,7 @@ export interface SingleResult {
   partialMessage?: AssistantMessage;
 }
 
-/** Task specification for a parallel delegation run. */
+/** Task specification for a run. */
 export interface TaskSpec {
   agent: string;
   task: string;
@@ -81,7 +81,6 @@ export function parseTasksParam(
 
 /** Metadata attached to every tool result for rendering. */
 export interface SubagentDetails {
-  mode: "single" | "parallel";
   results: SingleResult[];
 }
 

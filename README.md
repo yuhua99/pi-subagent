@@ -76,8 +76,8 @@ Delegate independent work to the most appropriate specialized agent.
 `subagent`:
 
 ```json
-{ "action": "run", "agent": "writer", "task": "Document the API" }
-{ "action": "run_parallel", "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }] }
+{ "action": "run", "tasks": [{ "agent": "writer", "task": "Document the API" }] }
+{ "action": "run", "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }] }
 { "action": "resume", "resume_id": "completed-run-id", "task": "Continue the previous work" }
 ```
 

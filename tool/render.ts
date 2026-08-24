@@ -90,12 +90,7 @@ function isRenderableResult(value: unknown): value is SingleResult {
 }
 
 function isRenderableDetails(value: unknown): value is SubagentDetails {
-  return (
-    isRecord(value) &&
-    (value.mode === "single" || value.mode === "parallel") &&
-    Array.isArray(value.results) &&
-    value.results.every(isRenderableResult)
-  );
+  return isRecord(value) && Array.isArray(value.results) && value.results.every(isRenderableResult);
 }
 
 function isRenderableListDetails(value: unknown): value is SubagentListDetails {
@@ -262,14 +257,12 @@ export function renderCall(
   if (context?.toolCallId && context.isPartial)
     registerToolCallInvalidator(context.toolCallId, context.invalidate);
   let detail = "...";
-  if (args.action === "run_parallel") {
-    const parsedTasks = parseTasksParam(args.tasks);
-    const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
-    detail = tasks?.length ? `parallel (${tasks.length} tasks)` : "parallel";
-  } else if (args.action === "resume") {
+  if (args.action === "resume") {
     detail = `resume ${args.resume_id ?? "..."}`;
   } else if (args.action === "run") {
-    detail = args.agent ?? "...";
+    const parsedTasks = parseTasksParam(args.tasks);
+    const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
+    detail = tasks?.length ? tasks.map((task) => task.agent).join(", ") : "...";
   }
   const content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", detail);
   const text = context?.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -287,9 +280,7 @@ export function renderResult(
 ): Text {
   const details = isRenderableDetails(result.details) ? result.details : undefined;
   if (!details || details.results.length === 0) return new Text(fallbackText(result.content), 0, 0);
-  return details.mode === "single"
-    ? renderSingleResult(details.results[0], theme)
-    : renderParallelResult(details, theme);
+  return renderResultRows(details, theme);
 }
 
 export function renderCtlCall(
@@ -453,23 +444,7 @@ export function renderCtlResult(
   return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }
 
-// ---------------------------------------------------------------------------
-// Single-mode result
-// ---------------------------------------------------------------------------
-
-function renderSingleResult(original: SingleResult, theme: { fg: ThemeFg }): Text {
-  return new Text(
-    renderResolvedRow({ original, ...resolveLiveResult(original) }, "└─ ", theme),
-    0,
-    0,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Parallel-mode result
-// ---------------------------------------------------------------------------
-
-function renderParallelResult(details: SubagentDetails, theme: { fg: ThemeFg }): Text {
+function renderResultRows(details: SubagentDetails, theme: { fg: ThemeFg }): Text {
   const resolved: ResolvedRow[] = details.results.map((original) => ({
     original,
     ...resolveLiveResult(original),
