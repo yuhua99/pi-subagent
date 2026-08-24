@@ -38,25 +38,23 @@ export function failedPlaceholderResult(
   };
 }
 
-export function reserveParallelPlaceholders(
+export function reserveRunPlaceholders(
   tasks: Array<{ agent: string; task: string }>,
   agents: AgentConfig[],
   onComplete: (id: string, result: SingleResult) => void,
-): { placeholders: SingleResult[]; killedResults: Array<SingleResult | undefined> } {
+): SingleResult[] {
   const placeholders = tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents));
-  const killedResults: Array<SingleResult | undefined> = tasks.map(() => undefined);
-  placeholders.forEach((p, i) => {
+  placeholders.forEach((p) => {
     p.registryId = registerRun({
       agent: p.agent,
       task: p.task,
       startedAt: Date.now(),
       kill: () => {
         const r = failedPlaceholderResult(p, "killed", "Subagent was killed before it started.");
-        killedResults[i] = r;
         onComplete(p.registryId!, r);
       },
       result: p,
     }).id;
   });
-  return { placeholders, killedResults };
+  return placeholders;
 }

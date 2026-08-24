@@ -3,7 +3,7 @@ import type { AgentConfig } from "../agents.ts";
 import {
   failedPlaceholderResult,
   makeRunningPlaceholder,
-  reserveParallelPlaceholders,
+  reserveRunPlaceholders,
 } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
@@ -115,94 +115,22 @@ export function createSubagentExecution(
   const executeSingle = async ({
     ctx,
     toolCallId,
+    reservedRegistryId,
     ...runOptions
-  }: RunAgentOptions & {
+  }: Omit<RunAgentOptions, "onSpawn" | "reservedRegistryId"> & {
     ctx: SubagentExecutionContext;
     toolCallId?: string;
+    reservedRegistryId: string;
   }): Promise<ToolResult> => {
-    const { agentName, task, agents, cwd, reservedRegistryId } = runOptions;
-    let onSpawn: (id: string) => void;
-    const spawned = new Promise<string>((resolve) => {
-      onSpawn = resolve;
-    });
+    const { agentName, task, agents, cwd } = runOptions;
+    startTaskSummary(reservedRegistryId, task, ctx);
+    if (toolCallId) bindToolCallRowInvalidate(toolCallId, reservedRegistryId);
 
-    if (reservedRegistryId) startTaskSummary(reservedRegistryId, task, ctx);
-
-    const runPromise = runAgent({
-      ...runOptions,
-      workingDirectory: cwd,
-      onSpawn: (id) => {
-        if (toolCallId) bindToolCallRowInvalidate(toolCallId, id);
-        if (!reservedRegistryId) startTaskSummary(id, task, ctx);
-        onSpawn(id);
-      },
-    });
-
-    let raced:
-      | { kind: "spawned"; id: string }
-      | { kind: "done"; r: Awaited<ReturnType<typeof runAgent>> };
-    try {
-      raced = await Promise.race([
-        spawned.then((id) => ({ kind: "spawned" as const, id })),
-        runPromise.then((r) => ({ kind: "done" as const, r })),
-      ]);
-    } catch (err: unknown) {
-      if (!reservedRegistryId) {
-        cleanupManagedSessions(retainedSessionPaths());
-        throw err;
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      const r = failedPlaceholderResult(
-        makeRunningPlaceholder(agentName, task, agents, reservedRegistryId),
-        "error",
-        message,
-      );
-      completeSubagentRun(reservedRegistryId, r);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}`,
-          },
-        ],
-        details: makeDetails("single", [r]),
-      };
-    }
-
-    if (raced.kind === "done") {
-      const r = raced.r;
-      const id = r.registryId ?? reservedRegistryId;
-      if (id) {
-        r.registryId = id;
-        completeSubagentRun(id, r);
-      }
-      if (isResultError(r)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Agent ${r.stopReason || "failed"}: ${getResultSummaryText(r)}`,
-            },
-          ],
-          details: makeDetails("single", [r]),
-        };
-      }
-      return {
-        content: [
-          {
-            type: "text",
-            text: r.registryId
-              ? `Completed subagent [${r.registryId}]:\n\n${getResultSummaryText(r)}`
-              : getResultSummaryText(r),
-          },
-        ],
-        details: makeDetails("single", [r]),
-      };
-    }
+    const runPromise = runAgent({ ...runOptions, reservedRegistryId, workingDirectory: cwd });
 
     runPromise.then(
       (result) => {
-        const id = result.registryId ?? raced.id;
+        const id = result.registryId ?? reservedRegistryId;
         const status = isResultError(result) ? result.stopReason || "failed" : "completed";
         completeSubagentRun(id, result);
         pi.sendMessage(
@@ -218,15 +146,15 @@ export function createSubagentExecution(
       (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         const r = failedPlaceholderResult(
-          makeRunningPlaceholder(agentName, task, agents, raced.id),
+          makeRunningPlaceholder(agentName, task, agents, reservedRegistryId),
           "error",
           message,
         );
-        completeSubagentRun(raced.id, r);
+        completeSubagentRun(reservedRegistryId, r);
         pi.sendMessage(
           {
             customType: "subagent_result",
-            content: `Background subagent [${raced.id}] (${agentName}) failed: ${message}`,
+            content: `Background subagent [${reservedRegistryId}] (${agentName}) failed: ${message}`,
             display: false,
             details: makeDetails("single", [r]),
           },
@@ -235,15 +163,17 @@ export function createSubagentExecution(
       },
     );
 
-    setRunPhase(raced.id, "background");
+    setRunPhase(reservedRegistryId, "background");
     return {
       content: [
         {
           type: "text",
-          text: `Started subagent [${raced.id}] (${agentName}). Result arrives automatically as a new message. Do not poll subagent_ctl or sleep; end your turn immediately.`,
+          text: `Started subagent [${reservedRegistryId}] (${agentName}). Result arrives automatically as a new message. Do not poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
-      details: makeDetails("single", [makeRunningPlaceholder(agentName, task, agents, raced.id)]),
+      details: makeDetails("single", [
+        makeRunningPlaceholder(agentName, task, agents, reservedRegistryId),
+      ]),
     };
   };
 
@@ -268,18 +198,12 @@ export function createSubagentExecution(
       };
     }
 
-    const { placeholders, killedResults } = reserveParallelPlaceholders(
-      tasks,
-      agents,
-      completeSubagentRun,
-    );
+    const placeholders = reserveRunPlaceholders(tasks, agents, completeSubagentRun);
     for (const p of placeholders) {
       bindToolCallRowInvalidate(toolCallId, p.registryId!);
       startTaskSummary(p.registryId!, p.task, ctx);
     }
     const batchPromise = mapConcurrent(tasks, MAX_PARALLEL_TASKS, async (t, i) => {
-      const killed = killedResults[i];
-      if (killed) return killed;
       try {
         const r = await runAgent({
           cwd: defaultCwd,
@@ -401,6 +325,11 @@ export function createSubagentExecution(
         signal,
       );
     }
+    const placeholders = reserveRunPlaceholders(
+      [{ agent: invocation.agent, task: invocation.task }],
+      agents,
+      completeSubagentRun,
+    );
     return executeSingle({
       cwd: ctx.cwd,
       agents,
@@ -411,6 +340,7 @@ export function createSubagentExecution(
       parentSessionId,
       toolCallId,
       signal,
+      reservedRegistryId: placeholders[0].registryId!,
     });
   };
 
