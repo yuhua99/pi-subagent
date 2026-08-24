@@ -234,15 +234,10 @@ function renderResolvedRow(
   { original, result, stale }: ResolvedRow,
   prefix: string,
   theme: { fg: ThemeFg },
-  elapsedMs?: number,
 ): string {
   if (stale)
     return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
-  const elapsed =
-    elapsedMs !== undefined && result.exitCode === -1
-      ? theme.fg("muted", ` ${formatElapsed(elapsedMs)}`)
-      : "";
-  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${statusIcon(result, theme)} ${theme.fg(statusColor(result), statusMessage(result))}${elapsed}`;
+  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${statusIcon(result, theme)} ${theme.fg(statusColor(result), statusMessage(result))}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,14 +346,7 @@ export function renderListResult(
   }
   const lines = liveRuns.map((row, index) => {
     const prefix = index === liveRuns.length - 1 ? "└─ " : "├─ ";
-    const startedAt = row.original.registryId
-      ? getRun(row.original.registryId)?.startedAt
-      : undefined;
-    const elapsedMs =
-      !row.stale && row.result.exitCode === -1 && startedAt !== undefined
-        ? Date.now() - startedAt
-        : undefined;
-    return renderResolvedRow(row, prefix, theme, elapsedMs);
+    return renderResolvedRow(row, prefix, theme);
   });
   return new Text(lines.join("\n"), 0, 0);
 }

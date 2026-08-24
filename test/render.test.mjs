@@ -191,7 +191,6 @@ test("renderCtlResult list shares resolved rows and drops completed runs", () =>
     makeRun({
       agent: "worker",
       taskSummary: "review files",
-      startedAt: Date.now() - 5000,
     }),
   );
   run.result.registryId = run.id;
@@ -206,7 +205,7 @@ test("renderCtlResult list shares resolved rows and drops completed runs", () =>
     },
   };
   const live = renderCtlResult(result, undefined, theme).render(200).join("\n");
-  assert.match(live, new RegExp(`worker — review files \\[${run.id}\\] ○ running \\d+s`));
+  assert.match(live, new RegExp(`worker — review files \\[${run.id}\\] ○ running`));
   assert.match(live, /ghost — review files \[dead\] ◌ finished — result delivered separately/);
   completeRun(run.id, makeResult({ exitCode: 0 }));
   const after = renderCtlResult(result, undefined, theme).render(200).join("\n");
