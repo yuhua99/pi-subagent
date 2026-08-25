@@ -94,3 +94,83 @@ test("inspect returns the existing missing-run flow", async () => {
   assert.deepEqual(response.details, { action: "inspect", id: "zzzz" });
   clearSessionState();
 });
+
+const pollRefusal =
+  "Results arrive automatically. Never poll subagent_ctl; end your turn immediately.";
+
+test("list is blocked after a subagent starts", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  execution.markSpawned();
+
+  const response = await execution.executeControl({ action: "list" }, summaryContext);
+
+  assert.equal(response.content[0].text, pollRefusal);
+  assert.deepEqual(response.details, { action: "list", results: [] });
+  clearSessionState();
+});
+
+test("inspect is blocked after a subagent starts", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  const run = registerRun(makeRun());
+  execution.markSpawned();
+
+  const response = await execution.executeControl(
+    { action: "inspect", id: run.id },
+    summaryContext,
+  );
+
+  assert.equal(response.content[0].text, pollRefusal);
+  assert.deepEqual(response.details, { action: "inspect", id: run.id });
+  clearSessionState();
+});
+
+test("agent start unblocks inspect and list", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  const run = registerRun(
+    makeRun({
+      result: makeResult({
+        partialMessage: {
+          role: "assistant",
+          content: [{ type: "text", text: "Reading the repository." }],
+        },
+      }),
+    }),
+  );
+  execution.markSpawned();
+  execution.onAgentStart();
+
+  const inspect = await execution.executeControl({ action: "inspect", id: run.id }, summaryContext);
+  const list = await execution.executeControl({ action: "list" }, summaryContext);
+
+  assert.equal(
+    inspect.content[0].text,
+    `Subagent [${run.id}] (a) is running.\n\nActivity: Reading the repository.`,
+  );
+  assert.notEqual(inspect.content[0].text, pollRefusal);
+  assert.equal(list.details.action, "list");
+  assert.equal(list.details.results[0].registryId, run.id);
+  clearSessionState();
+});
+
+test("kill and steer remain available after a subagent starts", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  let kills = 0;
+  const run = registerRun(makeRun({ kill: () => kills++ }));
+  execution.markSpawned();
+
+  const killed = await execution.executeControl({ action: "kill", id: run.id }, summaryContext);
+  const steered = await execution.executeControl(
+    { action: "steer", id: run.id, text: "continue" },
+    summaryContext,
+  );
+
+  assert.equal(killed.content[0].text, `Killed subagent [${run.id}] (a).`);
+  assert.equal(kills, 1);
+  assert.equal(steered.content[0].text, `Steered subagent [${run.id}] (a).`);
+  assert.equal(run.steers[0].text, "continue");
+  clearSessionState();
+});

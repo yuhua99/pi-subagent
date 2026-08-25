@@ -64,6 +64,8 @@ interface SubagentExecution {
   ): Promise<ToolResult>;
   kill(id: string): SubagentRun | undefined;
   steer(id: string, text: string): SubagentRun | { error: string };
+  onAgentStart(): void;
+  markSpawned(): void;
   shutdown(): Promise<void>;
 }
 
@@ -71,7 +73,10 @@ export function createSubagentExecution(
   pi: Pick<ExtensionAPI, "sendMessage">,
   getAgents: () => AgentConfig[],
 ): SubagentExecution {
-  const makeDetails = (results: SingleResult[]): SubagentDetails => ({ results });
+  let hasSpawned = false;
+  const makeDetails = (results: SingleResult[]): SubagentDetails => ({
+    results,
+  });
   const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
     void summarizeTask(task, ctx)
       .then((summary) => {
@@ -123,7 +128,11 @@ export function createSubagentExecution(
     startTaskSummary(reservedRegistryId, task, ctx);
     if (toolCallId) bindToolCallRowInvalidate(toolCallId, reservedRegistryId);
 
-    const runPromise = runAgent({ ...runOptions, reservedRegistryId, workingDirectory: cwd });
+    const runPromise = runAgent({
+      ...runOptions,
+      reservedRegistryId,
+      workingDirectory: cwd,
+    });
 
     runPromise.then(
       (result) => {
@@ -161,11 +170,12 @@ export function createSubagentExecution(
     );
 
     setRunPhase(reservedRegistryId, "background");
+    hasSpawned = true;
     return {
       content: [
         {
           type: "text",
-          text: `Started subagent [${reservedRegistryId}] (${agentName}). Result arrives automatically as a new message. Do not poll subagent_ctl or sleep; end your turn immediately.`,
+          text: `Started subagent [${reservedRegistryId}] (${agentName}). Result arrives automatically as a new message. Never poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
       details: makeDetails([makeRunningPlaceholder(agentName, task, agents, reservedRegistryId)]),
@@ -258,11 +268,12 @@ export function createSubagentExecution(
     );
 
     for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
+    hasSpawned = true;
     return {
       content: [
         {
           type: "text",
-          text: `Started ${tasks.length} subagent(s). Combined result arrives automatically when all finish. Do not poll subagent_ctl or sleep; end your turn immediately.`,
+          text: `Started ${tasks.length} subagent(s). Combined result arrives automatically when all finish. Never poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
       details: makeDetails(placeholders),
@@ -336,6 +347,28 @@ export function createSubagentExecution(
   return {
     execute,
     async executeControl(invocation, ctx, signal) {
+      if (hasSpawned && invocation.action === "list") {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Results arrive automatically. Never poll subagent_ctl; end your turn immediately.",
+            },
+          ],
+          details: { action: "list", results: [] },
+        };
+      }
+      if (hasSpawned && invocation.action === "inspect") {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Results arrive automatically. Never poll subagent_ctl; end your turn immediately.",
+            },
+          ],
+          details: { action: "inspect", id: invocation.id },
+        };
+      }
       if (invocation.action === "list") {
         const runs = listRuns();
         const details: SubagentListDetails = {
@@ -458,6 +491,12 @@ export function createSubagentExecution(
     },
     kill,
     steer,
+    onAgentStart() {
+      hasSpawned = false;
+    },
+    markSpawned() {
+      hasSpawned = true;
+    },
     async shutdown() {
       const entries = listRuns();
       const completions = entries.map(

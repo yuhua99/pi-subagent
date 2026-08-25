@@ -66,6 +66,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event) => {
+    execution.onAgentStart();
     if (!toggle.isEnabled()) return undefined;
     const parts: string[] = [];
     const orchestratorPrompt = discoveredOrchestrator?.systemPrompt.trim();
