@@ -107,7 +107,7 @@ test("renderCall distinguishes delegation actions", () => {
       .render(200)
       .join("\n")
       .trim(),
-    "subagent worker, reviewer",
+    "subagent parallel",
   );
   assert.equal(
     renderCall({ action: "resume", resume_id: "a1b2" }, theme).render(200).join("\n").trim(),

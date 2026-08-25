@@ -257,7 +257,7 @@ export function renderCall(
   } else if (args.action === "run") {
     const parsedTasks = parseTasksParam(args.tasks);
     const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
-    detail = tasks?.length ? tasks.map((task) => task.agent).join(", ") : "...";
+    detail = tasks?.length === 1 ? tasks[0].agent : tasks?.length ? "parallel" : "...";
   }
   const content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", detail);
   const text = context?.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
