@@ -27,7 +27,6 @@ export interface DetailEntry {
   id: string;
   agent: string;
   task: string;
-  taskSummary?: string;
   startedAt: number;
   finishedAt?: number;
   result: SingleResult;
@@ -327,7 +326,7 @@ export function showAgentsDetail(
           const completedSteers = completed?.steers;
           const result = live?.result ?? completed?.result ?? entry.result;
           const finishedAt = completed?.finishedAt ?? entry.finishedAt;
-          const taskSummary = live?.taskSummary ?? completed?.taskSummary ?? entry.taskSummary;
+          const taskSummary = result.taskSummary;
           steers = live?.steers ?? completedSteers ?? steers;
           if (result.exitCode !== -1 && timer) {
             clearInterval(timer);

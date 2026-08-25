@@ -22,7 +22,6 @@ export interface CompletedRun extends RunMetadata {
   id: string;
   agent: string;
   task: string;
-  taskSummary?: string;
   steers: readonly { text: string; at: number }[];
   startedAt: number;
   finishedAt: number;
@@ -35,7 +34,6 @@ export interface SubagentRun extends RunMetadata {
   id: string;
   agent: string;
   task: string;
-  taskSummary?: string;
   startedAt: number;
   phase: RunPhase;
   result: SingleResult;
@@ -134,7 +132,10 @@ export function updateRun(
   >,
 ): void {
   const entry = running.get(id);
-  if (entry) Object.assign(entry, patch);
+  if (!entry) return;
+  if (patch.result && entry.result.taskSummary)
+    patch.result.taskSummary ??= entry.result.taskSummary;
+  Object.assign(entry, patch);
 }
 
 export function getRun(id: string): SubagentRun | undefined {
@@ -151,7 +152,7 @@ export function attachRunSteer(id: string, steer: (text: string) => void): void 
 export function setRunTaskSummary(id: string, task: string, taskSummary: string): void {
   const entry = running.get(id) ?? completed.get(id);
   if (!entry || entry.task !== task) return;
-  entry.taskSummary = taskSummary;
+  entry.result.taskSummary = taskSummary;
   notifyStatus(id);
 }
 
@@ -236,11 +237,11 @@ export function notifyStream(id: string): void {
 export function completeRun(id: string, result: SingleResult): void {
   const entry = running.get(id);
   const finishedAt = Date.now();
+  result.taskSummary ??= entry?.result.taskSummary;
   completed.set(id, {
     id,
     agent: entry?.agent ?? result.agent,
     task: entry?.task ?? result.task,
-    taskSummary: entry?.taskSummary,
     steers: entry?.steers ?? [],
     startedAt: entry?.startedAt ?? finishedAt,
     finishedAt,

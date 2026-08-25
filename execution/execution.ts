@@ -376,7 +376,6 @@ export function createSubagentExecution(
           results: runs.map((run) => ({
             ...run.result,
             registryId: run.id,
-            ...(run.taskSummary ? { taskSummary: run.taskSummary } : {}),
           })),
         };
         return {
@@ -416,7 +415,7 @@ export function createSubagentExecution(
             id: entry.id,
             agent: entry.agent,
             task: entry.task,
-            ...(entry.taskSummary ? { taskSummary: entry.taskSummary } : {}),
+            ...(entry.result.taskSummary ? { taskSummary: entry.result.taskSummary } : {}),
             activitySummary,
             startedAt: entry.startedAt,
             ...(completed ? { finishedAt: completed.finishedAt } : {}),

@@ -187,13 +187,9 @@ test("renderSteerResult preserves completed-run errors", () => {
 
 test("renderCtlResult list shares resolved rows and drops completed runs", () => {
   clearSessionState();
-  const run = registerRun(
-    makeRun({
-      agent: "worker",
-      taskSummary: "review files",
-    }),
-  );
+  const run = registerRun(makeRun({ agent: "worker" }));
   run.result.registryId = run.id;
+  run.result.taskSummary = "review files";
   const result = {
     content: [{ type: "text", text: "unused" }],
     details: {
@@ -216,7 +212,7 @@ test("renderCtlResult list shares resolved rows and drops completed runs", () =>
 
 test("renderCtlResult list keeps evicted completed placeholders stale", () => {
   clearSessionState();
-  const run = registerRun(makeRun({ agent: "worker", taskSummary: "review files" }));
+  const run = registerRun(makeRun({ agent: "worker" }));
   run.result.registryId = run.id;
   const storedResult = { ...run.result, registryId: run.id, taskSummary: "review files" };
   const result = {
@@ -257,6 +253,19 @@ test("renderCtlResult list invalidates when a listed run completes", () => {
     "No subagents currently running.",
   );
   clearSessionState();
+});
+
+test("renderResult shows task summary without registry id", () => {
+  const component = renderResult(
+    {
+      content: [{ type: "text", text: "unused" }],
+      details: {
+        results: [{ agent: "worker", exitCode: 0, messages: [], taskSummary: "review files" }],
+      },
+    },
+    theme,
+  );
+  assert.equal(component.render(200).join("\n").trim(), "└─ worker — review files ✓ completed");
 });
 
 test("renderResult keeps normal subagent result rendering", () => {

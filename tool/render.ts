@@ -9,7 +9,6 @@ import { Text } from "@earendil-works/pi-tui";
 import {
   getLiveStatus,
   getRun,
-  listCompletedRuns,
   registerToolCallInvalidator,
   resolveLiveResult,
   type ResolvedResult,
@@ -178,7 +177,7 @@ export function formatSubagentList(entries: SubagentRun[], now = Date.now()): st
   const lines: string[] = [`${entries.length} running subagent(s):`];
   for (const e of entries) {
     lines.push(
-      `[${e.id}] ${e.agent}${e.taskSummary ? ` — ${e.taskSummary}` : ""} — running ${formatElapsed(now - e.startedAt)}`,
+      `[${e.id}] ${e.agent}${e.result.taskSummary ? ` — ${e.result.taskSummary}` : ""} — running ${formatElapsed(now - e.startedAt)}`,
     );
   }
   return lines.join("\n");
@@ -189,12 +188,7 @@ function runningIdBadge(r: SingleResult, theme: { fg: ThemeFg }): string {
 }
 
 function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
-  if (!r.registryId) return "";
-  const taskSummary =
-    getRun(r.registryId)?.taskSummary ??
-    listCompletedRuns().find((run) => run.id === r.registryId)?.taskSummary ??
-    r.taskSummary;
-  return taskSummary ? theme.fg("dim", ` — ${taskSummary}`) : "";
+  return r.taskSummary ? theme.fg("dim", ` — ${r.taskSummary}`) : "";
 }
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {

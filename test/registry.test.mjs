@@ -18,6 +18,7 @@ import {
   reserveResumeRun,
   resolveLiveResult,
   setRunPhase,
+  setRunTaskSummary,
   bindToolCallRowInvalidate,
   updateRun,
 } from "../execution/registry.ts";
@@ -118,6 +119,53 @@ test("updateRun replaces result reference", () => {
   updateRun(run.id, { result: second });
   assert.equal(getRun(run.id).result, second);
   cleanup();
+});
+
+test("updateRun preserves a live task summary on a replacement result", () => {
+  clearSessionState();
+  const run = registerRun(makeRun());
+  setRunTaskSummary(run.id, run.task, "Live title");
+  const result = makeResult();
+  updateRun(run.id, { result });
+  assert.equal(getRun(run.id).result, result);
+  assert.equal(getRun(run.id).result.taskSummary, "Live title");
+  clearSessionState();
+});
+
+test("setRunTaskSummary stores a live run title on its result", () => {
+  clearSessionState();
+  const run = registerRun(makeRun());
+  setRunTaskSummary(run.id, run.task, "Live title");
+  assert.equal(run.result.taskSummary, "Live title");
+  clearSessionState();
+});
+
+test("setRunTaskSummary stores a late completed title on its result", () => {
+  clearSessionState();
+  const run = registerRun(makeRun());
+  completeRun(run.id, makeResult({ exitCode: 0 }));
+  setRunTaskSummary(run.id, run.task, "Completed title");
+  const completed = listCompletedRuns()[0];
+  assert.equal(completed.result.taskSummary, "Completed title");
+  clearSessionState();
+});
+
+test("completeRun copies a live task summary onto its result", () => {
+  clearSessionState();
+  const run = registerRun(makeRun());
+  setRunTaskSummary(run.id, run.task, "Completed title");
+  completeRun(run.id, makeResult({ exitCode: 0 }));
+  const completed = listCompletedRuns()[0];
+  assert.equal(completed.result.taskSummary, "Completed title");
+  clearSessionState();
+});
+
+test("completeRun preserves an existing result task summary without a live run", () => {
+  clearSessionState();
+  const result = makeResult({ exitCode: 1, taskSummary: "Existing title" });
+  completeRun("dead", result);
+  assert.equal(listCompletedRuns()[0].result.taskSummary, "Existing title");
+  clearSessionState();
 });
 
 test("completeRun retains status subscribers for late updates until unsubscribed", () => {

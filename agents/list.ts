@@ -54,12 +54,12 @@ function toItems(running: SubagentRun[], completed: CompletedRun[], now: number)
     ...runningLabels.map(({ entry, base }) => ({
       value: entry.id,
       label: padBase(base),
-      description: entry.taskSummary ?? entry.task,
+      description: entry.result.taskSummary ?? entry.task,
     })),
     ...completedLabels.map(({ entry, base }) => ({
       value: entry.id,
       label: `${padBase(base)}${entry.result.usage.cost > 0 ? `  $${entry.result.usage.cost.toFixed(3)}` : ""}`,
-      description: entry.taskSummary ?? entry.task,
+      description: entry.result.taskSummary ?? entry.task,
     })),
   ];
 }
