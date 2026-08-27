@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
+  answerRunPendingQuestion,
   attachRunSteer,
   clearSessionState,
   completeRun,
@@ -17,6 +18,8 @@ import {
   registerToolCallInvalidator,
   reserveResumeRun,
   resolveLiveResult,
+  rejectRunPendingQuestion,
+  setRunPendingQuestion,
   setRunPhase,
   setRunTaskSummary,
   bindToolCallRowInvalidate,
@@ -91,6 +94,137 @@ test("steer with an attached callback delivers immediately and records history",
   assert.equal(typeof run.steers[0].at, "number");
   completeRun(run.id, makeResult({ exitCode: 0 }));
   assert.deepEqual(listCompletedRuns()[0].steers, run.steers);
+  cleanup();
+});
+
+test("pending questions can be registered once per live run", async () => {
+  cleanup();
+  const run = registerRun(makeRun());
+  let answer;
+  const firstQuestion = new Promise((resolve, reject) => {
+    answer = { resolve, reject };
+  });
+
+  assert.equal(
+    setRunPendingQuestion(run.id, {
+      question: "Which file should I edit?",
+      resolve: answer.resolve,
+      reject: answer.reject,
+    }),
+    true,
+  );
+  assert.equal(run.pendingQuestion.question, "Which file should I edit?");
+  assert.equal(
+    setRunPendingQuestion(run.id, {
+      question: "A second question",
+      resolve: () => {},
+      reject: () => {},
+    }),
+    false,
+  );
+  assert.equal(
+    setRunPendingQuestion("zzzz", { question: "Unknown", resolve: () => {}, reject: () => {} }),
+    false,
+  );
+  assert.equal(run.pendingQuestion.question, "Which file should I edit?");
+
+  run.steer("Edit registry.ts");
+  assert.equal(run.pendingQuestion.question, "Which file should I edit?");
+  assert.deepEqual(
+    run.steers.map(({ text }) => text),
+    ["Edit registry.ts"],
+  );
+  const delivered = [];
+  attachRunSteer(run.id, (text) => {
+    delivered.push(text);
+  });
+  assert.deepEqual(delivered, ["Edit registry.ts"]);
+  assert.equal(answerRunPendingQuestion(run.id, "Edit registry.ts"), true);
+  assert.equal(await firstQuestion, "Edit registry.ts");
+  assert.equal(run.pendingQuestion, undefined);
+  cleanup();
+});
+
+test("steer leaves a pending question for answerRunPendingQuestion", async () => {
+  cleanup();
+  const delivered = [];
+  const run = registerRun(makeRun());
+  let statusCalls = 0;
+  run.onStatus(() => {
+    statusCalls++;
+  });
+  attachRunSteer(run.id, (text) => {
+    delivered.push(text);
+  });
+  let answer;
+  const question = new Promise((resolve, reject) => {
+    answer = { resolve, reject };
+  });
+  setRunPendingQuestion(run.id, {
+    question: "Which test should I add?",
+    resolve: answer.resolve,
+    reject: answer.reject,
+  });
+
+  run.steer("Add a registry test");
+
+  assert.equal(run.pendingQuestion.question, "Which test should I add?");
+  assert.deepEqual(delivered, ["Add a registry test"]);
+  assert.equal(statusCalls, 1);
+  assert.equal(answerRunPendingQuestion(run.id, "Add a registry test"), true);
+  assert.equal(await question, "Add a registry test");
+  assert.equal(run.pendingQuestion, undefined);
+  assert.equal(statusCalls, 2);
+  cleanup();
+});
+
+test("answerRunPendingQuestion returns false for unknown and unanswered runs", () => {
+  cleanup();
+  const run = registerRun(makeRun());
+  assert.equal(answerRunPendingQuestion("zzzz", "answer"), false);
+  assert.equal(answerRunPendingQuestion(run.id, "answer"), false);
+  cleanup();
+});
+
+test("rejectRunPendingQuestion rejects, clears, and otherwise does nothing", async () => {
+  cleanup();
+  const run = registerRun(makeRun());
+  let answer;
+  const question = new Promise((resolve, reject) => {
+    answer = { resolve, reject };
+  });
+  setRunPendingQuestion(run.id, {
+    question: "Should I continue?",
+    resolve: answer.resolve,
+    reject: answer.reject,
+  });
+
+  rejectRunPendingQuestion(run.id, new Error("main agent unavailable"));
+
+  await assert.rejects(question, { message: "main agent unavailable" });
+  assert.equal(run.pendingQuestion, undefined);
+  assert.doesNotThrow(() => rejectRunPendingQuestion(run.id, new Error("ignored")));
+  assert.doesNotThrow(() => rejectRunPendingQuestion("zzzz", new Error("ignored")));
+  cleanup();
+});
+
+test("completeRun rejects a pending question", async () => {
+  cleanup();
+  const run = registerRun(makeRun());
+  let answer;
+  const question = new Promise((resolve, reject) => {
+    answer = { resolve, reject };
+  });
+  setRunPendingQuestion(run.id, {
+    question: "Should I continue?",
+    resolve: answer.resolve,
+    reject: answer.reject,
+  });
+
+  completeRun(run.id, makeResult({ exitCode: 0 }));
+
+  await assert.rejects(question, { message: "run completed" });
+  assert.equal(run.pendingQuestion, undefined);
   cleanup();
 });
 

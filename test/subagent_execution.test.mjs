@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clearSessionState, completeRun, registerRun } from "../execution/registry.ts";
+import {
+  clearSessionState,
+  completeRun,
+  registerRun,
+  setRunPendingQuestion,
+} from "../execution/registry.ts";
 import { createSubagentExecution } from "../execution/execution.ts";
 import { makeResult, makeRun } from "./fixtures/run.mjs";
 
@@ -27,6 +32,63 @@ test("steer rejects unknown run ids", () => {
 });
 
 const summaryContext = { modelRegistry: { find: () => undefined } };
+
+test("answer rejects unknown run ids", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+
+  const response = await execution.executeControl(
+    { action: "answer", id: "zzzz", text: "continue" },
+    summaryContext,
+  );
+
+  assert.equal(
+    response.content[0].text,
+    "No running subagent with id 'zzzz' (it may have already finished).",
+  );
+  assert.deepEqual(response.details, { action: "answer", id: "zzzz" });
+  clearSessionState();
+});
+
+test("answer rejects runs without a pending question", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  const run = registerRun(makeRun());
+
+  const response = await execution.executeControl(
+    { action: "answer", id: run.id, text: "continue" },
+    summaryContext,
+  );
+
+  assert.equal(response.content[0].text, `Subagent [${run.id}] (a) has no pending question.`);
+  assert.deepEqual(response.details, { action: "answer", id: run.id });
+  clearSessionState();
+});
+
+test("answer resolves a pending question", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  const run = registerRun(makeRun());
+  let pending;
+  const question = new Promise((resolve, reject) => {
+    pending = { resolve, reject };
+  });
+  setRunPendingQuestion(run.id, {
+    question: "Should I continue?",
+    resolve: pending.resolve,
+    reject: pending.reject,
+  });
+
+  const response = await execution.executeControl(
+    { action: "answer", id: run.id, text: "Continue with the tests." },
+    summaryContext,
+  );
+
+  assert.equal(response.content[0].text, `Answered subagent [${run.id}] (a).`);
+  assert.deepEqual(response.details, { action: "answer", id: run.id, agent: "a" });
+  assert.equal(await question, "Continue with the tests.");
+  clearSessionState();
+});
 
 test("inspect returns live state with heuristic activity", async () => {
   clearSessionState();
@@ -123,6 +185,48 @@ test("inspect is blocked after a subagent starts", async () => {
 
   assert.equal(response.content[0].text, pollRefusal);
   assert.deepEqual(response.details, { action: "inspect", id: run.id });
+  clearSessionState();
+});
+
+test("list remains available for a pending question after a subagent starts", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  const run = registerRun(makeRun());
+  setRunPendingQuestion(run.id, {
+    question: "Which file should I edit?",
+    resolve: () => {},
+    reject: () => {},
+  });
+  execution.markSpawned();
+
+  const response = await execution.executeControl({ action: "list" }, summaryContext);
+
+  assert.match(response.content[0].text, new RegExp(`waiting_for_answer: \\[${run.id}\\] a: Which file should I edit\\?`));
+  assert.equal(response.details.results[0].registryId, run.id);
+  clearSessionState();
+});
+
+test("inspect remains available and shows a pending question after a subagent starts", async () => {
+  clearSessionState();
+  const execution = createSubagentExecution({});
+  const run = registerRun(makeRun());
+  setRunPendingQuestion(run.id, {
+    question: "Which file should I edit?",
+    resolve: () => {},
+    reject: () => {},
+  });
+  execution.markSpawned();
+
+  const response = await execution.executeControl(
+    { action: "inspect", id: run.id },
+    summaryContext,
+  );
+
+  assert.match(
+    response.content[0].text,
+    new RegExp(`Subagent \\[${run.id}\\] \\(a\\) is waiting_for_answer\\.\\n\\nQuestion: Which file should I edit\\?`),
+  );
+  assert.equal(response.details.result.status, "waiting_for_answer");
   clearSessionState();
 });
 

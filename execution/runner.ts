@@ -5,8 +5,10 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import {
   createAgentSession,
+  defineTool,
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
@@ -18,6 +20,8 @@ import {
   attachRunSteer,
   getRun,
   notifyStatus,
+  rejectRunPendingQuestion,
+  setRunPendingQuestion,
   notifyStream,
   registerRun,
   updateRun,
@@ -233,6 +237,7 @@ export interface RunAgentOptions {
   lineageId?: string;
   signal?: AbortSignal;
   onSpawn?: (registryId: string) => void;
+  onQuestion: (registryId: string, agentName: string, question: string) => void;
   reservedRegistryId?: string;
 }
 
@@ -280,6 +285,48 @@ function createRunningResult(opts: RunAgentOptions, agent: AgentConfig): SingleR
 interface PreparedRunSession {
   session: Awaited<ReturnType<typeof createAgentSession>>["session"];
   managedSessionPath: string;
+  setRegistryId(registryId: string): void;
+}
+
+function createAskMainAgentTool(
+  agentName: string,
+  getRegistryId: () => string | undefined,
+  onQuestion: RunAgentOptions["onQuestion"],
+) {
+  return defineTool({
+    name: "ask_main_agent",
+    label: "Ask main agent",
+    description: "Ask the main agent a question only when the subagent cannot decide itself.",
+    parameters: Type.Object(
+      { question: Type.String({ description: "Question for the main agent." }) },
+      { additionalProperties: false },
+    ),
+    async execute(_toolCallId, params) {
+      const registryId = getRegistryId();
+      if (!registryId) throw new Error("Subagent run is no longer active.");
+      const answer = await new Promise<string>((resolve, reject) => {
+        if (!setRunPendingQuestion(registryId, { question: params.question, resolve, reject })) {
+          reject(
+            new Error(
+              getRun(registryId)?.pendingQuestion
+                ? "A question is already pending for this run."
+                : "Subagent run is no longer active.",
+            ),
+          );
+          return;
+        }
+        try {
+          onQuestion(registryId, agentName, params.question);
+        } catch (error) {
+          rejectRunPendingQuestion(
+            registryId,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      });
+      return { content: [{ type: "text", text: answer }], details: {} };
+    },
+  });
 }
 
 async function createRunSession(
@@ -326,6 +373,7 @@ async function createRunSession(
   }
 
   let createdSession: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  const run = { registryId: opts.reservedRegistryId };
   try {
     const managedDir = allocateManagedSessionDir(agent.name);
     let manager: SessionManager;
@@ -344,13 +392,19 @@ async function createRunSession(
     const thinkingLevel = isFreshRun
       ? ((agent.thinking as ThinkingLevel | undefined) ?? resolved.thinkingLevel)
       : undefined;
-    const tools = isFreshRun ? agent.tools : undefined;
+    const tools =
+      isFreshRun && agent.tools
+        ? agent.tools.includes("ask_main_agent")
+          ? agent.tools
+          : [...agent.tools, "ask_main_agent"]
+        : undefined;
     const created = await createAgentSession({
       cwd: effectiveCwd,
       agentDir: getAgentDir(),
       resourceLoader: loader,
       sessionManager: manager,
       ...(tools !== undefined ? { tools } : {}),
+      customTools: [createAskMainAgentTool(agent.name, () => run.registryId, opts.onQuestion)],
       ...("modelRuntime" in resolved && resolved.modelRuntime
         ? { modelRuntime: resolved.modelRuntime }
         : {}),
@@ -364,7 +418,13 @@ async function createRunSession(
         console.error(`Subagent extension error (${err.extensionPath}): ${err.error}`);
       },
     });
-    return { session: createdSession, managedSessionPath };
+    return {
+      session: createdSession,
+      managedSessionPath,
+      setRegistryId(registryId) {
+        run.registryId = registryId;
+      },
+    };
   } catch (error) {
     try {
       createdSession?.dispose();
@@ -411,9 +471,12 @@ function attachRun(
     sourceRunId: opts.sourceRunId,
     lineageId: opts.lineageId,
   };
-  const kill = () => control.abortSession(true);
+  let registryId = "";
+  const kill = () => {
+    rejectRunPendingQuestion(registryId, new Error("run killed"));
+    control.abortSession(true);
+  };
   const steer = (text: string) => control.steer(text);
-  let registryId: string;
   if (opts.reservedRegistryId) {
     registryId = opts.reservedRegistryId;
     updateRun(registryId, {
@@ -518,5 +581,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if (!prepared) return result;
   const control = createRunControl(prepared.session);
   const registryId = attachRun(opts, agent, result, prepared.managedSessionPath, control);
+  prepared.setRegistryId(registryId);
   return runSessionPrompt(opts, agent, result, prepared.session, registryId, control);
 }

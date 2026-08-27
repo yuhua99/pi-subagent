@@ -27,6 +27,7 @@ import {
 } from "../types.ts";
 
 const STALE_FINISHED_MSG = "finished — result delivered separately";
+const MAX_PENDING_QUESTION = 80;
 
 export type RenderContext = {
   state: Record<string, any>;
@@ -104,7 +105,7 @@ function isRenderableListDetails(value: unknown): value is SubagentListDetails {
 function isRenderableKillDetails(value: unknown): value is SubagentCtlDetails {
   return (
     isRecord(value) &&
-    (value.action === "kill" || value.action === "steer") &&
+    (value.action === "kill" || value.action === "steer" || value.action === "answer") &&
     typeof value.id === "string" &&
     (!("agent" in value) || typeof value.agent === "string")
   );
@@ -123,7 +124,9 @@ function isRenderableInspectDetails(value: unknown): value is SubagentInspectDet
       typeof value.result.activitySummary === "string") &&
     typeof value.result.startedAt === "number" &&
     (value.result.finishedAt === undefined || typeof value.result.finishedAt === "number") &&
-    (value.result.status === "running" || value.result.status === "completed") &&
+    (value.result.status === "running" ||
+      value.result.status === "waiting_for_answer" ||
+      value.result.status === "completed") &&
     isRenderableResult(value.result.result)
   );
 }
@@ -207,6 +210,15 @@ function statusColor(r: SingleResult): ThemeColor {
         : "success";
 }
 
+function pendingQuestion(r: SingleResult): string | undefined {
+  const question = r.registryId && getRun(r.registryId)?.pendingQuestion?.question;
+  if (!question) return undefined;
+  const singleLine = question.replace(/\s*[\r\n]+\s*/g, " ");
+  return singleLine.length > MAX_PENDING_QUESTION
+    ? `${singleLine.slice(0, MAX_PENDING_QUESTION - 1)}…`
+    : singleLine;
+}
+
 function statusMessage(r: SingleResult): string {
   if (r.exitCode === -1) return "running";
   if (r.stopReason === "killed")
@@ -231,7 +243,9 @@ function renderResolvedRow(
 ): string {
   if (stale)
     return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
-  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${statusIcon(result, theme)} ${theme.fg(statusColor(result), statusMessage(result))}`;
+  const question = pendingQuestion(result);
+  const waiting = question !== undefined;
+  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${waiting ? theme.fg("warning", "?") : statusIcon(result, theme)} ${theme.fg(waiting ? "warning" : statusColor(result), waiting ? "waiting for answer" : statusMessage(result))}${waiting ? theme.fg("dim", ` — ${question}`) : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +293,10 @@ export function renderCtlCall(
 ): Text {
   const title = theme.fg("toolTitle", theme.bold(`subagent_ctl ${args.action ?? "..."}`));
   const id =
-    args.action === "inspect" || args.action === "kill" || args.action === "steer"
+    args.action === "inspect" ||
+    args.action === "kill" ||
+    args.action === "steer" ||
+    args.action === "answer"
       ? theme.fg("accent", ` ${args.id ?? "..."}`)
       : "";
   return new Text(title + id, 0, 0);
@@ -383,6 +400,23 @@ export function renderSteerResult(
   return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }
 
+export function renderAnswerResult(
+  result: { content: ResultContent; details?: unknown },
+  _options: unknown,
+  theme: { fg: ThemeFg; bold: (s: string) => string },
+): Text {
+  const details = isRenderableKillDetails(result.details) ? result.details : undefined;
+  if (!details) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
+  if (typeof details.agent === "string") {
+    return new Text(
+      `${theme.fg("muted", "└─ ")}${theme.fg("success", "✓")} ${theme.fg("success", "answered")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`,
+      0,
+      0,
+    );
+  }
+  return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
+}
+
 export function renderInspectResult(
   result: { content: ResultContent; details?: unknown },
   _options: unknown,
@@ -391,15 +425,19 @@ export function renderInspectResult(
   const details = isRenderableInspectDetails(result.details) ? result.details : undefined;
   if (!details?.result) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
   const inspected = details.result;
-  const icon =
-    inspected.status === "running"
-      ? theme.fg("warning", "○")
-      : inspected.result.stopReason === "killed"
-        ? theme.fg("muted", "■")
-        : isResultError(inspected.result)
-          ? theme.fg("error", "✗")
-          : theme.fg("success", "✓");
-  const status = theme.fg(inspected.status === "running" ? "warning" : "muted", inspected.status);
+  const waitingForAnswer = inspected.status === "waiting_for_answer";
+  const active = inspected.status === "running" || waitingForAnswer;
+  const icon = active
+    ? theme.fg("warning", waitingForAnswer ? "?" : "○")
+    : inspected.result.stopReason === "killed"
+      ? theme.fg("muted", "■")
+      : isResultError(inspected.result)
+        ? theme.fg("error", "✗")
+        : theme.fg("success", "✓");
+  const status = theme.fg(
+    active ? "warning" : "muted",
+    waitingForAnswer ? "waiting for answer" : inspected.status,
+  );
   const activity = theme.fg("dim", inspected.activitySummary ?? "No activity yet.");
   return new Text(
     `${theme.fg("muted", "└─ ")}${icon} ${status} ${theme.fg("accent", inspected.agent)}${theme.fg("dim", ` [${inspected.id}]`)}\n${theme.fg("muted", "   ")}${activity}`,
@@ -419,9 +457,9 @@ export function renderCtlResult(
   if (isRenderableInspectDetails(result.details))
     return renderInspectResult(result, options, theme);
   if (isRenderableKillDetails(result.details)) {
-    return result.details.action === "kill"
-      ? renderKillResult(result, options, theme)
-      : renderSteerResult(result, options, theme);
+    if (result.details.action === "kill") return renderKillResult(result, options, theme);
+    if (result.details.action === "steer") return renderSteerResult(result, options, theme);
+    return renderAnswerResult(result, options, theme);
   }
   return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }

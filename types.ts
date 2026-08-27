@@ -99,7 +99,7 @@ export interface SubagentInspectResult {
   activitySummary?: string;
   startedAt: number;
   finishedAt?: number;
-  status: "running" | "completed";
+  status: "running" | "waiting_for_answer" | "completed";
   result: SingleResult;
 }
 
@@ -110,9 +110,9 @@ export interface SubagentInspectDetails {
   result?: SubagentInspectResult;
 }
 
-/** Metadata attached to subagent_ctl kill and steer results for rendering. */
+/** Metadata attached to subagent_ctl kill, steer, and answer results for rendering. */
 export interface SubagentCtlDetails {
-  action: "kill" | "steer";
+  action: "kill" | "steer" | "answer";
   id: string;
   agent?: string;
 }

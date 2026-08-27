@@ -38,6 +38,11 @@ export interface SubagentRun extends RunMetadata {
   phase: RunPhase;
   result: SingleResult;
   kill: () => void;
+  pendingQuestion?: {
+    question: string;
+    resolve: (answer: string) => void;
+    reject: (err: Error) => void;
+  };
   steer(text: string): void;
   steers: readonly { text: string; at: number }[];
   onStatus(fn: () => void): () => void;
@@ -149,6 +154,36 @@ export function attachRunSteer(id: string, steer: (text: string) => void): void 
   for (const text of entry.pendingSteers.splice(0)) steer(text);
 }
 
+export function setRunPendingQuestion(
+  id: string,
+  pendingQuestion: NonNullable<SubagentRun["pendingQuestion"]>,
+): boolean {
+  const entry = running.get(id);
+  if (!entry || entry.pendingQuestion) return false;
+  entry.pendingQuestion = pendingQuestion;
+  notifyStatus(id);
+  return true;
+}
+
+export function answerRunPendingQuestion(id: string, text: string): boolean {
+  const entry = running.get(id);
+  const pendingQuestion = entry?.pendingQuestion;
+  if (!pendingQuestion) return false;
+  entry.pendingQuestion = undefined;
+  pendingQuestion.resolve(text);
+  notifyStatus(id);
+  return true;
+}
+
+export function rejectRunPendingQuestion(id: string, error: Error): void {
+  const entry = running.get(id);
+  const pendingQuestion = entry?.pendingQuestion;
+  if (!pendingQuestion) return;
+  entry.pendingQuestion = undefined;
+  pendingQuestion.reject(error);
+  notifyStatus(id);
+}
+
 export function setRunTaskSummary(id: string, task: string, taskSummary: string): void {
   const entry = running.get(id) ?? completed.get(id);
   if (!entry || entry.task !== task) return;
@@ -237,6 +272,11 @@ export function notifyStream(id: string): void {
 export function completeRun(id: string, result: SingleResult): void {
   const entry = running.get(id);
   const finishedAt = Date.now();
+  if (entry?.pendingQuestion) {
+    const pendingQuestion = entry.pendingQuestion;
+    entry.pendingQuestion = undefined;
+    pendingQuestion.reject(new Error("run completed"));
+  }
   result.taskSummary ??= entry?.result.taskSummary;
   completed.set(id, {
     id,

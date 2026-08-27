@@ -7,6 +7,7 @@ import {
 } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
+  answerRunPendingQuestion,
   clearSessionState,
   completeRun,
   getRun,
@@ -18,9 +19,9 @@ import {
   setRunTaskSummary,
   type SubagentRun,
 } from "./registry.ts";
-import { formatSubagentList } from "../tool/render.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
-import { fallbackActivitySummary, summarizeActivity, summarizeTask } from "../tool/task_summary.ts";
+import { summarizeTask } from "../tool/task_summary.ts";
+import { executeControl as executeControlAction } from "./control.ts";
 import {
   getResultSummaryText,
   isResultError,
@@ -77,6 +78,17 @@ export function createSubagentExecution(
   const makeDetails = (results: SingleResult[]): SubagentDetails => ({
     results,
   });
+  const sendQuestion = (id: string, agent: string, question: string) => {
+    pi.sendMessage(
+      {
+        customType: "subagent_question",
+        content: `Subagent [${id}] (${agent}) needs an answer:\n\n${question}\n\nAnswer via subagent_ctl action "answer" with run id "${id}".`,
+        display: false,
+        details: { id, agent, question },
+      },
+      { triggerTurn: true, deliverAs: "steer" },
+    );
+  };
   const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
     void summarizeTask(task, ctx)
       .then((summary) => {
@@ -119,7 +131,7 @@ export function createSubagentExecution(
     toolCallId,
     reservedRegistryId,
     ...runOptions
-  }: Omit<RunAgentOptions, "onSpawn" | "reservedRegistryId"> & {
+  }: Omit<RunAgentOptions, "onSpawn" | "onQuestion" | "reservedRegistryId"> & {
     ctx: SubagentExecutionContext;
     toolCallId?: string;
     reservedRegistryId: string;
@@ -132,6 +144,7 @@ export function createSubagentExecution(
       ...runOptions,
       reservedRegistryId,
       workingDirectory: cwd,
+      onQuestion: sendQuestion,
     });
 
     runPromise.then(
@@ -220,6 +233,7 @@ export function createSubagentExecution(
           workingDirectory: t.cwd ?? defaultCwd,
           signal,
           reservedRegistryId: placeholders[i].registryId,
+          onQuestion: sendQuestion,
         });
         completeSubagentRun(r.registryId ?? placeholders[i].registryId!, r);
         return r;
@@ -347,146 +361,18 @@ export function createSubagentExecution(
   return {
     execute,
     async executeControl(invocation, ctx, signal) {
-      if (hasSpawned && invocation.action === "list") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Results arrive automatically. Never poll subagent_ctl; end your turn immediately.",
-            },
-          ],
-          details: { action: "list", results: [] },
-        };
-      }
-      if (hasSpawned && invocation.action === "inspect") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Results arrive automatically. Never poll subagent_ctl; end your turn immediately.",
-            },
-          ],
-          details: { action: "inspect", id: invocation.id },
-        };
-      }
-      if (invocation.action === "list") {
-        const runs = listRuns();
-        const details: SubagentListDetails = {
-          action: "list",
-          results: runs.map((run) => ({
-            ...run.result,
-            registryId: run.id,
-          })),
-        };
-        return {
-          content: [{ type: "text", text: formatSubagentList(runs) }],
-          details,
-        };
-      }
-      if (invocation.action === "inspect") {
-        const live = getRun(invocation.id);
-        const completed = live
-          ? undefined
-          : listCompletedRuns().find((run) => run.id === invocation.id);
-        const entry = live ?? completed;
-        if (!entry) {
-          const details: SubagentInspectDetails = {
-            action: "inspect",
-            id: invocation.id,
-          };
-          return {
-            content: [
-              {
-                type: "text",
-                text: `No subagent with id '${invocation.id}' found.`,
-              },
-            ],
-            details,
-          };
-        }
-        const activitySummary =
-          (await summarizeActivity(entry.task, entry.result.messages, ctx, signal)) ??
-          fallbackActivitySummary(entry.result);
-        const status = live ? "running" : "completed";
-        const details: SubagentInspectDetails = {
-          action: "inspect",
-          id: invocation.id,
-          result: {
-            id: entry.id,
-            agent: entry.agent,
-            task: entry.task,
-            ...(entry.result.taskSummary ? { taskSummary: entry.result.taskSummary } : {}),
-            activitySummary,
-            startedAt: entry.startedAt,
-            ...(completed ? { finishedAt: completed.finishedAt } : {}),
-            status,
-            result: entry.result,
-          },
-        };
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Subagent [${entry.id}] (${entry.agent}) is ${status}.\n\nActivity: ${activitySummary}`,
-            },
-          ],
-          details,
-        };
-      }
-      if (invocation.action === "kill") {
-        const entry = kill(invocation.id);
-        if (!entry) {
-          const details: SubagentCtlDetails = {
-            action: "kill",
-            id: invocation.id,
-          };
-          return {
-            content: [
-              {
-                type: "text",
-                text: `No running subagent with id '${invocation.id}' (it may have already finished).`,
-              },
-            ],
-            details,
-          };
-        }
-        const details: SubagentCtlDetails = {
-          action: "kill",
-          id: entry.id,
-          agent: entry.agent,
-        };
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Killed subagent [${entry.id}] (${entry.agent}).`,
-            },
-          ],
-          details,
-        };
-      }
-      const entry = steer(invocation.id, invocation.text);
-      if ("error" in entry) {
-        const details: SubagentCtlDetails = {
-          action: "steer",
-          id: invocation.id,
-        };
-        return { content: [{ type: "text", text: entry.error }], details };
-      }
-      const details: SubagentCtlDetails = {
-        action: "steer",
-        id: entry.id,
-        agent: entry.agent,
-      };
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Steered subagent [${entry.id}] (${entry.agent}).`,
-          },
-        ],
-        details,
-      };
+      return executeControlAction(
+        invocation,
+        ctx,
+        signal,
+        () => hasSpawned,
+        kill,
+        steer,
+        listRuns,
+        getRun,
+        listCompletedRuns,
+        answerRunPendingQuestion,
+      );
     },
     kill,
     steer,

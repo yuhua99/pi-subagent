@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clearSessionState, completeRun, registerRun } from "../execution/registry.ts";
 import {
+  renderAnswerResult,
   renderCall,
   renderCtlCall,
   renderCtlResult,
@@ -183,6 +184,30 @@ test("renderSteerResult preserves completed-run errors", () => {
     component.render(200).join("\n").trim(),
     'Subagent [a1b2] already finished. Use the subagent tool with { action: "resume", resume_id: "a1b2", task } instead.',
   );
+});
+
+test("renderAnswerResult shows answered agent", () => {
+  const component = renderAnswerResult(
+    {
+      content: [{ type: "text", text: "Answered subagent [a1b2] (worker)." }],
+      details: { action: "answer", id: "a1b2", agent: "worker" },
+    },
+    undefined,
+    theme,
+  );
+  assert.equal(component.render(200).join("\n").trim(), "└─ ✓ answered worker [a1b2]");
+});
+
+test("renderAnswerResult falls back to plain text without an agent", () => {
+  const component = renderAnswerResult(
+    {
+      content: [{ type: "text", text: "No running subagent with id 'a1b2'." }],
+      details: { action: "answer", id: "a1b2" },
+    },
+    undefined,
+    theme,
+  );
+  assert.equal(component.render(200).join("\n").trim(), "No running subagent with id 'a1b2'.");
 });
 
 test("renderCtlResult list shares resolved rows and drops completed runs", () => {
