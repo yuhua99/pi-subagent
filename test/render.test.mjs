@@ -45,7 +45,7 @@ test("renderResult replaces malformed action validation diagnostics", () => {
   for (const details of [{}, undefined, { results: [null] }]) {
     assert.equal(
       renderValidation("subagent", args, details),
-      'Validation error: action "resume" does not accept "cwd"',
+      'Validation error: action "resume" takes only "resume_id" and "task"',
     );
   }
 });
@@ -59,7 +59,7 @@ test("renderResult gives action-oriented validation guidance", () => {
     ],
     [
       { action: "run", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp", agent: "worker" },
-      'Validation error: action "run" does not accept "cwd"',
+      'Validation error: action "run" takes only "tasks"',
     ],
     [
       { action: "resume", resume_id: "a1b2" },
@@ -82,7 +82,7 @@ test("renderCtlResult gives control action validation guidance", () => {
   );
   assert.equal(
     renderValidation("subagent_ctl", { action: "list", id: "a1b2" }, {}),
-    'Validation error: action "list" does not accept "id"',
+    'Validation error: action "list" takes no parameters',
   );
 });
 

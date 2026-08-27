@@ -26,20 +26,20 @@ export const SubagentParams = Type.Object(
     action: DelegationAction,
     task: Type.Optional(
       Type.String({
-        description: "A follow-up continuing the prior run.",
+        description: "Resume only: a follow-up continuing the prior run.",
       }),
     ),
     tasks: Type.Optional(
       Type.Union(
         [Type.Array(TaskItem, { minItems: 1, maxItems: MAX_PARALLEL_TASKS }), Type.String()],
         {
-          description: "Tasks to run concurrently.",
+          description: "Run only: tasks to run concurrently.",
         },
       ),
     ),
     resume_id: Type.Optional(
       Type.String({
-        description: "The id from a completed run's result message.",
+        description: "Resume only: the id from a completed run's result message.",
       }),
     ),
   },
@@ -92,8 +92,14 @@ function rejectedField(
   params: Record<string, unknown>,
   allowed: string[],
 ): string | undefined {
-  const field = Object.keys(params).find((key) => !allowed.includes(key));
-  return field === undefined ? undefined : `action "${action}" does not accept "${field}"`;
+  const field = Object.keys(params).find(
+    (key) => !allowed.includes(key) && params[key] !== undefined && params[key] !== "",
+  );
+  if (field === undefined) return undefined;
+  const fields = allowed.filter((key) => key !== "action").map((key) => `"${key}"`);
+  return fields.length === 0
+    ? `action "${action}" takes no parameters`
+    : `action "${action}" takes only ${fields.join(" and ")}`;
 }
 
 /** Validate and normalize a subagent delegation action. */
