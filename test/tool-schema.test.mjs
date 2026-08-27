@@ -42,7 +42,7 @@ test("subagent control schema has a required action", () => {
     SubagentCtlParams.properties.action.anyOf.map((schema) => schema.const),
     ["list", "kill", "steer", "answer", "inspect"],
   );
-  assert.equal(SubagentCtlParams.properties.id.minLength, 1);
+  assert.equal(SubagentCtlParams.properties.id.minLength, undefined);
 });
 
 test("subagent action validation accepts each legal invocation", () => {
@@ -84,12 +84,20 @@ test("subagent action validation reports action-specific invalid fields", () => 
 
 test("subagent action validation ignores empty unsupported fields", () => {
   assert.deepEqual(
-    parseSubagentInvocation({ action: "run", tasks: [{ agent: "a", task: "t" }], task: "", resume_id: "" }),
+    parseSubagentInvocation({
+      action: "run",
+      tasks: [{ agent: "a", task: "t" }],
+      task: "",
+      resume_id: "",
+    }),
     { action: "run", tasks: [{ agent: "a", task: "t" }] },
   );
-  assert.deepEqual(parseSubagentInvocation({ action: "run", tasks: [{ agent: "a", task: "t" }], task: "foo" }), {
-    error: 'action "run" takes only "tasks"',
-  });
+  assert.deepEqual(
+    parseSubagentInvocation({ action: "run", tasks: [{ agent: "a", task: "t" }], task: "foo" }),
+    {
+      error: 'action "run" takes only "tasks"',
+    },
+  );
 });
 
 test("subagent control validation enforces each action", () => {

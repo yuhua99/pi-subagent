@@ -57,13 +57,13 @@ export const SubagentCtlParams = Type.Object(
     ]),
     id: Type.Optional(
       Type.String({
-        minLength: 1,
-        description: "Run id from list output or a result message (e.g. c3e1).",
+        description:
+          "Required for kill, steer, answer, and inspect. Run id from list output or a result message (e.g. c3e1).",
       }),
     ),
     text: Type.Optional(
       Type.String({
-        description: "Message to deliver to the subagent.",
+        description: "Required for steer and answer. Message to deliver to the subagent.",
       }),
     ),
   },
