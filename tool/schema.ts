@@ -58,7 +58,7 @@ export const SubagentCtlParams = Type.Object(
     id: Type.Optional(
       Type.String({
         description:
-          "Required for kill, steer, answer, and inspect. Run id from list output or a result message (e.g. c3e1).",
+          "Required for kill, steer, answer, and inspect. Run id from list output or a result message.",
       }),
     ),
     text: Type.Optional(
