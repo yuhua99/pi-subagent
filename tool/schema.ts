@@ -5,6 +5,7 @@ import type { AgentConfig } from "../agents.ts";
 export const MAX_REQUESTS = 5;
 
 const AGENT_NAME_DESCRIPTION = "Agent name from the Available Subagents list.";
+const INTENT_DESCRIPTION = "Short title for this delegation, at most 8 words.";
 
 const RunRequest = Type.Object(
   {
@@ -13,6 +14,7 @@ const RunRequest = Type.Object(
     task: Type.String({
       description: "A brief this subagent can execute with zero outside context.",
     }),
+    intent: Type.String({ description: INTENT_DESCRIPTION }),
     cwd: Type.Optional(Type.String({ description: "Working directory for this agent's process." })),
   },
   { additionalProperties: false },
@@ -23,6 +25,7 @@ const ResumeRequest = Type.Object(
     action: StringEnum(["resume"] as const),
     resume_id: Type.String({ description: "Id from a completed run's result message." }),
     task: Type.String({ description: "A follow-up continuing the prior run." }),
+    intent: Type.String({ description: INTENT_DESCRIPTION }),
   },
   { additionalProperties: false },
 );
@@ -62,8 +65,8 @@ export const SubagentCtlParams = Type.Object(
 );
 
 export type SubagentRequest =
-  | { action: "run"; agent: string; task: string; cwd?: string }
-  | { action: "resume"; resume_id: string; task: string };
+  | { action: "run"; agent: string; task: string; intent: string; cwd?: string }
+  | { action: "resume"; resume_id: string; task: string; intent: string };
 
 export interface SubagentInvocation {
   requests: SubagentRequest[];
@@ -118,33 +121,44 @@ export function parseSubagentInvocation(params: unknown): ParseResult<SubagentIn
     if (!isRecord(request)) return { error: "each request must be an object" };
 
     if (request.action === "run") {
-      if (!hasOnlyFields(request, ["action", "agent", "task", "cwd"])) {
+      if (!hasOnlyFields(request, ["action", "agent", "task", "intent", "cwd"])) {
         return { error: "run request has unsupported fields" };
       }
       if (
         typeof request.agent !== "string" ||
         typeof request.task !== "string" ||
+        typeof request.intent !== "string" ||
         (request.cwd !== undefined && typeof request.cwd !== "string")
       ) {
-        return { error: 'run request requires "agent" and "task" strings' };
+        return { error: 'run request requires "agent", "task", and "intent" strings' };
       }
       requests.push({
         action: "run",
         agent: request.agent,
         task: request.task,
+        intent: request.intent,
         ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
       });
       continue;
     }
 
     if (request.action === "resume") {
-      if (!hasOnlyFields(request, ["action", "resume_id", "task"])) {
+      if (!hasOnlyFields(request, ["action", "resume_id", "task", "intent"])) {
         return { error: "resume request has unsupported fields" };
       }
-      if (typeof request.resume_id !== "string" || typeof request.task !== "string") {
-        return { error: 'resume request requires "resume_id" and "task" strings' };
+      if (
+        typeof request.resume_id !== "string" ||
+        typeof request.task !== "string" ||
+        typeof request.intent !== "string"
+      ) {
+        return { error: 'resume request requires "resume_id", "task", and "intent" strings' };
       }
-      requests.push({ action: "resume", resume_id: request.resume_id, task: request.task });
+      requests.push({
+        action: "resume",
+        resume_id: request.resume_id,
+        task: request.task,
+        intent: request.intent,
+      });
       continue;
     }
 
@@ -196,7 +210,7 @@ export function parseSubagentCtlInvocation(params: unknown): ParseResult<Subagen
 export const TOOL_DESCRIPTION = [
   "Delegate work to specialized subagents.",
   "",
-  "Pass requests containing run entries with agent and task, or resume entries with resume_id and task.",
+  "Pass requests containing run entries with agent and task, or resume entries with resume_id and task. Every request also needs a short intent.",
 ].join("\n");
 
 export const CTL_TOOL_DESCRIPTION = [

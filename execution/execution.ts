@@ -18,7 +18,6 @@ import {
   type SubagentRun,
 } from "./registry.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
-import { summarizeTask } from "../tool/task_summary.ts";
 import { executeControl as executeControlAction } from "./control.ts";
 import {
   getResultSummaryText,
@@ -50,12 +49,15 @@ interface ToolResult {
 
 interface PreparedRequest {
   placeholder: SingleResult;
+  intent: string;
   runOptions: Omit<RunAgentOptions, "onQuestion" | "signal" | "reservedRegistryId"> & {
     reservedRegistryId: string;
   };
 }
 
 type PreparedBatch = { requests: PreparedRequest[] } | { error: string };
+
+const TASK_SUMMARY_INTENT_LIMIT = 60;
 
 interface SubagentExecution {
   execute(
@@ -95,12 +97,10 @@ export function createSubagentExecution(
       { triggerTurn: true, deliverAs: "steer" },
     );
   };
-  const startTaskSummary = (id: string, task: string, ctx: SubagentExecutionContext) => {
-    void summarizeTask(task, ctx)
-      .then((summary) => {
-        if (summary) setRunTaskSummary(id, task, summary);
-      })
-      .catch(() => {});
+  const setTaskSummary = (id: string, task: string, intent: string) => {
+    const summary = intent.replace(/\s+/g, " ").trim();
+    if (!summary) return;
+    setRunTaskSummary(id, task, summary.slice(0, TASK_SUMMARY_INTENT_LIMIT));
   };
 
   const retainedSessionPaths = () => {
@@ -190,6 +190,7 @@ export function createSubagentExecution(
           const placeholder = runPlaceholders[runIndex++]!;
           return {
             placeholder,
+            intent: request.intent,
             runOptions: {
               cwd: defaultCwd,
               agents,
@@ -207,6 +208,7 @@ export function createSubagentExecution(
         const source = reservation.source;
         return {
           placeholder: reservation.run.result,
+          intent: request.intent,
           runOptions: {
             cwd: source.workingDirectory ?? defaultCwd,
             agents,
@@ -225,7 +227,6 @@ export function createSubagentExecution(
 
   const startBatch = (
     requests: PreparedRequest[],
-    ctx: SubagentExecutionContext,
     toolCallId: string,
     signal?: AbortSignal,
   ): ToolResult => {
@@ -233,7 +234,7 @@ export function createSubagentExecution(
     for (const request of requests) {
       const { registryId, task } = request.placeholder;
       bindToolCallRowInvalidate(toolCallId, registryId!);
-      startTaskSummary(registryId!, task, ctx);
+      setTaskSummary(registryId!, task, request.intent);
     }
 
     for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
@@ -323,7 +324,7 @@ export function createSubagentExecution(
         details: makeDetails([]),
       };
     }
-    return startBatch(prepared.requests, ctx, toolCallId, signal);
+    return startBatch(prepared.requests, toolCallId, signal);
   };
 
   const kill = (id: string) => {

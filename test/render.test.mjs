@@ -62,7 +62,7 @@ test("renderResult gives action-oriented validation guidance", () => {
     ],
     [
       { requests: [{ action: "resume", resume_id: "a1b2" }] },
-      'Validation error: resume request requires "resume_id" and "task" strings',
+      'Validation error: resume request requires "resume_id", "task", and "intent" strings',
     ],
     [
       { requests: [{ action: "unknown" }] },
