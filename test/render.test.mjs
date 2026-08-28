@@ -41,31 +41,33 @@ function renderValidation(toolName, args, details) {
 }
 
 test("renderResult replaces malformed action validation diagnostics", () => {
-  const args = { action: "resume", resume_id: "a1b2", task: "continue", cwd: "/tmp" };
+  const args = {
+    requests: [{ action: "resume", resume_id: "a1b2", task: "continue", cwd: "/tmp" }],
+  };
   for (const details of [{}, undefined, { results: [null] }]) {
     assert.equal(
       renderValidation("subagent", args, details),
-      'Validation error: action "resume" takes only "resume_id" and "task"',
+      "Validation error: resume request has unsupported fields",
     );
   }
 });
 
 test("renderResult gives action-oriented validation guidance", () => {
   const cases = [
-    [{ action: "run" }, 'Validation error: action "run" requires "tasks"'],
+    [{ action: "run" }, 'Validation error: subagent requires only "requests"'],
+    [{ requests: [] }, 'Validation error: subagent requires a non-empty "requests" array'],
     [
-      { action: "run", tasks: [] },
-      "Validation error: Invalid `tasks`: expected a non-empty array of { agent, task, cwd? } objects.",
+      { requests: [{ action: "run", agent: "worker", task: "work", resume_id: "a1b2" }] },
+      "Validation error: run request has unsupported fields",
     ],
     [
-      { action: "run", tasks: [{ agent: "worker", task: "work" }], cwd: "/tmp", agent: "worker" },
-      'Validation error: action "run" takes only "tasks"',
+      { requests: [{ action: "resume", resume_id: "a1b2" }] },
+      'Validation error: resume request requires "resume_id" and "task" strings',
     ],
     [
-      { action: "resume", resume_id: "a1b2" },
-      'Validation error: action "resume" requires "resume_id" and "task"',
+      { requests: [{ action: "unknown" }] },
+      'Validation error: request action must be "run" or "resume"',
     ],
-    [{ action: "unknown" }, 'Validation error: action must be "run" or "resume"'],
   ];
   for (const [args, expected] of cases)
     assert.equal(renderValidation("subagent", args, {}), expected);
@@ -88,7 +90,7 @@ test("renderCtlResult gives control action validation guidance", () => {
 
 test("renderCall distinguishes delegation actions", () => {
   assert.equal(
-    renderCall({ action: "run", tasks: [{ agent: "worker", task: "work" }] }, theme)
+    renderCall({ requests: [{ action: "run", agent: "worker", task: "work" }] }, theme)
       .render(200)
       .join("\n")
       .trim(),
@@ -97,10 +99,9 @@ test("renderCall distinguishes delegation actions", () => {
   assert.equal(
     renderCall(
       {
-        action: "run",
-        tasks: [
-          { agent: "worker", task: "work" },
-          { agent: "reviewer", task: "review" },
+        requests: [
+          { action: "run", agent: "worker", task: "work" },
+          { action: "run", agent: "reviewer", task: "review" },
         ],
       },
       theme,
@@ -108,10 +109,13 @@ test("renderCall distinguishes delegation actions", () => {
       .render(200)
       .join("\n")
       .trim(),
-    "subagent parallel",
+    "subagent 2 requests",
   );
   assert.equal(
-    renderCall({ action: "resume", resume_id: "a1b2" }, theme).render(200).join("\n").trim(),
+    renderCall({ requests: [{ action: "resume", resume_id: "a1b2", task: "continue" }] }, theme)
+      .render(200)
+      .join("\n")
+      .trim(),
     "subagent resume a1b2",
   );
 });
@@ -172,7 +176,7 @@ test("renderSteerResult preserves completed-run errors", () => {
       content: [
         {
           type: "text",
-          text: 'Subagent [a1b2] already finished. Use the subagent tool with { action: "resume", resume_id: "a1b2", task } instead.',
+          text: 'Subagent [a1b2] already finished. Use the subagent tool with { requests: [{ action: "resume", resume_id: "a1b2", task }] } instead.',
         },
       ],
       details: { action: "steer", id: "a1b2" },
@@ -182,7 +186,7 @@ test("renderSteerResult preserves completed-run errors", () => {
   );
   assert.equal(
     component.render(200).join("\n").trim(),
-    'Subagent [a1b2] already finished. Use the subagent tool with { action: "resume", resume_id: "a1b2", task } instead.',
+    'Subagent [a1b2] already finished. Use the subagent tool with { requests: [{ action: "resume", resume_id: "a1b2", task }] } instead.',
   );
 });
 

@@ -39,11 +39,13 @@ export function failedPlaceholderResult(
 }
 
 export function reserveRunPlaceholders(
-  tasks: Array<{ agent: string; task: string }>,
+  requests: Array<{ agent: string; task: string }>,
   agents: AgentConfig[],
   onComplete: (id: string, result: SingleResult) => void,
 ): SingleResult[] {
-  const placeholders = tasks.map((t) => makeRunningPlaceholder(t.agent, t.task, agents));
+  const placeholders = requests.map((request) =>
+    makeRunningPlaceholder(request.agent, request.task, agents),
+  );
   placeholders.forEach((p) => {
     p.registryId = registerRun({
       agent: p.agent,

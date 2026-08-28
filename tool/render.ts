@@ -23,7 +23,6 @@ import {
   type SubagentListDetails,
   type UsageStats,
   isResultError,
-  parseTasksParam,
 } from "../types.ts";
 
 const STALE_FINISHED_MSG = "finished — result delivered separately";
@@ -259,13 +258,14 @@ export function renderCall(
 ): Text {
   if (context?.toolCallId && context.isPartial)
     registerToolCallInvalidator(context.toolCallId, context.invalidate);
+  const requests = Array.isArray(args.requests) ? args.requests : [];
   let detail = "...";
-  if (args.action === "resume") {
-    detail = `resume ${args.resume_id ?? "..."}`;
-  } else if (args.action === "run") {
-    const parsedTasks = parseTasksParam(args.tasks);
-    const tasks = parsedTasks && "tasks" in parsedTasks ? parsedTasks.tasks : undefined;
-    detail = tasks?.length === 1 ? tasks[0].agent : tasks?.length ? "parallel" : "...";
+  if (requests.length === 1) {
+    const request = requests[0];
+    if (request?.action === "resume") detail = `resume ${request.resume_id ?? "..."}`;
+    else if (request?.action === "run") detail = request.agent ?? "...";
+  } else if (requests.length > 1) {
+    detail = `${requests.length} requests`;
   }
   const content = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", detail);
   const text = context?.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);

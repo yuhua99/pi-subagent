@@ -1,14 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../agents.ts";
-import {
-  failedPlaceholderResult,
-  makeRunningPlaceholder,
-  reserveRunPlaceholders,
-} from "./delegation.ts";
+import { failedPlaceholderResult, reserveRunPlaceholders } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
   answerRunPendingQuestion,
   clearSessionState,
+  cancelResumeReservation,
   completeRun,
   getRun,
   setRunPhase,
@@ -17,6 +14,7 @@ import {
   listRuns,
   reserveResumeRun,
   setRunTaskSummary,
+  type ResumeReservation,
   type SubagentRun,
 } from "./registry.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
@@ -31,12 +29,11 @@ import {
   type SubagentCtlDetails,
   type SubagentInspectDetails,
   type SubagentListDetails,
-  type TaskSpec,
 } from "../types.ts";
 import {
-  MAX_PARALLEL_TASKS,
   type SubagentCtlInvocation,
   type SubagentInvocation,
+  type SubagentRequest,
 } from "../tool/schema.ts";
 
 export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
@@ -50,6 +47,15 @@ interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   details: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
 }
+
+interface PreparedRequest {
+  placeholder: SingleResult;
+  runOptions: Omit<RunAgentOptions, "onQuestion" | "signal" | "reservedRegistryId"> & {
+    reservedRegistryId: string;
+  };
+}
+
+type PreparedBatch = { requests: PreparedRequest[] } | { error: string };
 
 interface SubagentExecution {
   execute(
@@ -126,131 +132,135 @@ export function createSubagentExecution(
     );
   };
 
-  const executeSingle = async ({
-    ctx,
-    toolCallId,
-    reservedRegistryId,
-    ...runOptions
-  }: Omit<RunAgentOptions, "onSpawn" | "onQuestion" | "reservedRegistryId"> & {
-    ctx: SubagentExecutionContext;
-    toolCallId?: string;
-    reservedRegistryId: string;
-  }): Promise<ToolResult> => {
-    const { agentName, task, agents, cwd } = runOptions;
-    startTaskSummary(reservedRegistryId, task, ctx);
-    if (toolCallId) bindToolCallRowInvalidate(toolCallId, reservedRegistryId);
+  const releaseResumeReservations = (reservations: ResumeReservation[]) => {
+    for (const reservation of reservations) cancelResumeReservation(reservation.run.id);
+  };
 
-    const runPromise = runAgent({
-      ...runOptions,
-      reservedRegistryId,
-      workingDirectory: cwd,
-      onQuestion: sendQuestion,
-    });
-
-    runPromise.then(
-      (result) => {
-        const id = result.registryId ?? reservedRegistryId;
-        const status = isResultError(result) ? result.stopReason || "failed" : "completed";
-        completeSubagentRun(id, result);
-        pi.sendMessage(
-          {
-            customType: "subagent_result",
-            content: `Background subagent [${id}] (${result.agent}) ${status}.\n\n${getResultSummaryText(result)}`,
-            display: false,
-            details: makeDetails([result]),
-          },
-          { triggerTurn: true, deliverAs: "steer" },
-        );
-      },
-      (err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        const r = failedPlaceholderResult(
-          makeRunningPlaceholder(agentName, task, agents, reservedRegistryId),
-          "error",
-          message,
-        );
-        completeSubagentRun(reservedRegistryId, r);
-        pi.sendMessage(
-          {
-            customType: "subagent_result",
-            content: `Background subagent [${reservedRegistryId}] (${agentName}) failed: ${message}`,
-            display: false,
-            details: makeDetails([r]),
-          },
-          { triggerTurn: true, deliverAs: "steer" },
-        );
-      },
+  const prepareBatch = (
+    requests: SubagentRequest[],
+    agents: AgentConfig[],
+    defaultCwd: string,
+    parentSessionId: string,
+  ): PreparedBatch => {
+    const unknownAgentError = (agentName: string) => {
+      const available = agents.map((agent) => `"${agent.name}"`).join(", ") || "none";
+      return `Unknown agent: "${agentName}". Available agents: ${available}.`;
+    };
+    const missingRunAgent = requests.find(
+      (request) =>
+        request.action === "run" && !agents.some((agent) => agent.name === request.agent),
     );
+    if (missingRunAgent?.action === "run") {
+      return { error: unknownAgentError(missingRunAgent.agent) };
+    }
 
-    setRunPhase(reservedRegistryId, "background");
-    hasSpawned = true;
+    const reservations = new Map<number, ResumeReservation>();
+    for (const [index, request] of requests.entries()) {
+      if (request.action !== "resume") continue;
+      const reservation = reserveResumeRun(
+        request.resume_id,
+        request.task,
+        parentSessionId,
+        hasManagedSessionPath,
+        onResumeKill,
+      );
+      if ("error" in reservation) {
+        releaseResumeReservations([...reservations.values()]);
+        return { error: reservation.error };
+      }
+      reservations.set(index, reservation);
+    }
+
+    const unavailableResume = [...reservations.values()].find(
+      ({ source }) => !agents.some((agent) => agent.name === source.agent),
+    );
+    if (unavailableResume) {
+      releaseResumeReservations([...reservations.values()]);
+      return { error: unknownAgentError(unavailableResume.source.agent) };
+    }
+
+    const runRequests = requests.filter(
+      (request): request is Extract<SubagentRequest, { action: "run" }> => request.action === "run",
+    );
+    const runPlaceholders = reserveRunPlaceholders(runRequests, agents, completeSubagentRun);
+    let runIndex = 0;
     return {
-      content: [
-        {
-          type: "text",
-          text: `Started subagent [${reservedRegistryId}] (${agentName}). Result arrives automatically as a new message. Never poll subagent_ctl or sleep; end your turn immediately.`,
-        },
-      ],
-      details: makeDetails([makeRunningPlaceholder(agentName, task, agents, reservedRegistryId)]),
+      requests: requests.map((request, index) => {
+        if (request.action === "run") {
+          const placeholder = runPlaceholders[runIndex++]!;
+          return {
+            placeholder,
+            runOptions: {
+              cwd: defaultCwd,
+              agents,
+              agentName: request.agent,
+              task: request.task,
+              taskCwd: request.cwd,
+              parentSessionId,
+              workingDirectory: request.cwd ?? defaultCwd,
+              reservedRegistryId: placeholder.registryId!,
+            },
+          };
+        }
+
+        const reservation = reservations.get(index)!;
+        const source = reservation.source;
+        return {
+          placeholder: reservation.run.result,
+          runOptions: {
+            cwd: source.workingDirectory ?? defaultCwd,
+            agents,
+            agentName: source.agent,
+            task: request.task,
+            sessionPath: source.sessionPath,
+            parentSessionId,
+            sourceRunId: source.id,
+            lineageId: source.lineageId,
+            reservedRegistryId: reservation.run.id,
+          },
+        };
+      }),
     };
   };
 
-  const executeRun = async (
-    tasks: TaskSpec[],
-    agents: AgentConfig[],
-    defaultCwd: string,
+  const startBatch = (
+    requests: PreparedRequest[],
     ctx: SubagentExecutionContext,
-    parentSessionId: string,
     toolCallId: string,
     signal?: AbortSignal,
-  ): Promise<ToolResult> => {
-    if (tasks.length > MAX_PARALLEL_TASKS) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Too many parallel tasks (${tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
-          },
-        ],
-        details: makeDetails([]),
-      };
+  ): ToolResult => {
+    const placeholders = requests.map((request) => request.placeholder);
+    for (const request of requests) {
+      const { registryId, task } = request.placeholder;
+      bindToolCallRowInvalidate(toolCallId, registryId!);
+      startTaskSummary(registryId!, task, ctx);
     }
 
-    const placeholders = reserveRunPlaceholders(tasks, agents, completeSubagentRun);
-    for (const p of placeholders) {
-      bindToolCallRowInvalidate(toolCallId, p.registryId!);
-      startTaskSummary(p.registryId!, p.task, ctx);
-    }
-    const batchPromise = mapConcurrent(tasks, MAX_PARALLEL_TASKS, async (t, i) => {
-      try {
-        const r = await runAgent({
-          cwd: defaultCwd,
-          agents,
-          agentName: t.agent,
-          task: t.task,
-          taskCwd: t.cwd,
-          parentSessionId,
-          workingDirectory: t.cwd ?? defaultCwd,
-          signal,
-          reservedRegistryId: placeholders[i].registryId,
-          onQuestion: sendQuestion,
-        });
-        completeSubagentRun(r.registryId ?? placeholders[i].registryId!, r);
-        return r;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const r = failedPlaceholderResult(placeholders[i], "error", message);
-        completeSubagentRun(placeholders[i].registryId!, r);
-        return r;
-      }
-    });
+    for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
+    hasSpawned = true;
+
+    const batchPromise = Promise.all(
+      requests.map(async (request) => {
+        const { placeholder, runOptions } = request;
+        try {
+          const result = await runAgent({ ...runOptions, signal, onQuestion: sendQuestion });
+          completeSubagentRun(result.registryId ?? runOptions.reservedRegistryId, result);
+          return result;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const result = failedPlaceholderResult(placeholder, "error", message);
+          completeSubagentRun(runOptions.reservedRegistryId, result);
+          return result;
+        }
+      }),
+    );
 
     batchPromise.then(
       (results) => {
-        const successCount = results.filter((r) => isResultSuccess(r)).length;
+        const successCount = results.filter((result) => isResultSuccess(result)).length;
         const summaries = results.map(
-          (r) =>
-            `[${r.registryId ?? "?"}] [${r.agent}] ${isResultError(r) ? "failed" : "completed"}: ${getResultSummaryText(r)}`,
+          (result) =>
+            `[${result.registryId ?? "?"}] [${result.agent}] ${isResultError(result) ? "failed" : "completed"}: ${getResultSummaryText(result)}`,
         );
         pi.sendMessage(
           {
@@ -264,9 +274,12 @@ export function createSubagentExecution(
       },
       (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        for (const p of placeholders) {
-          if (p.registryId && getRun(p.registryId)) {
-            completeSubagentRun(p.registryId, failedPlaceholderResult(p, "error", message));
+        for (const placeholder of placeholders) {
+          if (placeholder.registryId && getRun(placeholder.registryId)) {
+            completeSubagentRun(
+              placeholder.registryId,
+              failedPlaceholderResult(placeholder, "error", message),
+            );
           }
         }
         pi.sendMessage(
@@ -281,13 +294,11 @@ export function createSubagentExecution(
       },
     );
 
-    for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
-    hasSpawned = true;
     return {
       content: [
         {
           type: "text",
-          text: `Started ${tasks.length} subagent(s). Combined result arrives automatically when all finish. Never poll subagent_ctl or sleep; end your turn immediately.`,
+          text: `Started ${requests.length} subagent(s): ${placeholders.map((placeholder) => `[${placeholder.registryId}] (${placeholder.agent})`).join(", ")}. Combined result arrives automatically when all finish. Never poll subagent_ctl or sleep; end your turn immediately.`,
         },
       ],
       details: makeDetails(placeholders),
@@ -300,41 +311,19 @@ export function createSubagentExecution(
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
   ): Promise<ToolResult> => {
-    const agents = getAgents();
-    const parentSessionId = ctx.sessionManager.getSessionId();
-
-    if (invocation.action === "resume") {
-      const reservation = reserveResumeRun(
-        invocation.resume_id,
-        invocation.task,
-        parentSessionId,
-        hasManagedSessionPath,
-        onResumeKill,
-      );
-      if ("error" in reservation) {
-        return {
-          content: [{ type: "text", text: reservation.error }],
-          details: makeDetails([]),
-        };
-      }
-      const source = reservation.source;
-      return executeSingle({
-        cwd: source.workingDirectory ?? ctx.cwd,
-        agents,
-        agentName: source.agent,
-        task: invocation.task,
-        ctx,
-        reservedRegistryId: reservation.run.id,
-        sessionPath: source.sessionPath,
-        parentSessionId,
-        sourceRunId: source.id,
-        lineageId: source.lineageId,
-        toolCallId,
-        signal,
-      });
+    const prepared = prepareBatch(
+      invocation.requests,
+      getAgents(),
+      ctx.cwd,
+      ctx.sessionManager.getSessionId(),
+    );
+    if ("error" in prepared) {
+      return {
+        content: [{ type: "text", text: prepared.error }],
+        details: makeDetails([]),
+      };
     }
-
-    return executeRun(invocation.tasks, agents, ctx.cwd, ctx, parentSessionId, toolCallId, signal);
+    return startBatch(prepared.requests, ctx, toolCallId, signal);
   };
 
   const kill = (id: string) => {
@@ -350,7 +339,7 @@ export function createSubagentExecution(
     }
     if (listCompletedRuns().some((run) => run.id === id)) {
       return {
-        error: `Subagent [${id}] already finished. Use the subagent tool with { action: "resume", resume_id: "${id}", task } instead.`,
+        error: `Subagent [${id}] already finished. Use the subagent tool with { requests: [{ action: "resume", resume_id: "${id}", task }] } instead.`,
       };
     }
     return {
@@ -409,24 +398,4 @@ export function createSubagentExecution(
       clearSessionState();
     },
   };
-}
-
-async function mapConcurrent<TIn, TOut>(
-  items: TIn[],
-  concurrency: number,
-  fn: (item: TIn, index: number) => Promise<TOut>,
-): Promise<TOut[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: TOut[] = Array.from({ length: items.length });
-  let nextIndex = 0;
-  const worker = async () => {
-    while (true) {
-      const i = nextIndex++;
-      if (i >= items.length) return;
-      results[i] = await fn(items[i], i);
-    }
-  };
-  await Promise.all(Array.from({ length: limit }, () => worker()));
-  return results;
 }

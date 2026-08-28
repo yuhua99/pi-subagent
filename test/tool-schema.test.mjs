@@ -1,37 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  MAX_PARALLEL_TASKS,
+  MAX_REQUESTS,
   parseSubagentCtlInvocation,
   parseSubagentInvocation,
   SubagentCtlParams,
   SubagentParams,
 } from "../tool/schema.ts";
-import { parseTasksParam } from "../types.ts";
 
-test("subagent schema has an action-discriminated object root", () => {
+test("subagent schema has a bounded request batch root", () => {
   assert.equal(SubagentParams.type, "object");
   assert.equal(SubagentParams.additionalProperties, false);
-  assert.deepEqual(Object.keys(SubagentParams.properties), [
-    "action",
-    "task",
-    "tasks",
-    "resume_id",
-  ]);
-  assert.deepEqual(SubagentParams.required, ["action"]);
-  assert.deepEqual(
-    SubagentParams.properties.action.anyOf.map((schema) => schema.const),
-    ["run", "resume"],
-  );
-  const tasksSchema = SubagentParams.properties.tasks;
-  const tasksArray = tasksSchema.anyOf.find((schema) => schema.type === "array");
-  assert.equal(tasksArray.maxItems, MAX_PARALLEL_TASKS);
-  assert.equal(tasksArray.items.additionalProperties, false);
-  assert.equal("cwd" in tasksArray.items.properties, true);
-  assert.equal(
-    tasksSchema.anyOf.some((schema) => schema.type === "string"),
-    true,
-  );
+  assert.deepEqual(Object.keys(SubagentParams.properties), ["requests"]);
+  assert.deepEqual(SubagentParams.required, ["requests"]);
+
+  const requests = SubagentParams.properties.requests;
+  assert.equal(requests.type, "array");
+  assert.equal(requests.minItems, 1);
+  assert.equal(requests.maxItems, MAX_REQUESTS);
+  const [run, resume] = requests.items.anyOf;
+  assert.equal(run.additionalProperties, false);
+  assert.deepEqual(run.required, ["action", "agent", "task"]);
+  assert.deepEqual(Object.keys(run.properties), ["action", "agent", "task", "cwd"]);
+  assert.deepEqual(run.properties.action.enum, ["run"]);
+  assert.equal(resume.additionalProperties, false);
+  assert.deepEqual(resume.required, ["action", "resume_id", "task"]);
+  assert.deepEqual(Object.keys(resume.properties), ["action", "resume_id", "task"]);
+  assert.deepEqual(resume.properties.action.enum, ["resume"]);
 });
 
 test("subagent control schema has a required action", () => {
@@ -45,59 +40,86 @@ test("subagent control schema has a required action", () => {
   assert.equal(SubagentCtlParams.properties.id.minLength, undefined);
 });
 
-test("subagent action validation accepts each legal invocation", () => {
-  assert.deepEqual(parseSubagentInvocation({ action: "run", tasks: [{ agent: "a", task: "t" }] }), {
-    action: "run",
-    tasks: [{ agent: "a", task: "t" }],
-  });
+test("subagent request validation accepts run, resume, mixed, and cwd requests", () => {
   assert.deepEqual(
-    parseSubagentInvocation({ action: "run", tasks: '[{"agent":"a","task":"t"}]' }),
+    parseSubagentInvocation({ requests: [{ action: "run", agent: "a", task: "t" }] }),
     {
-      action: "run",
-      tasks: [{ agent: "a", task: "t" }],
+      requests: [{ action: "run", agent: "a", task: "t" }],
     },
   );
-  assert.deepEqual(parseSubagentInvocation({ action: "resume", resume_id: "id", task: "t" }), {
-    action: "resume",
-    resume_id: "id",
-    task: "t",
-  });
-});
-
-test("subagent action validation reports action-specific invalid fields", () => {
-  const tasks = [{ agent: "a", task: "t" }];
-  const cases = [
-    [{ action: "run", agent: "a", task: "t" }, 'action "run" requires "tasks"'],
-    [{ action: "run", tasks, agent: "a" }, 'action "run" takes only "tasks"'],
-    [{ action: "run", tasks, cwd: "/tmp" }, 'action "run" takes only "tasks"'],
-    [{ action: "run_parallel", tasks }, 'action must be "run" or "resume"'],
-    [
-      {
-        action: "run",
-        tasks: Array.from({ length: MAX_PARALLEL_TASKS + 1 }, () => ({ agent: "a", task: "t" })),
-      },
-      `action "run" accepts at most ${MAX_PARALLEL_TASKS} tasks`,
-    ],
-  ];
-  for (const [params, error] of cases) assert.deepEqual(parseSubagentInvocation(params), { error });
-});
-
-test("subagent action validation ignores empty unsupported fields", () => {
+  assert.deepEqual(
+    parseSubagentInvocation({ requests: [{ action: "resume", resume_id: "id", task: "t" }] }),
+    { requests: [{ action: "resume", resume_id: "id", task: "t" }] },
+  );
   assert.deepEqual(
     parseSubagentInvocation({
-      action: "run",
-      tasks: [{ agent: "a", task: "t" }],
-      task: "",
-      resume_id: "",
+      requests: [
+        { action: "run", agent: "a", task: "t", cwd: "/tmp" },
+        { action: "resume", resume_id: "id", task: "follow up" },
+      ],
     }),
-    { action: "run", tasks: [{ agent: "a", task: "t" }] },
-  );
-  assert.deepEqual(
-    parseSubagentInvocation({ action: "run", tasks: [{ agent: "a", task: "t" }], task: "foo" }),
     {
-      error: 'action "run" takes only "tasks"',
+      requests: [
+        { action: "run", agent: "a", task: "t", cwd: "/tmp" },
+        { action: "resume", resume_id: "id", task: "follow up" },
+      ],
     },
   );
+});
+
+test("subagent request validation rejects legacy roots and invalid request branches", () => {
+  const run = { action: "run", agent: "a", task: "t" };
+  const cases = [
+    [{ action: "run", agent: "a", task: "t" }, 'subagent requires only "requests"'],
+    [{ action: "run", tasks: [run] }, 'subagent requires only "requests"'],
+    [{ action: "run", tasks: '[{"agent":"a","task":"t"}]' }, 'subagent requires only "requests"'],
+    [{ action: "resume", resume_id: "id", task: "t" }, 'subagent requires only "requests"'],
+    [{ requests: [] }, 'subagent requires a non-empty "requests" array'],
+    [
+      { requests: Array.from({ length: MAX_REQUESTS + 1 }, () => run) },
+      `subagent accepts at most ${MAX_REQUESTS} requests`,
+    ],
+    [{ requests: [{ ...run, extra: true }] }, "run request has unsupported fields"],
+    [
+      { requests: [{ action: "run", task: "t" }] },
+      'run request requires "agent" and "task" strings',
+    ],
+    [
+      { requests: [{ action: "run", agent: "a" }] },
+      'run request requires "agent" and "task" strings',
+    ],
+    [
+      { requests: [{ action: "run", agent: 1, task: "t" }] },
+      'run request requires "agent" and "task" strings',
+    ],
+    [
+      { requests: [{ action: "run", agent: "a", task: 1 }] },
+      'run request requires "agent" and "task" strings',
+    ],
+    [{ requests: [{ ...run, intent: "i" }] }, "run request has unsupported fields"],
+    [
+      { requests: [{ action: "resume", resume_id: "id", task: "t", cwd: "/tmp" }] },
+      "resume request has unsupported fields",
+    ],
+    [
+      { requests: [{ action: "resume", task: "t" }] },
+      'resume request requires "resume_id" and "task" strings',
+    ],
+    [
+      { requests: [{ action: "resume", resume_id: "id" }] },
+      'resume request requires "resume_id" and "task" strings',
+    ],
+    [
+      { requests: [{ action: "resume", resume_id: 1, task: "t" }] },
+      'resume request requires "resume_id" and "task" strings',
+    ],
+    [
+      { requests: [{ action: "resume", resume_id: "id", task: 1 }] },
+      'resume request requires "resume_id" and "task" strings',
+    ],
+    [{ requests: [{ action: "other", task: "t" }] }, 'request action must be "run" or "resume"'],
+  ];
+  for (const [params, error] of cases) assert.deepEqual(parseSubagentInvocation(params), { error });
 });
 
 test("subagent control validation enforces each action", () => {
@@ -151,18 +173,4 @@ test("subagent control validation enforces each action", () => {
   assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "id", run_id: "other" }), {
     error: 'action "inspect" takes only "id"',
   });
-});
-
-test("parseTasksParam coerces JSON-encoded task strings", () => {
-  assert.equal(parseTasksParam(undefined), undefined);
-  assert.deepEqual(parseTasksParam([{ agent: "a", task: "t" }]), {
-    tasks: [{ agent: "a", task: "t" }],
-  });
-  assert.deepEqual(parseTasksParam('[{"agent":"a","task":"t","cwd":"/tmp"}]'), {
-    tasks: [{ agent: "a", task: "t", cwd: "/tmp" }],
-  });
-  assert.equal("error" in parseTasksParam("not json"), true);
-  assert.equal("error" in parseTasksParam("[]"), true);
-  assert.equal("error" in parseTasksParam('"just a string"'), true);
-  assert.equal("error" in parseTasksParam([{ agent: "a" }]), true);
 });

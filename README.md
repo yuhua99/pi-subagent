@@ -7,9 +7,9 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 ## Features
 
 - **Isolated task-only context** — each run receives only its task
-- **Native session resume** — continue a successfully completed child with `{ "action": "resume", "resume_id": "run-id", "task": "..." }`
+- **Native session resume** — continue a successfully completed child session
 - **Async by default** — tool returns as soon as the child starts; results arrive as a follow-up message
-- **Parallel runs** — up to 5 concurrent tasks
+- **Parallel runs** — up to 5 concurrent requests
 - **Single-level only** — children cannot nest further subagents
 - **`/agents`** — live status and transcript preview in the TUI
 - **`subagent_ctl`** — list, inspect, stop, or steer children
@@ -73,25 +73,12 @@ Delegate independent work to the most appropriate specialized agent.
 
 ## Usage
 
-`subagent`:
+Use `subagent` to create or continue work. A single call can include up to five requests.
 
-```json
-{ "action": "run", "tasks": [{ "agent": "writer", "task": "Document the API" }] }
-{ "action": "run", "tasks": [{ "agent": "a", "task": "..." }, { "agent": "b", "task": "..." }] }
-{ "action": "resume", "resume_id": "completed-run-id", "task": "Continue the previous work" }
-```
+Use `subagent_ctl` to list, inspect, stop, or steer children.
 
-`subagent_ctl`:
-
-```json
-{ "action": "list" }
-{ "action": "kill", "id": "running-run-id" }
-{ "action": "steer", "id": "running-run-id", "text": "Focus on the failing test." }
-{ "action": "inspect", "id": "run-id" }
-```
-
-- **Runs** — always receive an isolated `Task: ...` context; put all needed context in `task`.
-- **`resume`** — continues a successfully completed child session from this parent session. It creates a new run id and preserves lineage; only one resume per lineage may run at a time.
+- **New work** — each work item receives isolated context; include all needed context in its instructions.
+- **Continued work** — resumes a successfully completed child session from the same parent session. It creates a new run id and preserves lineage; only one continuation per lineage may run at a time.
 
 Single-level delegation is a construction-time capability: child sessions load the parent's extensions except pi-subagent, so they physically lack the subagent tools. The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
 

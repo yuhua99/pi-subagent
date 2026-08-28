@@ -393,6 +393,15 @@ export function reserveResumeRun(
   return { run, source };
 }
 
+export function cancelResumeReservation(id: string): boolean {
+  const entry = running.get(id);
+  if (!entry?.sourceRunId || !entry.lineageId || entry.phase !== "foreground") return false;
+  running.delete(id);
+  resumeLocks.delete(entry.lineageId);
+  pruneToolCallRun(id);
+  return true;
+}
+
 export function getLiveStatus(
   id: string,
 ):

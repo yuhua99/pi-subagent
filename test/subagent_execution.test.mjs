@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import {
   clearSessionState,
   completeRun,
+  listRuns,
   registerRun,
+  reserveResumeRun,
   setRunPendingQuestion,
 } from "../execution/registry.ts";
 import { createSubagentExecution } from "../execution/execution.ts";
@@ -16,7 +21,7 @@ test("steer rejects completed run ids", () => {
   completeRun(run.id, makeResult({ exitCode: 0 }));
 
   assert.deepEqual(execution.steer(run.id, "continue"), {
-    error: `Subagent [${run.id}] already finished. Use the subagent tool with { action: "resume", resume_id: "${run.id}", task } instead.`,
+    error: `Subagent [${run.id}] already finished. Use the subagent tool with { requests: [{ action: "resume", resume_id: "${run.id}", task }] } instead.`,
   });
   clearSessionState();
 });
@@ -32,6 +37,59 @@ test("steer rejects unknown run ids", () => {
 });
 
 const summaryContext = { modelRegistry: { find: () => undefined } };
+
+test("mixed requests roll back earlier resume reservations when a later lineage conflicts", async () => {
+  clearSessionState();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-execution-"));
+  const sessionPath = path.join(dir, "session.jsonl");
+  fs.writeFileSync(sessionPath, "{}\n");
+  const source = registerRun(
+    makeRun({
+      agent: "worker",
+      task: "first",
+      parentSessionId: "parent",
+      sessionPath,
+    }),
+  );
+  completeRun(source.id, makeResult({ exitCode: 0 }));
+  let sentMessages = 0;
+  const execution = createSubagentExecution({ sendMessage: () => sentMessages++ }, () => [
+    {
+      name: "worker",
+      description: "",
+      systemPrompt: "",
+      source: "user",
+      filePath: "",
+    },
+  ]);
+
+  const response = await execution.execute(
+    "mixed-resume",
+    {
+      requests: [
+        { action: "run", agent: "worker", task: "new work" },
+        { action: "resume", resume_id: source.id, task: "first follow up" },
+        { action: "resume", resume_id: source.id, task: "conflicting follow up" },
+      ],
+    },
+    {
+      ...summaryContext,
+      cwd: dir,
+      sessionManager: { getSessionId: () => "parent" },
+    },
+  );
+
+  assert.match(response.content[0].text, /another resume is already running/);
+  assert.deepEqual(response.details, { results: [] });
+  assert.equal(sentMessages, 0);
+  assert.equal(listRuns().length, 0);
+
+  const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
+  assert.equal("error" in retry, false);
+  if (!("error" in retry)) completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+  clearSessionState();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 test("answer rejects unknown run ids", async () => {
   clearSessionState();

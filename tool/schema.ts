@@ -1,16 +1,15 @@
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { AgentConfig } from "../agents.ts";
-import { parseTasksParam, type TaskSpec } from "../types.ts";
 
-export const MAX_PARALLEL_TASKS = 5;
+export const MAX_REQUESTS = 5;
 
 const AGENT_NAME_DESCRIPTION = "Agent name from the Available Subagents list.";
 
-const TaskItem = Type.Object(
+const RunRequest = Type.Object(
   {
-    agent: Type.String({
-      description: AGENT_NAME_DESCRIPTION,
-    }),
+    action: StringEnum(["run"] as const),
+    agent: Type.String({ description: AGENT_NAME_DESCRIPTION }),
     task: Type.String({
       description: "A brief this subagent can execute with zero outside context.",
     }),
@@ -19,29 +18,21 @@ const TaskItem = Type.Object(
   { additionalProperties: false },
 );
 
-const DelegationAction = Type.Union([Type.Literal("run"), Type.Literal("resume")]);
+const ResumeRequest = Type.Object(
+  {
+    action: StringEnum(["resume"] as const),
+    resume_id: Type.String({ description: "Id from a completed run's result message." }),
+    task: Type.String({ description: "A follow-up continuing the prior run." }),
+  },
+  { additionalProperties: false },
+);
 
 export const SubagentParams = Type.Object(
   {
-    action: DelegationAction,
-    task: Type.Optional(
-      Type.String({
-        description: "Resume only: a follow-up continuing the prior run.",
-      }),
-    ),
-    tasks: Type.Optional(
-      Type.Union(
-        [Type.Array(TaskItem, { minItems: 1, maxItems: MAX_PARALLEL_TASKS }), Type.String()],
-        {
-          description: "Run only: tasks to run concurrently.",
-        },
-      ),
-    ),
-    resume_id: Type.Optional(
-      Type.String({
-        description: "Resume only: the id from a completed run's result message.",
-      }),
-    ),
+    requests: Type.Array(Type.Union([RunRequest, ResumeRequest]), {
+      minItems: 1,
+      maxItems: MAX_REQUESTS,
+    }),
   },
   { additionalProperties: false },
 );
@@ -70,9 +61,13 @@ export const SubagentCtlParams = Type.Object(
   { additionalProperties: false },
 );
 
-export type SubagentInvocation =
-  | { action: "run"; tasks: TaskSpec[] }
+export type SubagentRequest =
+  | { action: "run"; agent: string; task: string; cwd?: string }
   | { action: "resume"; resume_id: string; task: string };
+
+export interface SubagentInvocation {
+  requests: SubagentRequest[];
+}
 
 export type SubagentCtlInvocation =
   | { action: "list" }
@@ -85,6 +80,10 @@ type ParseResult<T> = T | { error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyFields(params: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(params).every((key) => allowed.includes(key));
 }
 
 function rejectedField(
@@ -102,33 +101,57 @@ function rejectedField(
     : `action "${action}" takes only ${fields.join(" and ")}`;
 }
 
-/** Validate and normalize a subagent delegation action. */
+/** Validate a subagent delegation request batch. */
 export function parseSubagentInvocation(params: unknown): ParseResult<SubagentInvocation> {
-  if (!isRecord(params)) return { error: "subagent requires an action" };
-  const action = params.action;
-  if (action !== "run" && action !== "resume") {
-    return { error: 'action must be "run" or "resume"' };
+  if (!isRecord(params) || !hasOnlyFields(params, ["requests"])) {
+    return { error: 'subagent requires only "requests"' };
+  }
+  if (!Array.isArray(params.requests) || params.requests.length === 0) {
+    return { error: 'subagent requires a non-empty "requests" array' };
+  }
+  if (params.requests.length > MAX_REQUESTS) {
+    return { error: `subagent accepts at most ${MAX_REQUESTS} requests` };
   }
 
-  if (action === "run") {
-    if (params.tasks === undefined) return { error: 'action "run" requires "tasks"' };
-    const rejected = rejectedField(action, params, ["action", "tasks"]);
-    if (rejected) return { error: rejected };
-    const parsedTasks = parseTasksParam(params.tasks);
-    if (!parsedTasks) return { error: 'action "run" requires "tasks"' };
-    if ("error" in parsedTasks) return parsedTasks;
-    if (parsedTasks.tasks.length > MAX_PARALLEL_TASKS) {
-      return { error: `action "run" accepts at most ${MAX_PARALLEL_TASKS} tasks` };
+  const requests: SubagentRequest[] = [];
+  for (const request of params.requests) {
+    if (!isRecord(request)) return { error: "each request must be an object" };
+
+    if (request.action === "run") {
+      if (!hasOnlyFields(request, ["action", "agent", "task", "cwd"])) {
+        return { error: "run request has unsupported fields" };
+      }
+      if (
+        typeof request.agent !== "string" ||
+        typeof request.task !== "string" ||
+        (request.cwd !== undefined && typeof request.cwd !== "string")
+      ) {
+        return { error: 'run request requires "agent" and "task" strings' };
+      }
+      requests.push({
+        action: "run",
+        agent: request.agent,
+        task: request.task,
+        ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+      });
+      continue;
     }
-    return { action, tasks: parsedTasks.tasks };
+
+    if (request.action === "resume") {
+      if (!hasOnlyFields(request, ["action", "resume_id", "task"])) {
+        return { error: "resume request has unsupported fields" };
+      }
+      if (typeof request.resume_id !== "string" || typeof request.task !== "string") {
+        return { error: 'resume request requires "resume_id" and "task" strings' };
+      }
+      requests.push({ action: "resume", resume_id: request.resume_id, task: request.task });
+      continue;
+    }
+
+    return { error: 'request action must be "run" or "resume"' };
   }
 
-  if (typeof params.resume_id !== "string" || typeof params.task !== "string") {
-    return { error: 'action "resume" requires "resume_id" and "task"' };
-  }
-  const rejected = rejectedField(action, params, ["action", "resume_id", "task"]);
-  if (rejected) return { error: rejected };
-  return { action, resume_id: params.resume_id, task: params.task };
+  return { requests };
 }
 
 /** Validate a subagent control action. */
@@ -173,7 +196,7 @@ export function parseSubagentCtlInvocation(params: unknown): ParseResult<Subagen
 export const TOOL_DESCRIPTION = [
   "Delegate work to specialized subagents.",
   "",
-  'Set action to "run" with tasks, or "resume" with resume_id and task.',
+  "Pass requests containing run entries with agent and task, or resume entries with resume_id and task.",
 ].join("\n");
 
 export const CTL_TOOL_DESCRIPTION = [

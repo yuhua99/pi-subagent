@@ -23,6 +23,7 @@ import {
   setRunPhase,
   setRunTaskSummary,
   bindToolCallRowInvalidate,
+  cancelResumeReservation,
   updateRun,
 } from "../execution/registry.ts";
 import { makeResult, makeRun } from "./fixtures/run.mjs";
@@ -596,6 +597,41 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
     reserveResumeRun(missing.id, "follow up", "parent", fs.existsSync, () => {}).error,
     /retain a session/,
   );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("cancelResumeReservation rolls back only foreground resume reservations", () => {
+  clearSessionState();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
+  const sessionPath = path.join(dir, "session.jsonl");
+  fs.writeFileSync(sessionPath, "{}\n");
+  const source = registerRun(
+    makeRun({
+      task: "first",
+      parentSessionId: "parent",
+      sessionPath,
+    }),
+  );
+  completeRun(source.id, makeResult({ exitCode: 0 }));
+
+  const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {});
+  assert.equal("error" in reservation, false);
+  if ("error" in reservation) return;
+  assert.equal(cancelResumeReservation(reservation.run.id), true);
+  assert.equal(getRun(reservation.run.id), undefined);
+  assert.equal(
+    listCompletedRuns().some((entry) => entry.id === reservation.run.id),
+    false,
+  );
+
+  const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
+  assert.equal("error" in retry, false);
+  if ("error" in retry) return;
+  setRunPhase(retry.run.id, "background");
+  assert.equal(cancelResumeReservation(retry.run.id), false);
+  assert.equal(getRun(retry.run.id), retry.run);
+  completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+  clearSessionState();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
