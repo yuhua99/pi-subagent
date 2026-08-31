@@ -18,7 +18,7 @@ export function registerManagedSessionPath(sessionPath: string): string {
 }
 
 export function hasManagedSessionPath(sessionPath: string): boolean {
-  return fs.existsSync(sessionPath);
+  return managedSessionPaths.has(sessionPath) && fs.existsSync(sessionPath);
 }
 
 function cleanupManagedSessionDir(dir: string | null): void {

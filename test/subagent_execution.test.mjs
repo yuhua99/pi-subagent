@@ -11,6 +11,7 @@ import {
   reserveResumeRun,
   setRunPendingQuestion,
 } from "../execution/registry.ts";
+import { registerManagedSessionPath } from "../execution/session_files.ts";
 import { createSubagentExecution } from "../execution/execution.ts";
 import { makeResult, makeRun } from "./fixtures/run.mjs";
 
@@ -43,6 +44,7 @@ test("mixed requests roll back earlier resume reservations when a later lineage 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-execution-"));
   const sessionPath = path.join(dir, "session.jsonl");
   fs.writeFileSync(sessionPath, "{}\n");
+  registerManagedSessionPath(sessionPath);
   const source = registerRun(
     makeRun({
       agent: "worker",
