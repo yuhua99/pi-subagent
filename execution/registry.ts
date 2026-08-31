@@ -332,7 +332,7 @@ export function reserveResumeRun(
   const source = completed.get(id);
   if (!source)
     return {
-      error: `Cannot resume subagent [${id}]: run is not completed in this parent session.`,
+      error: `Cannot resume subagent [${id}]: no such completed run; only the last ${MAX_COMPLETED} are retained.`,
     };
   if (source.parentSessionId !== parentSessionId) {
     return {
