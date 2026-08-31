@@ -245,25 +245,15 @@ test("steer before callback attachment queues and flushes FIFO", () => {
   cleanup();
 });
 
-test("updateRun replaces result reference", () => {
+test("registerRun stamps its id onto the result and keeps that object stable", () => {
   cleanup();
-  const first = makeResult();
-  const run = registerRun(makeRun({ result: first }));
-  const second = makeResult({ status: "ok" });
-  updateRun(run.id, { result: second });
-  assert.equal(getRun(run.id).result, second);
-  cleanup();
-});
-
-test("updateRun preserves a live task summary on a replacement result", () => {
-  clearSessionState();
-  const run = registerRun(makeRun());
-  setRunTaskSummary(run.id, run.task, "Live title");
   const result = makeResult();
-  updateRun(run.id, { result });
+  const run = registerRun(makeRun({ result }));
+  assert.equal(result.registryId, run.id);
+  updateRun(run.id, { startedAt: 42 });
   assert.equal(getRun(run.id).result, result);
-  assert.equal(getRun(run.id).result.taskSummary, "Live title");
-  clearSessionState();
+  assert.equal(getRun(run.id).startedAt, 42);
+  cleanup();
 });
 
 test("setRunTaskSummary stores a live run title on its result", () => {

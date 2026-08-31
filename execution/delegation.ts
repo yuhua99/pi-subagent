@@ -10,7 +10,6 @@ export function makeRunningPlaceholder(
   agentName: string,
   task: string,
   agents: AgentConfig[],
-  registryId?: string,
 ): SingleResult {
   return {
     agent: agentName,
@@ -20,21 +19,19 @@ export function makeRunningPlaceholder(
     messages: [],
     stderr: "",
     usage: emptyUsage(),
-    registryId,
   };
 }
 
-export function failedPlaceholderResult(
-  placeholder: SingleResult,
+/** Settle a run in place so the registry, the tool row, and `/agents` stay one object. */
+export function failPlaceholder(
+  result: SingleResult,
   status: "killed" | "failed",
   message: string,
 ): SingleResult {
-  return {
-    ...placeholder,
-    status,
-    errorMessage: message,
-    stderr: message,
-  };
+  result.status = status;
+  result.errorMessage = message;
+  result.stderr = message;
+  return result;
 }
 
 export function reserveRunPlaceholders(
@@ -42,20 +39,19 @@ export function reserveRunPlaceholders(
   agents: AgentConfig[],
   onComplete: (id: string, result: SingleResult) => void,
 ): SingleResult[] {
-  const placeholders = requests.map((request) =>
-    makeRunningPlaceholder(request.agent, request.task, agents),
-  );
-  placeholders.forEach((p) => {
-    p.registryId = registerRun({
-      agent: p.agent,
-      task: p.task,
+  return requests.map((request) => {
+    const placeholder = makeRunningPlaceholder(request.agent, request.task, agents);
+    registerRun({
+      agent: placeholder.agent,
+      task: placeholder.task,
       startedAt: Date.now(),
-      kill: () => {
-        const r = failedPlaceholderResult(p, "killed", "Subagent was killed before it started.");
-        onComplete(p.registryId!, r);
-      },
-      result: p,
-    }).id;
+      kill: () =>
+        onComplete(
+          placeholder.registryId!,
+          failPlaceholder(placeholder, "killed", "Subagent was killed before it started."),
+        ),
+      result: placeholder,
+    });
+    return placeholder;
   });
-  return placeholders;
 }

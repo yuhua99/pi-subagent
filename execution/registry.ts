@@ -86,6 +86,7 @@ export function registerRun(
   init: Omit<SubagentRun, "id" | "steer" | "steers" | "onStatus" | "onStream">,
 ): SubagentRun {
   const id = generateId();
+  init.result.registryId = id;
   const statusSubs = new Set<() => void>();
   const streamSubs = new Set<() => void>();
   const steers: { text: string; at: number }[] = [];
@@ -123,7 +124,6 @@ export function updateRun(
       SubagentRun,
       | "startedAt"
       | "kill"
-      | "result"
       | "sessionPath"
       | "workingDirectory"
       | "parentSessionId"
@@ -134,8 +134,6 @@ export function updateRun(
 ): void {
   const entry = running.get(id);
   if (!entry) return;
-  if (patch.result && entry.result.taskSummary)
-    patch.result.taskSummary ??= entry.result.taskSummary;
   Object.assign(entry, patch);
 }
 
@@ -366,12 +364,11 @@ export function reserveResumeRun(
     usage: emptyUsage(),
     model: source.result.model,
   };
-  let runId = "";
   const run = registerRun({
     agent: source.agent,
     task,
     startedAt: Date.now(),
-    kill: () => onKill(runId),
+    kill: () => onKill(result.registryId!),
     result,
     parentSessionId,
     sessionPath: source.sessionPath,
@@ -379,8 +376,6 @@ export function reserveResumeRun(
     sourceRunId: source.id,
     lineageId,
   });
-  runId = run.id;
-  result.registryId = run.id;
   return { run, source };
 }
 

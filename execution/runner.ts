@@ -247,36 +247,25 @@ function failedResult(result: SingleResult, message: string): SingleResult {
   return result;
 }
 
-function createEarlyFailure(
+/**
+ * The run's canonical result object. A reserved run already owns one in the
+ * registry; mutating it keeps the tool row, `/agents`, and the registry in sync.
+ */
+function acquireResult(
   opts: RunAgentOptions,
   agentSource: SingleResult["agentSource"],
-  message: string,
-  model?: string,
 ): SingleResult {
+  const reserved = opts.reservedRegistryId ? getRun(opts.reservedRegistryId)?.result : undefined;
+  if (reserved) return reserved;
   return {
     agent: opts.agentName,
     agentSource,
-    task: opts.task,
-    status: "failed",
-    messages: [],
-    stderr: message,
-    usage: emptyUsage(),
-    ...(model !== undefined ? { model } : {}),
-    stopReason: "error",
-    errorMessage: message,
-    registryId: opts.reservedRegistryId,
-  };
-}
-
-function createRunningResult(opts: RunAgentOptions, agent: AgentConfig): SingleResult {
-  return {
-    agent: opts.agentName,
-    agentSource: agent.source,
     task: opts.task,
     status: "running",
     messages: [],
     stderr: "",
     usage: emptyUsage(),
+    registryId: opts.reservedRegistryId,
   };
 }
 
@@ -477,12 +466,7 @@ function attachRun(
   const steer = (text: string) => control.steer(text);
   if (opts.reservedRegistryId) {
     registryId = opts.reservedRegistryId;
-    updateRun(registryId, {
-      ...runMetadata,
-      startedAt: Date.now(),
-      kill,
-      result,
-    });
+    updateRun(registryId, { ...runMetadata, startedAt: Date.now(), kill });
     if (!getRun(registryId)) control.abortSession(true);
   } else {
     registryId = registerRun({
@@ -495,7 +479,6 @@ function attachRun(
     }).id;
   }
   attachRunSteer(registryId, steer);
-  result.registryId = registryId;
   return registryId;
 }
 
@@ -553,15 +536,14 @@ async function runSessionPrompt(
 /** Run one subagent in an isolated in-process SDK session. */
 export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   const agent = opts.agents.find((entry) => entry.name === opts.agentName);
+  const result = acquireResult(opts, agent?.source ?? "unknown");
   if (!agent) {
     const available = opts.agents.map((entry) => `"${entry.name}"`).join(", ") || "none";
-    return createEarlyFailure(
-      opts,
-      "unknown",
+    return failedResult(
+      result,
       `Unknown agent: "${opts.agentName}". Available agents: ${available}.`,
     );
   }
-  const result = createRunningResult(opts, agent);
   const prepared = await createRunSession(opts, agent, result);
   if (!prepared) return result;
   const control = createRunControl(prepared.session);

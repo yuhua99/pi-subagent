@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../agents.ts";
-import { failedPlaceholderResult, reserveRunPlaceholders } from "./delegation.ts";
+import { failPlaceholder, reserveRunPlaceholders } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
   answerRunPendingQuestion,
@@ -117,7 +117,6 @@ export function createSubagentExecution(
 
   const completeSubagentRun = (id: string, result: SingleResult) => {
     if (!getRun(id)) return;
-    result.registryId = id;
     completeRun(id, result);
     cleanupManagedSessions(retainedSessionPaths());
   };
@@ -127,7 +126,7 @@ export function createSubagentExecution(
     if (!entry) return;
     completeSubagentRun(
       id,
-      failedPlaceholderResult(entry.result, "killed", "Subagent was killed before it started."),
+      failPlaceholder(entry.result, "killed", "Subagent was killed before it started."),
     );
   };
 
@@ -243,11 +242,11 @@ export function createSubagentExecution(
         const { placeholder, runOptions } = request;
         try {
           const result = await runAgent({ ...runOptions, signal, onQuestion: sendQuestion });
-          completeSubagentRun(result.registryId ?? runOptions.reservedRegistryId, result);
+          completeSubagentRun(runOptions.reservedRegistryId, result);
           return result;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          const result = failedPlaceholderResult(placeholder, "failed", message);
+          const result = failPlaceholder(placeholder, "failed", message);
           completeSubagentRun(runOptions.reservedRegistryId, result);
           return result;
         }
@@ -277,7 +276,7 @@ export function createSubagentExecution(
           if (placeholder.registryId && getRun(placeholder.registryId)) {
             completeSubagentRun(
               placeholder.registryId,
-              failedPlaceholderResult(placeholder, "failed", message),
+              failPlaceholder(placeholder, "failed", message),
             );
           }
         }

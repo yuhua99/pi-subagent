@@ -58,13 +58,7 @@ export async function executeControl(
   }
   if (invocation.action === "list") {
     const runs = listRuns();
-    const details: SubagentListDetails = {
-      action: "list",
-      results: runs.map((run) => ({
-        ...run.result,
-        registryId: run.id,
-      })),
-    };
+    const details: SubagentListDetails = { action: "list", results: runs.map((run) => run.result) };
     return {
       content: [
         {
