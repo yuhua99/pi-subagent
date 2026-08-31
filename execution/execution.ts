@@ -8,7 +8,6 @@ import {
   cancelResumeReservation,
   completeRun,
   getRun,
-  setRunPhase,
   bindToolCallRowInvalidate,
   listCompletedRuns,
   listRuns,
@@ -237,7 +236,6 @@ export function createSubagentExecution(
       setTaskSummary(registryId!, task, request.intent);
     }
 
-    for (const placeholder of placeholders) setRunPhase(placeholder.registryId!, "background");
     hasSpawned = true;
 
     const batchPromise = Promise.all(

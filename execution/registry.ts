@@ -28,14 +28,11 @@ export interface CompletedRun extends RunMetadata {
   result: SingleResult;
 }
 
-export type RunPhase = "foreground" | "background";
-
 export interface SubagentRun extends RunMetadata {
   id: string;
   agent: string;
   task: string;
   startedAt: number;
-  phase: RunPhase;
   result: SingleResult;
   kill: () => void;
   pendingQuestion?: {
@@ -86,7 +83,7 @@ function generateId(): string {
 }
 
 export function registerRun(
-  init: Omit<SubagentRun, "id" | "phase" | "steer" | "steers" | "onStatus" | "onStream">,
+  init: Omit<SubagentRun, "id" | "steer" | "steers" | "onStatus" | "onStream">,
 ): SubagentRun {
   const id = generateId();
   const statusSubs = new Set<() => void>();
@@ -96,7 +93,6 @@ export function registerRun(
   const state: RunState = {
     ...init,
     id,
-    phase: "foreground",
     lineageId: init.lineageId ?? id,
     steers,
     pendingSteers,
@@ -198,11 +194,6 @@ export function listRuns(): SubagentRun[] {
 function bindRowInvalidate(id: string, fn: () => void): void {
   const entry = running.get(id);
   if (entry) entry.rowInvalidate = fn;
-}
-
-export function setRunPhase(id: string, phase: RunPhase): void {
-  const entry = running.get(id);
-  if (entry) entry.phase = phase;
 }
 
 export function registerToolCallInvalidator(toolCallId: string, fn: () => void): void {
@@ -308,7 +299,7 @@ export function completeRun(id: string, result: SingleResult): void {
       clearTimeout(entry.streamTimer);
       entry.streamTimer = undefined;
     }
-    if (entry.phase === "background") entry.rowInvalidate?.();
+    entry.rowInvalidate?.();
     for (const fn of entry.statusSubs) fn();
     entry.streamSubs.clear();
     entry.rowInvalidate = undefined;
@@ -395,7 +386,7 @@ export function reserveResumeRun(
 
 export function cancelResumeReservation(id: string): boolean {
   const entry = running.get(id);
-  if (!entry?.sourceRunId || !entry.lineageId || entry.phase !== "foreground") return false;
+  if (!entry?.sourceRunId || !entry.lineageId) return false;
   running.delete(id);
   resumeLocks.delete(entry.lineageId);
   pruneToolCallRun(id);

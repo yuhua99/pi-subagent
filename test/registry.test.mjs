@@ -20,7 +20,6 @@ import {
   resolveLiveResult,
   rejectRunPendingQuestion,
   setRunPendingQuestion,
-  setRunPhase,
   setRunTaskSummary,
   bindToolCallRowInvalidate,
   cancelResumeReservation,
@@ -371,7 +370,7 @@ test("completeRun cancels a pending stream notification", async () => {
   assert.equal(calls, 0);
 });
 
-test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and background completion", () => {
+test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and completion", () => {
   cleanup();
   const run = registerRun(makeRun());
   let a = 0,
@@ -388,12 +387,6 @@ test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and backgrou
   assert.equal(a, 0);
   assert.equal(b, 1);
   completeRun(run.id, makeResult({ exitCode: 0 }));
-  assert.equal(b, 1);
-
-  const background = registerRun(makeRun());
-  bindToolCallRowInvalidate("second", background.id);
-  setRunPhase(background.id, "background");
-  completeRun(background.id, makeResult({ exitCode: 0 }));
   assert.equal(b, 2);
 });
 
@@ -435,7 +428,7 @@ test("tool call row invalidator is handed off to every parallel member", () => {
   cleanup();
 });
 
-test("background batch completion invalidates for each completed member", () => {
+test("batch completion invalidates for each completed member", () => {
   clearSessionState();
   const first = registerRun(makeRun());
   const second = registerRun(makeRun());
@@ -445,8 +438,6 @@ test("background batch completion invalidates for each completed member", () => 
   });
   bindToolCallRowInvalidate("background-batch", first.id);
   bindToolCallRowInvalidate("background-batch", second.id);
-  setRunPhase(first.id, "background");
-  setRunPhase(second.id, "background");
   completeRun(first.id, makeResult({ exitCode: 0 }));
   assert.equal(calls, 1);
   completeRun(second.id, makeResult({ exitCode: 0 }));
@@ -600,7 +591,7 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("cancelResumeReservation rolls back only foreground resume reservations", () => {
+test("cancelResumeReservation rolls back a reserved resume and frees its lineage", () => {
   clearSessionState();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-registry-"));
   const sessionPath = path.join(dir, "session.jsonl");
@@ -627,9 +618,6 @@ test("cancelResumeReservation rolls back only foreground resume reservations", (
   const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
   assert.equal("error" in retry, false);
   if ("error" in retry) return;
-  setRunPhase(retry.run.id, "background");
-  assert.equal(cancelResumeReservation(retry.run.id), false);
-  assert.equal(getRun(retry.run.id), retry.run);
   completeRun(retry.run.id, makeResult({ exitCode: 0 }));
   clearSessionState();
   fs.rmSync(dir, { recursive: true, force: true });

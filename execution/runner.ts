@@ -236,7 +236,6 @@ export interface RunAgentOptions {
   sourceRunId?: string;
   lineageId?: string;
   signal?: AbortSignal;
-  onSpawn?: (registryId: string) => void;
   onQuestion: (registryId: string, agentName: string, question: string) => void;
   reservedRegistryId?: string;
 }
@@ -498,7 +497,6 @@ function attachRun(
   }
   attachRunSteer(registryId, steer);
   result.registryId = registryId;
-  opts.onSpawn?.(registryId);
   return registryId;
 }
 
