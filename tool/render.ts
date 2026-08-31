@@ -83,7 +83,7 @@ function isRenderableResult(value: unknown): value is SingleResult {
   return (
     isRecord(value) &&
     typeof value.agent === "string" &&
-    typeof value.exitCode === "number" &&
+    typeof value.status === "string" &&
     Array.isArray(value.messages)
   );
 }
@@ -186,7 +186,7 @@ export function formatSubagentList(entries: SubagentRun[], now = Date.now()): st
 }
 
 function runningIdBadge(r: SingleResult, theme: { fg: ThemeFg }): string {
-  return r.exitCode === -1 && r.registryId ? theme.fg("dim", ` [${r.registryId}]`) : "";
+  return r.status === "running" && r.registryId ? theme.fg("dim", ` [${r.registryId}]`) : "";
 }
 
 function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
@@ -194,19 +194,14 @@ function taskSummarySuffix(r: SingleResult, theme: { fg: ThemeFg }): string {
 }
 
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
-  if (r.exitCode === -1) return theme.fg("warning", "○");
-  if (r.stopReason === "killed") return theme.fg("muted", "■");
+  if (r.status === "running") return theme.fg("warning", "○");
+  if (r.status === "killed") return theme.fg("muted", "■");
   return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
 function statusColor(r: SingleResult): ThemeColor {
-  return r.exitCode === -1
-    ? "muted"
-    : r.stopReason === "killed"
-      ? "muted"
-      : isResultError(r)
-        ? "error"
-        : "success";
+  if (r.status === "running" || r.status === "killed") return "muted";
+  return isResultError(r) ? "error" : "success";
 }
 
 function pendingQuestion(r: SingleResult): string | undefined {
@@ -219,18 +214,18 @@ function pendingQuestion(r: SingleResult): string | undefined {
 }
 
 function statusMessage(r: SingleResult): string {
-  if (r.exitCode === -1) return "running";
-  if (r.stopReason === "killed")
+  if (r.status === "running") return "running";
+  if (r.status === "killed")
     return r.errorMessage && r.errorMessage !== "Subagent was killed."
       ? `killed — ${r.errorMessage}`
       : "killed";
-  if (r.stopReason === "aborted" && isResultError(r))
+  if (r.status === "aborted")
     return r.errorMessage && r.errorMessage !== "Subagent was aborted."
       ? `aborted — ${r.errorMessage}`
       : "aborted";
-  if (isResultError(r)) {
+  if (r.status === "failed") {
     const detail = r.errorMessage || r.stopReason;
-    return `failed (exit ${r.exitCode})${detail ? ` — ${detail}` : ""}`;
+    return `failed${detail ? ` — ${detail}` : ""}`;
   }
   return "completed";
 }
@@ -429,7 +424,7 @@ export function renderInspectResult(
   const active = inspected.status === "running" || waitingForAnswer;
   const icon = active
     ? theme.fg("warning", waitingForAnswer ? "?" : "○")
-    : inspected.result.stopReason === "killed"
+    : inspected.result.status === "killed"
       ? theme.fg("muted", "■")
       : isResultError(inspected.result)
         ? theme.fg("error", "✗")

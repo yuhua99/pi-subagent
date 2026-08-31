@@ -32,7 +32,6 @@ import {
   type SingleResult,
   emptyUsage,
   getFinalAssistantMessage,
-  hasFinalAssistantOutput,
   normalizeCompletedResult,
 } from "../types.ts";
 
@@ -241,7 +240,7 @@ export interface RunAgentOptions {
 }
 
 function failedResult(result: SingleResult, message: string): SingleResult {
-  result.exitCode = 1;
+  result.status = "failed";
   result.stopReason = "error";
   result.errorMessage = message;
   result.stderr = message;
@@ -258,7 +257,7 @@ function createEarlyFailure(
     agent: opts.agentName,
     agentSource,
     task: opts.task,
-    exitCode: 1,
+    status: "failed",
     messages: [],
     stderr: message,
     usage: emptyUsage(),
@@ -274,7 +273,7 @@ function createRunningResult(opts: RunAgentOptions, agent: AgentConfig): SingleR
     agent: opts.agentName,
     agentSource: agent.source,
     task: opts.task,
-    exitCode: -1,
+    status: "running",
     messages: [],
     stderr: "",
     usage: emptyUsage(),
@@ -521,9 +520,7 @@ async function runSessionPrompt(
   }
 
   try {
-    if (control.state.wasKilled || control.state.wasAborted) {
-      result.exitCode = 130;
-    } else {
+    if (!control.state.wasKilled && !control.state.wasAborted) {
       try {
         await session.prompt(`Task: ${opts.task}`);
         const finalAssistant = getFinalAssistantMessage(result.messages);
@@ -533,11 +530,6 @@ async function runSessionPrompt(
           result.model = finalAssistant.model;
           result.stopReason = finalAssistant.stopReason;
           result.errorMessage = finalAssistant.errorMessage;
-          result.exitCode =
-            result.stopReason === "error" ||
-            (result.stopReason === "length" && !hasFinalAssistantOutput(result))
-              ? 1
-              : 0;
         }
       } catch (error) {
         failedResult(result, error instanceof Error ? error.message : String(error));
@@ -546,13 +538,8 @@ async function runSessionPrompt(
 
     const normalized = normalizeCompletedResult(
       result,
-      control.state.wasAborted || control.state.wasKilled,
+      control.state.wasKilled ? "killed" : control.state.wasAborted ? "aborted" : undefined,
     );
-    if (control.state.wasKilled && normalized.stopReason === "aborted") {
-      normalized.stopReason = "killed";
-      normalized.errorMessage = "Subagent was killed.";
-      if (normalized.stderr === "Subagent was aborted.") normalized.stderr = "Subagent was killed.";
-    }
     notifyStatus(registryId);
     return normalized;
   } finally {

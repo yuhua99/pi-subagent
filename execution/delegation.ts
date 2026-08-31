@@ -16,7 +16,7 @@ export function makeRunningPlaceholder(
     agent: agentName,
     agentSource: agents.find((a) => a.name === agentName)?.source ?? "unknown",
     task,
-    exitCode: -1,
+    status: "running",
     messages: [],
     stderr: "",
     usage: emptyUsage(),
@@ -26,13 +26,12 @@ export function makeRunningPlaceholder(
 
 export function failedPlaceholderResult(
   placeholder: SingleResult,
-  stopReason: "killed" | "error",
+  status: "killed" | "failed",
   message: string,
 ): SingleResult {
   return {
     ...placeholder,
-    exitCode: 1,
-    stopReason,
+    status,
     errorMessage: message,
     stderr: message,
   };

@@ -3,7 +3,7 @@ export function makeResult(overrides = {}) {
     agent: "a",
     agentSource: "user",
     task: "t",
-    exitCode: -1,
+    status: "running",
     messages: [],
     stderr: "",
     usage: {

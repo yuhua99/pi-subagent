@@ -35,8 +35,8 @@ function runningLabel(entry: SubagentRun, now: number): string {
 
 function completedLabel(entry: CompletedRun): string {
   const duration = formatElapsed(entry.finishedAt - entry.startedAt);
-  const icon = entry.result.stopReason === "killed" ? "■" : isResultError(entry.result) ? "✗" : "✓";
-  const abortedSuffix = entry.result.stopReason === "aborted" ? ABORTED_SUFFIX : "";
+  const icon = entry.result.status === "killed" ? "■" : isResultError(entry.result) ? "✗" : "✓";
+  const abortedSuffix = entry.result.status === "aborted" ? ABORTED_SUFFIX : "";
   return `${icon} [${entry.id}] ${entry.agent} — ${duration}${abortedSuffix}`;
 }
 

@@ -68,7 +68,7 @@ test("kill closure fires; getRun returns undefined after completeRun", () => {
   );
   getRun(run.id).kill();
   assert.equal(killed, true);
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   assert.equal(getRun(run.id), undefined);
   assert.equal(listRuns().length, 0);
 });
@@ -92,7 +92,7 @@ test("steer with an attached callback delivers immediately and records history",
     ["focus on tests"],
   );
   assert.equal(typeof run.steers[0].at, "number");
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   assert.deepEqual(listCompletedRuns()[0].steers, run.steers);
   cleanup();
 });
@@ -221,7 +221,7 @@ test("completeRun rejects a pending question", async () => {
     reject: answer.reject,
   });
 
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
 
   await assert.rejects(question, { message: "run completed" });
   assert.equal(run.pendingQuestion, undefined);
@@ -249,7 +249,7 @@ test("updateRun replaces result reference", () => {
   cleanup();
   const first = makeResult();
   const run = registerRun(makeRun({ result: first }));
-  const second = makeResult({ exitCode: 0 });
+  const second = makeResult({ status: "ok" });
   updateRun(run.id, { result: second });
   assert.equal(getRun(run.id).result, second);
   cleanup();
@@ -277,7 +277,7 @@ test("setRunTaskSummary stores a live run title on its result", () => {
 test("setRunTaskSummary stores a late completed title on its result", () => {
   clearSessionState();
   const run = registerRun(makeRun());
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   setRunTaskSummary(run.id, run.task, "Completed title");
   const completed = listCompletedRuns()[0];
   assert.equal(completed.result.taskSummary, "Completed title");
@@ -288,7 +288,7 @@ test("completeRun copies a live task summary onto its result", () => {
   clearSessionState();
   const run = registerRun(makeRun());
   setRunTaskSummary(run.id, run.task, "Completed title");
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   const completed = listCompletedRuns()[0];
   assert.equal(completed.result.taskSummary, "Completed title");
   clearSessionState();
@@ -296,7 +296,7 @@ test("completeRun copies a live task summary onto its result", () => {
 
 test("completeRun preserves an existing result task summary without a live run", () => {
   clearSessionState();
-  const result = makeResult({ exitCode: 1, taskSummary: "Existing title" });
+  const result = makeResult({ status: "failed", taskSummary: "Existing title" });
   completeRun("dead", result);
   assert.equal(listCompletedRuns()[0].result.taskSummary, "Existing title");
   clearSessionState();
@@ -309,7 +309,7 @@ test("completeRun retains status subscribers for late updates until unsubscribed
   const unsubscribe = run.onStatus(() => {
     calls++;
   });
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   assert.equal(calls, 1);
   notifyStatus(run.id);
   assert.equal(calls, 2);
@@ -365,7 +365,7 @@ test("completeRun cancels a pending stream notification", async () => {
     calls++;
   });
   notifyStream(run.id);
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   await sleep(40);
   assert.equal(calls, 0);
 });
@@ -386,7 +386,7 @@ test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and completi
   notifyStatus(run.id);
   assert.equal(a, 0);
   assert.equal(b, 1);
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   assert.equal(b, 2);
 });
 
@@ -438,9 +438,9 @@ test("batch completion invalidates for each completed member", () => {
   });
   bindToolCallRowInvalidate("background-batch", first.id);
   bindToolCallRowInvalidate("background-batch", second.id);
-  completeRun(first.id, makeResult({ exitCode: 0 }));
+  completeRun(first.id, makeResult({ status: "ok" }));
   assert.equal(calls, 1);
-  completeRun(second.id, makeResult({ exitCode: 0 }));
+  completeRun(second.id, makeResult({ status: "ok" }));
   assert.equal(calls, 2);
 });
 
@@ -449,7 +449,7 @@ test("resolveLiveResult is pure — accepts only one argument", () => {
   assert.equal(resolveLiveResult.length, 1);
   const live = makeResult();
   assert.deepEqual(resolveLiveResult(live), { result: live, stale: false });
-  const run = registerRun(makeRun({ result: makeResult({ exitCode: 0, agent: "done" }) }));
+  const run = registerRun(makeRun({ result: makeResult({ status: "ok", agent: "done" }) }));
   const placeholder = makeResult({ registryId: run.id });
   const resolved = resolveLiveResult(placeholder);
   assert.equal(resolved.stale, false);
@@ -462,7 +462,7 @@ test("getLiveStatus returns completed/running/stale correctly", () => {
   assert.equal(getLiveStatus("zzzz").kind, "stale");
   const run = registerRun(makeRun());
   assert.equal(getLiveStatus(run.id).kind, "running");
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   assert.equal(getLiveStatus(run.id).kind, "completed");
 });
 
@@ -475,7 +475,7 @@ test("clearSessionState clears session-scoped run and resume state", () => {
       sessionPath: "session",
     }),
   );
-  completeRun(source.id, makeResult({ exitCode: 0 }));
+  completeRun(source.id, makeResult({ status: "ok" }));
   const reservation = reserveResumeRun(
     source.id,
     "follow up",
@@ -494,7 +494,7 @@ test("clearSessionState clears session-scoped run and resume state", () => {
 
 test("completeRun works even when id is not in running (early-error path)", () => {
   cleanup();
-  const r = makeResult({ exitCode: 1 });
+  const r = makeResult({ status: "failed" });
   completeRun("dead", r);
   assert.equal(getLiveStatus("dead").kind, "completed");
 });
@@ -512,7 +512,7 @@ test("resume reservations require a successful completed run in the same parent 
       workingDirectory: dir,
     }),
   );
-  completeRun(source.id, makeResult({ exitCode: 0 }));
+  completeRun(source.id, makeResult({ status: "ok" }));
 
   const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {});
   assert.equal("error" in reservation, false);
@@ -526,11 +526,11 @@ test("resume reservations require a successful completed run in the same parent 
     true,
   );
 
-  completeRun(reservation.run.id, makeResult({ exitCode: 1 }));
+  completeRun(reservation.run.id, makeResult({ status: "failed" }));
   const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
   assert.equal("error" in retry, false);
   if ("error" in retry) return;
-  completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+  completeRun(retry.run.id, makeResult({ status: "ok" }));
   const descendant = listCompletedRuns().find((entry) => entry.id === retry.run.id);
   assert.equal(descendant?.sourceRunId, source.id);
   const second = reserveResumeRun(
@@ -541,7 +541,7 @@ test("resume reservations require a successful completed run in the same parent 
     () => {},
   );
   assert.equal("error" in second, false);
-  if (!("error" in second)) completeRun(second.run.id, makeResult({ exitCode: 0 }));
+  if (!("error" in second)) completeRun(second.run.id, makeResult({ status: "ok" }));
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -557,7 +557,7 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
       sessionPath,
     }),
   );
-  completeRun(source.id, makeResult({ exitCode: 1 }));
+  completeRun(source.id, makeResult({ status: "failed" }));
   assert.match(
     reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {}).error,
     /successfully completed/,
@@ -570,7 +570,7 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
       sessionPath,
     }),
   );
-  completeRun(foreign.id, makeResult({ exitCode: 0 }));
+  completeRun(foreign.id, makeResult({ status: "ok" }));
   assert.match(
     reserveResumeRun(foreign.id, "follow up", "parent", fs.existsSync, () => {}).error,
     /different parent/,
@@ -583,7 +583,7 @@ test("resume reservations reject failed, foreign-session, and missing-session ru
       sessionPath: path.join(dir, "missing.jsonl"),
     }),
   );
-  completeRun(missing.id, makeResult({ exitCode: 0 }));
+  completeRun(missing.id, makeResult({ status: "ok" }));
   assert.match(
     reserveResumeRun(missing.id, "follow up", "parent", fs.existsSync, () => {}).error,
     /retain a session/,
@@ -603,7 +603,7 @@ test("cancelResumeReservation rolls back a reserved resume and frees its lineage
       sessionPath,
     }),
   );
-  completeRun(source.id, makeResult({ exitCode: 0 }));
+  completeRun(source.id, makeResult({ status: "ok" }));
 
   const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, () => {});
   assert.equal("error" in reservation, false);
@@ -618,7 +618,7 @@ test("cancelResumeReservation rolls back a reserved resume and frees its lineage
   const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
   assert.equal("error" in retry, false);
   if ("error" in retry) return;
-  completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+  completeRun(retry.run.id, makeResult({ status: "ok" }));
   clearSessionState();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -635,13 +635,13 @@ test("killing a reserved resume removes it and releases its lineage lock", () =>
       sessionPath,
     }),
   );
-  completeRun(source.id, makeResult({ exitCode: 0 }));
+  completeRun(source.id, makeResult({ status: "ok" }));
 
   let killCalls = 0;
   const onKill = (id) => {
     killCalls++;
     const entry = getRun(id);
-    if (entry) completeRun(id, { ...entry.result, exitCode: 1, stopReason: "killed" });
+    if (entry) completeRun(id, { ...entry.result, status: "killed" });
   };
   const reservation = reserveResumeRun(source.id, "follow up", "parent", fs.existsSync, onKill);
   assert.equal("error" in reservation, false);
@@ -651,12 +651,12 @@ test("killing a reserved resume removes it and releases its lineage lock", () =>
   assert.equal(killCalls, 2);
   assert.equal(getRun(reservation.run.id), undefined);
   assert.equal(
-    listCompletedRuns().find((entry) => entry.id === reservation.run.id)?.result.stopReason,
+    listCompletedRuns().find((entry) => entry.id === reservation.run.id)?.result.status,
     "killed",
   );
 
   const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, onKill);
   assert.equal("error" in retry, false);
-  if (!("error" in retry)) completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+  if (!("error" in retry)) completeRun(retry.run.id, makeResult({ status: "ok" }));
   fs.rmSync(dir, { recursive: true, force: true });
 });

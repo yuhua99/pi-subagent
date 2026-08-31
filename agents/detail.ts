@@ -328,17 +328,17 @@ export function showAgentsDetail(
           const finishedAt = completed?.finishedAt ?? entry.finishedAt;
           const taskSummary = result.taskSummary;
           steers = live?.steers ?? completedSteers ?? steers;
-          if (result.exitCode !== -1 && timer) {
+          if (result.status !== "running" && timer) {
             clearInterval(timer);
             timer = undefined;
           }
           const contentWidth = width - 4;
-          const running = Boolean(live && result.exitCode === -1);
+          const running = Boolean(live && result.status === "running");
           if (!running && activePane === "input") activePane = "transcript";
           updateInputFocus();
           const icon = running
             ? theme.fg("warning", "○")
-            : result.stopReason === "killed"
+            : result.status === "killed"
               ? theme.fg("muted", "■")
               : isResultError(result)
                 ? theme.fg("error", "✗")

@@ -247,7 +247,7 @@ export function createSubagentExecution(
           return result;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          const result = failedPlaceholderResult(placeholder, "error", message);
+          const result = failedPlaceholderResult(placeholder, "failed", message);
           completeSubagentRun(runOptions.reservedRegistryId, result);
           return result;
         }
@@ -277,7 +277,7 @@ export function createSubagentExecution(
           if (placeholder.registryId && getRun(placeholder.registryId)) {
             completeSubagentRun(
               placeholder.registryId,
-              failedPlaceholderResult(placeholder, "error", message),
+              failedPlaceholderResult(placeholder, "failed", message),
             );
           }
         }

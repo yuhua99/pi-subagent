@@ -360,7 +360,7 @@ export function reserveResumeRun(
     agent: source.agent,
     agentSource: source.result.agentSource,
     task,
-    exitCode: -1,
+    status: "running",
     messages: [],
     stderr: "",
     usage: emptyUsage(),
@@ -416,7 +416,7 @@ export interface ResolvedResult {
  * side effects on the registry.
  */
 export function resolveLiveResult(r: SingleResult): ResolvedResult {
-  if (r.exitCode !== -1 || !r.registryId) return { result: r, stale: false };
+  if (r.status !== "running" || !r.registryId) return { result: r, stale: false };
   const status = getLiveStatus(r.registryId);
   if (status.kind === "stale") return { result: r, stale: true };
   return { result: status.result, stale: false };

@@ -13,7 +13,7 @@ function makeResult(overrides = {}) {
     agent: "oracle",
     agentSource: "user",
     task: "repro",
-    exitCode: -1,
+    status: "running",
     messages: [],
     stderr: "",
     usage: {
@@ -31,7 +31,6 @@ function makeResult(overrides = {}) {
 
 test("normalizeCompletedResult keeps intermediate assistant output as a failure without agent_end", () => {
   const result = makeResult({
-    exitCode: 1,
     stopReason: "error",
     errorMessage: "Command exited with code 1",
     stderr: "Command exited with code 1",
@@ -44,16 +43,15 @@ test("normalizeCompletedResult keeps intermediate assistant output as a failure 
     ],
   });
 
-  normalizeCompletedResult(result, false);
+  normalizeCompletedResult(result);
 
-  assert.equal(result.exitCode, 1);
+  assert.equal(result.status, "failed");
   assert.equal(isResultSuccess(result), false);
   assert.equal(isResultError(result), true);
 });
 
-test("normalizeCompletedResult treats a clean completed transcript as success", () => {
+test("normalizeCompletedResult treats a clean completed transcript as success despite stderr noise", () => {
   const result = makeResult({
-    exitCode: 1,
     stderr: "Command exited with code 1",
     sawAgentEnd: true,
     messages: [
@@ -66,9 +64,9 @@ test("normalizeCompletedResult treats a clean completed transcript as success", 
     ],
   });
 
-  normalizeCompletedResult(result, false);
+  normalizeCompletedResult(result);
 
-  assert.equal(result.exitCode, 0);
+  assert.equal(result.status, "ok");
   assert.equal(result.stopReason, undefined);
   assert.equal(isResultSuccess(result), true);
   assert.equal(isResultError(result), false);
@@ -76,7 +74,6 @@ test("normalizeCompletedResult treats a clean completed transcript as success", 
 
 test("normalizeCompletedResult preserves provider errors with partial output", () => {
   const result = makeResult({
-    exitCode: 0,
     stopReason: "error",
     errorMessage: "Provider failed",
     messages: [
@@ -90,16 +87,15 @@ test("normalizeCompletedResult preserves provider errors with partial output", (
     ],
   });
 
-  normalizeCompletedResult(result, false);
+  normalizeCompletedResult(result);
 
-  assert.equal(result.exitCode, 1);
+  assert.equal(result.status, "failed");
   assert.equal(result.errorMessage, "Provider failed");
   assert.equal(isResultError(result), true);
 });
 
 test("normalizeCompletedResult rejects length stops without final text", () => {
   const result = makeResult({
-    exitCode: 0,
     stopReason: "length",
     messages: [
       {
@@ -111,17 +107,15 @@ test("normalizeCompletedResult rejects length stops without final text", () => {
     ],
   });
 
-  normalizeCompletedResult(result, false);
+  normalizeCompletedResult(result);
 
-  assert.equal(result.exitCode, 1);
+  assert.equal(result.status, "failed");
   assert.match(result.errorMessage, /output token limit/);
 });
 
 test("normalizeCompletedResult preserves semantic completion after an abort", () => {
   const result = makeResult({
-    exitCode: 130,
     stopReason: "aborted",
-    errorMessage: "Subagent was aborted.",
     sawAgentEnd: true,
     messages: [
       {
@@ -133,11 +127,22 @@ test("normalizeCompletedResult preserves semantic completion after an abort", ()
     ],
   });
 
-  normalizeCompletedResult(result, true);
+  normalizeCompletedResult(result, "aborted");
 
-  assert.equal(result.exitCode, 0);
+  assert.equal(result.status, "ok");
   assert.equal(result.stopReason, undefined);
   assert.equal(result.errorMessage, undefined);
+});
+
+test("normalizeCompletedResult reports a kill that produced no output", () => {
+  const result = makeResult({ stopReason: "aborted" });
+
+  normalizeCompletedResult(result, "killed");
+
+  assert.equal(result.status, "killed");
+  assert.equal(result.errorMessage, "Subagent was killed.");
+  assert.equal(result.stderr, "Subagent was killed.");
+  assert.equal(isResultError(result), true);
 });
 
 test("getFinalAssistantText falls back past a non-text final assistant message", () => {

@@ -18,7 +18,7 @@ test("steer rejects completed run ids", () => {
   clearSessionState();
   const execution = createSubagentExecution({});
   const run = registerRun(makeRun());
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
 
   assert.deepEqual(execution.steer(run.id, "continue"), {
     error: `Subagent [${run.id}] already finished. Use the subagent tool with { requests: [{ action: "resume", resume_id: "${run.id}", task }] } instead.`,
@@ -51,7 +51,7 @@ test("mixed requests roll back earlier resume reservations when a later lineage 
       sessionPath,
     }),
   );
-  completeRun(source.id, makeResult({ exitCode: 0 }));
+  completeRun(source.id, makeResult({ status: "ok" }));
   let sentMessages = 0;
   const execution = createSubagentExecution({ sendMessage: () => sentMessages++ }, () => [
     {
@@ -91,7 +91,7 @@ test("mixed requests roll back earlier resume reservations when a later lineage 
 
   const retry = reserveResumeRun(source.id, "retry", "parent", fs.existsSync, () => {});
   assert.equal("error" in retry, false);
-  if (!("error" in retry)) completeRun(retry.run.id, makeResult({ exitCode: 0 }));
+  if (!("error" in retry)) completeRun(retry.run.id, makeResult({ status: "ok" }));
   clearSessionState();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -186,7 +186,7 @@ test("inspect returns retained state with heuristic activity", async () => {
   completeRun(
     run.id,
     makeResult({
-      exitCode: 0,
+      status: "ok",
       messages: [{ role: "assistant", content: [{ type: "text", text: "Completed the task." }] }],
     }),
   );

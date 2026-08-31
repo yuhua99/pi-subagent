@@ -153,7 +153,7 @@ test("renderCtlResult shows inspect status, agent, and activity", () => {
           activitySummary: "Reading the repository.",
           startedAt: 0,
           status: "running",
-          result: { agent: "worker", exitCode: -1, messages: [] },
+          result: { agent: "worker", status: "running", messages: [] },
         },
       },
     },
@@ -232,7 +232,7 @@ test("renderCtlResult list shares resolved rows and drops completed runs", () =>
   const live = renderCtlResult(result, undefined, theme).render(200).join("\n");
   assert.match(live, new RegExp(`worker — review files \\[${run.id}\\] ○ running`));
   assert.match(live, /ghost — review files \[dead\] ◌ finished — result delivered separately/);
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   const after = renderCtlResult(result, undefined, theme).render(200).join("\n");
   assert.doesNotMatch(after, /worker/);
   assert.match(after, /ghost — review files \[dead\] ◌ finished — result delivered separately/);
@@ -248,7 +248,7 @@ test("renderCtlResult list keeps evicted completed placeholders stale", () => {
     content: [{ type: "text", text: "unused" }],
     details: { action: "list", results: [storedResult] },
   };
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   clearSessionState();
   const output = renderCtlResult(result, undefined, theme).render(200).join("\n");
   assert.match(
@@ -275,7 +275,7 @@ test("renderCtlResult list invalidates when a listed run completes", () => {
     renderCtlResult(result, undefined, theme, context).render(200).join("\n"),
     /running/,
   );
-  completeRun(run.id, makeResult({ exitCode: 0 }));
+  completeRun(run.id, makeResult({ status: "ok" }));
   assert.equal(invalidations, 1);
   assert.equal(
     renderCtlResult(result, undefined, theme, context).render(200).join("\n").trim(),
@@ -289,7 +289,7 @@ test("renderResult shows task summary without registry id", () => {
     {
       content: [{ type: "text", text: "unused" }],
       details: {
-        results: [{ agent: "worker", exitCode: 0, messages: [], taskSummary: "review files" }],
+        results: [{ agent: "worker", status: "ok", messages: [], taskSummary: "review files" }],
       },
     },
     theme,
@@ -301,7 +301,7 @@ test("renderResult keeps normal subagent result rendering", () => {
   const component = renderResult(
     {
       content: [{ type: "text", text: "unused" }],
-      details: { results: [{ agent: "worker", exitCode: 0, messages: [] }] },
+      details: { results: [{ agent: "worker", status: "ok", messages: [] }] },
     },
     theme,
   );

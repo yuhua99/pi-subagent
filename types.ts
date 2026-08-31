@@ -20,13 +20,16 @@ export interface UsageStats {
   turns: number;
 }
 
+/** Outcome of a subagent run. `running` until the run settles. */
+export type RunStatus = "running" | "ok" | "failed" | "aborted" | "killed";
+
 /** Result of a single subagent invocation. */
 export interface SingleResult {
   agent: string;
   agentSource: "user" | "project" | "unknown";
   task: string;
   taskSummary?: string;
-  exitCode: number;
+  status: RunStatus;
   messages: Message[];
   stderr: string;
   usage: UsageStats;
@@ -117,50 +120,40 @@ export function hasSemanticCompletion(r: Pick<SingleResult, "messages" | "sawAge
 }
 
 /** Whether a result should be treated as successful by the wrapper/UI. */
-export function isResultSuccess(r: SingleResult): boolean {
-  if (
-    r.exitCode === -1 ||
-    r.stopReason === "error" ||
-    r.stopReason === "aborted" ||
-    r.stopReason === "killed"
-  )
-    return false;
-  if (hasSemanticCompletion(r)) return true;
-  return r.exitCode === 0;
+export function isResultSuccess(r: Pick<SingleResult, "status">): boolean {
+  return r.status === "ok";
 }
 
-/** Whether a result represents an error. */
-export function isResultError(r: SingleResult): boolean {
-  if (r.exitCode === -1) return false;
-  return !isResultSuccess(r);
+/** Whether a result settled badly. A still-running result is neither success nor error. */
+export function isResultError(r: Pick<SingleResult, "status">): boolean {
+  return r.status === "failed" || r.status === "aborted" || r.status === "killed";
 }
 
-/** Reconcile execution status with semantic completion observed from Pi's event stream. */
-export function normalizeCompletedResult(result: SingleResult, wasAborted: boolean): SingleResult {
+/** Settle a run's status, reconciling interrupts with semantic completion from Pi's event stream. */
+export function normalizeCompletedResult(
+  result: SingleResult,
+  interrupt?: "aborted" | "killed",
+): SingleResult {
   result.partialMessage = undefined;
-  const hasSemanticSuccess = hasSemanticCompletion(result);
 
-  if (wasAborted) {
-    if (hasSemanticSuccess) {
-      result.exitCode = 0;
+  if (interrupt) {
+    if (hasSemanticCompletion(result)) {
+      result.status = "ok";
       if (result.stopReason === "aborted") result.stopReason = undefined;
-      if (result.errorMessage === "Subagent was aborted.") {
-        result.errorMessage = undefined;
-      }
-    } else {
-      result.exitCode = 130;
-      result.stopReason = "aborted";
-      result.errorMessage = "Subagent was aborted.";
-      if (!result.stderr.trim()) result.stderr = "Subagent was aborted.";
+      return result;
     }
+    const message = interrupt === "killed" ? "Subagent was killed." : "Subagent was aborted.";
+    result.status = interrupt;
+    result.errorMessage = message;
+    if (!result.stderr.trim()) result.stderr = message;
     return result;
   }
 
-  const finalFailure =
+  if (
     result.stopReason === "error" ||
-    (result.stopReason === "length" && !hasFinalAssistantOutput(result));
-  if (finalFailure) {
-    result.exitCode = 1;
+    (result.stopReason === "length" && !hasFinalAssistantOutput(result))
+  ) {
+    result.status = "failed";
     if (!result.errorMessage) {
       result.errorMessage =
         result.stopReason === "length"
@@ -171,16 +164,7 @@ export function normalizeCompletedResult(result: SingleResult, wasAborted: boole
     return result;
   }
 
-  if (result.exitCode > 0) {
-    if (hasSemanticSuccess) {
-      result.exitCode = 0;
-      if (result.errorMessage === result.stderr.trim()) result.errorMessage = undefined;
-    } else {
-      if (!result.stopReason) result.stopReason = "error";
-      if (!result.errorMessage && result.stderr.trim()) result.errorMessage = result.stderr.trim();
-    }
-  }
-
+  result.status = "ok";
   return result;
 }
 
@@ -189,11 +173,6 @@ export function getResultSummaryText(result: SingleResult): string {
   const finalText = getFinalAssistantText(result.messages);
   if (finalText) return finalText;
   if (result.errorMessage?.trim()) return result.errorMessage.trim();
-  if (
-    (result.exitCode > 0 || result.stopReason === "error" || result.stopReason === "aborted") &&
-    result.stderr.trim()
-  ) {
-    return result.stderr.trim();
-  }
+  if (isResultError(result) && result.stderr.trim()) return result.stderr.trim();
   return "(no output)";
 }
