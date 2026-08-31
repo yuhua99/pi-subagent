@@ -3,7 +3,6 @@ import type { AgentConfig } from "../agents.ts";
 import { failPlaceholder, reserveRunPlaceholders } from "./delegation.ts";
 import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
 import {
-  answerRunPendingQuestion,
   clearSessionState,
   cancelResumeReservation,
   completeRun,
@@ -348,18 +347,11 @@ export function createSubagentExecution(
   return {
     execute,
     async executeControl(invocation, ctx, signal) {
-      return executeControlAction(
-        invocation,
-        ctx,
-        signal,
-        () => hasSpawned,
+      return executeControlAction(invocation, ctx, signal, {
+        hasSpawned: () => hasSpawned,
         kill,
         steer,
-        listRuns,
-        getRun,
-        listCompletedRuns,
-        answerRunPendingQuestion,
-      );
+      });
     },
     kill,
     steer,

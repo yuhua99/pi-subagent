@@ -7,27 +7,34 @@ import type {
   SubagentListDetails,
 } from "../types.ts";
 import type { SubagentCtlInvocation } from "../tool/schema.ts";
-import type { CompletedRun, SubagentRun } from "./registry.ts";
+import {
+  answerRunPendingQuestion,
+  getRun,
+  listCompletedRuns,
+  listRuns,
+  type SubagentRun,
+} from "./registry.ts";
 
 export interface ControlResult {
   content: Array<{ type: "text"; text: string }>;
   details: SubagentCtlDetails | SubagentListDetails | SubagentInspectDetails;
 }
 
+/** Turn-scoped state and run control owned by the execution facade, not the registry. */
+export interface ControlDeps {
+  hasSpawned: () => boolean;
+  kill: (id: string) => SubagentRun | undefined;
+  steer: (id: string, text: string) => SubagentRun | { error: string };
+}
+
 export async function executeControl(
   invocation: SubagentCtlInvocation,
   ctx: Pick<ExtensionContext, "modelRegistry">,
   signal: AbortSignal | undefined,
-  hasSpawned: () => boolean,
-  kill: (id: string) => SubagentRun | undefined,
-  steer: (id: string, text: string) => SubagentRun | { error: string },
-  listRuns: () => SubagentRun[],
-  getRun: (id: string) => SubagentRun | undefined,
-  listCompletedRuns: () => CompletedRun[],
-  answerRunPendingQuestion: (id: string, text: string) => boolean,
+  deps: ControlDeps,
 ): Promise<ControlResult> {
   if (
-    hasSpawned() &&
+    deps.hasSpawned() &&
     invocation.action === "list" &&
     !listRuns().some((run) => run.pendingQuestion)
   ) {
@@ -42,7 +49,7 @@ export async function executeControl(
     };
   }
   if (
-    hasSpawned() &&
+    deps.hasSpawned() &&
     invocation.action === "inspect" &&
     !getRun(invocation.id)?.pendingQuestion
   ) {
@@ -160,7 +167,7 @@ export async function executeControl(
     );
   }
   if (invocation.action === "kill") {
-    const entry = kill(invocation.id);
+    const entry = deps.kill(invocation.id);
     if (!entry) {
       const details: SubagentCtlDetails = {
         action: "kill",
@@ -191,7 +198,7 @@ export async function executeControl(
       details,
     };
   }
-  const entry = steer(invocation.id, invocation.text);
+  const entry = deps.steer(invocation.id, invocation.text);
   if ("error" in entry) {
     const details: SubagentCtlDetails = {
       action: "steer",
