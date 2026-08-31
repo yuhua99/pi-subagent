@@ -1,27 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatActivityContext, parseTaskSummaryConfig } from "../tool/task_summary.ts";
+import { formatActivityContext, parseSummaryModelConfig } from "../tool/activity_summary.ts";
 
 test("task summary config rejects a missing file", () => {
-  assert.equal(parseTaskSummaryConfig(undefined), undefined);
+  assert.equal(parseSummaryModelConfig(undefined), undefined);
 });
 
 test("task summary config rejects invalid JSON", () => {
-  assert.equal(parseTaskSummaryConfig("{"), undefined);
+  assert.equal(parseSummaryModelConfig("{"), undefined);
 });
 
 test("task summary config rejects invalid model strings", () => {
-  assert.equal(parseTaskSummaryConfig('{"summaryModel":"provider"}'), undefined);
-  assert.equal(parseTaskSummaryConfig('{"summaryModel":"/model"}'), undefined);
-  assert.equal(parseTaskSummaryConfig('{"summaryModel":"provider/"}'), undefined);
+  assert.equal(parseSummaryModelConfig('{"summaryModel":"provider"}'), undefined);
+  assert.equal(parseSummaryModelConfig('{"summaryModel":"/model"}'), undefined);
+  assert.equal(parseSummaryModelConfig('{"summaryModel":"provider/"}'), undefined);
 });
 
 test("task summary config accepts provider and model ids with slashes", () => {
-  assert.deepEqual(parseTaskSummaryConfig('{"summaryModel":"provider/model"}'), {
+  assert.deepEqual(parseSummaryModelConfig('{"summaryModel":"provider/model"}'), {
     provider: "provider",
     id: "model",
   });
-  assert.deepEqual(parseTaskSummaryConfig('{"summaryModel":"openrouter/anthropic/claude-x"}'), {
+  assert.deepEqual(parseSummaryModelConfig('{"summaryModel":"openrouter/anthropic/claude-x"}'), {
     provider: "openrouter",
     id: "anthropic/claude-x",
   });
@@ -37,7 +37,7 @@ test("activity context formats assistant text, tool calls, and tool results", ()
           type: "toolCall",
           id: "call-1",
           name: "read",
-          arguments: { path: "tool/task_summary.ts" },
+          arguments: { path: "tool/activity_summary.ts" },
         },
       ],
     },
@@ -52,7 +52,7 @@ test("activity context formats assistant text, tool calls, and tool results", ()
 
   assert.match(context, /Task:\nInspect the repository/);
   assert.match(context, /assistant: I will inspect the files\./);
-  assert.match(context, /tool call: read\(path=tool\/task_summary\.ts\)/);
+  assert.match(context, /tool call: read\(path=tool\/activity_summary\.ts\)/);
   assert.match(context, /tool result: export function summarizeTask/);
 });
 

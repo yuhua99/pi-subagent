@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatSubagentList } from "../tool/render.ts";
-import { fallbackActivitySummary, summarizeActivity } from "../tool/task_summary.ts";
+import { fallbackActivitySummary, summarizeActivity } from "../tool/activity_summary.ts";
 import type {
   SubagentCtlDetails,
   SubagentInspectDetails,

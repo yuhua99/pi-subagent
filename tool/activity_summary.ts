@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getResultSummaryText, type SingleResult } from "../types.ts";
 
-export interface TaskSummaryModel {
+export interface SummaryModel {
   provider: string;
   id: string;
 }
@@ -18,9 +18,9 @@ const ACTIVITY_CONTEXT_LIMIT = 6_000;
 const ACTIVITY_SUMMARY_LIMIT = 300;
 
 let loaded = false;
-let summaryModel: TaskSummaryModel | undefined;
+let summaryModel: SummaryModel | undefined;
 
-export function parseTaskSummaryConfig(content: string | undefined): TaskSummaryModel | undefined {
+export function parseSummaryModelConfig(content: string | undefined): SummaryModel | undefined {
   if (content === undefined) return undefined;
   try {
     const config: unknown = JSON.parse(content);
@@ -117,7 +117,7 @@ export function formatActivityContext(task: string, messages: readonly Message[]
   return `${context}${activities.map((activity) => `\n${truncate(activity, activityLimit)}`).join("")}`;
 }
 
-function getSummaryModel(): TaskSummaryModel | undefined {
+function getSummaryModel(): SummaryModel | undefined {
   if (!loaded) {
     loaded = true;
     try {
@@ -125,7 +125,7 @@ function getSummaryModel(): TaskSummaryModel | undefined {
         process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
         "subagent.json",
       );
-      summaryModel = parseTaskSummaryConfig(readFileSync(configPath, "utf-8"));
+      summaryModel = parseSummaryModelConfig(readFileSync(configPath, "utf-8"));
     } catch {}
   }
   return summaryModel;

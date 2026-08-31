@@ -9,7 +9,7 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 - `index.ts` — tool registration and event wiring only
 - `agents/shell.ts` — shared overlay shell geometry (not a bash shell)
 - `tool/render.ts` — tool-row rendering only; rich detail belongs in `/agents`
-- `tool/task_summary.ts` — summary config; calls the LLM
+- `tool/activity_summary.ts` — activity summary config; calls the LLM
 - `types.ts` — shared types and small helpers; no I/O, no spawning
 - `test/` — `*.test.mjs` suites and fixtures; import `.ts` directly under `node --test` (no build step, no runtime TS syntax: enums, namespaces, parameter properties)
 
