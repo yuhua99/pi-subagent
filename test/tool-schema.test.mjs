@@ -20,12 +20,12 @@ test("subagent schema has a bounded request batch root", () => {
   assert.equal(requests.maxItems, MAX_REQUESTS);
   const [run, resume] = requests.items.anyOf;
   assert.equal(run.additionalProperties, false);
-  assert.deepEqual(run.required, ["action", "agent", "task", "intent"]);
-  assert.deepEqual(Object.keys(run.properties), ["action", "agent", "task", "intent", "cwd"]);
+  assert.deepEqual(run.required, ["action", "agent", "task", "title"]);
+  assert.deepEqual(Object.keys(run.properties), ["action", "agent", "task", "title", "cwd"]);
   assert.deepEqual(run.properties.action.enum, ["run"]);
   assert.equal(resume.additionalProperties, false);
-  assert.deepEqual(resume.required, ["action", "resume_id", "task", "intent"]);
-  assert.deepEqual(Object.keys(resume.properties), ["action", "resume_id", "task", "intent"]);
+  assert.deepEqual(resume.required, ["action", "resume_id", "task", "title"]);
+  assert.deepEqual(Object.keys(resume.properties), ["action", "resume_id", "task", "title"]);
   assert.deepEqual(resume.properties.action.enum, ["resume"]);
 });
 
@@ -40,45 +40,45 @@ test("subagent control schema has a required action", () => {
   assert.equal(SubagentCtlParams.properties.id.minLength, undefined);
 });
 
-test("subagent request validation accepts run, resume, mixed, intent, and cwd requests", () => {
+test("subagent request validation accepts run, resume, mixed, title, and cwd requests", () => {
   assert.deepEqual(
     parseSubagentInvocation({
-      requests: [{ action: "run", agent: "a", task: "t", intent: "Review files" }],
+      requests: [{ action: "run", agent: "a", task: "t", title: "Review files" }],
     }),
     {
-      requests: [{ action: "run", agent: "a", task: "t", intent: "Review files" }],
+      requests: [{ action: "run", agent: "a", task: "t", title: "Review files" }],
     },
   );
   assert.deepEqual(
     parseSubagentInvocation({
-      requests: [{ action: "resume", resume_id: "id", task: "t", intent: "Continue review" }],
+      requests: [{ action: "resume", resume_id: "id", task: "t", title: "Continue review" }],
     }),
-    { requests: [{ action: "resume", resume_id: "id", task: "t", intent: "Continue review" }] },
+    { requests: [{ action: "resume", resume_id: "id", task: "t", title: "Continue review" }] },
   );
   assert.deepEqual(
     parseSubagentInvocation({
       requests: [
-        { action: "run", agent: "a", task: "t", intent: "review", cwd: "/tmp" },
-        { action: "resume", resume_id: "id", task: "follow up", intent: "continue" },
+        { action: "run", agent: "a", task: "t", title: "review", cwd: "/tmp" },
+        { action: "resume", resume_id: "id", task: "follow up", title: "continue" },
       ],
     }),
     {
       requests: [
-        { action: "run", agent: "a", task: "t", intent: "review", cwd: "/tmp" },
-        { action: "resume", resume_id: "id", task: "follow up", intent: "continue" },
+        { action: "run", agent: "a", task: "t", title: "review", cwd: "/tmp" },
+        { action: "resume", resume_id: "id", task: "follow up", title: "continue" },
       ],
     },
   );
 });
 
 test("subagent request validation rejects legacy roots and invalid request branches", () => {
-  const run = { action: "run", agent: "a", task: "t", intent: "Review files" };
+  const run = { action: "run", agent: "a", task: "t", title: "Review files" };
   const cases = [
     [{ action: "run", agent: "a", task: "t" }, 'subagent requires only "requests"'],
     [{ action: "run", tasks: [run] }, 'subagent requires only "requests"'],
     [{ action: "run", tasks: '[{"agent":"a","task":"t"}]' }, 'subagent requires only "requests"'],
     [
-      { action: "resume", resume_id: "id", task: "t", intent: "i" },
+      { action: "resume", resume_id: "id", task: "t", title: "i" },
       'subagent requires only "requests"',
     ],
     [{ requests: [] }, 'subagent requires a non-empty "requests" array'],
@@ -88,52 +88,52 @@ test("subagent request validation rejects legacy roots and invalid request branc
     ],
     [{ requests: [{ ...run, extra: true }] }, "run request has unsupported fields"],
     [
-      { requests: [{ action: "run", task: "t", intent: "i" }] },
-      'run request requires "agent", "task", and "intent" strings',
+      { requests: [{ action: "run", task: "t", title: "i" }] },
+      'run request requires "agent", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "run", agent: "a", intent: "i" }] },
-      'run request requires "agent", "task", and "intent" strings',
+      { requests: [{ action: "run", agent: "a", title: "i" }] },
+      'run request requires "agent", "task", and "title" strings',
     ],
     [
       { requests: [{ action: "run", agent: "a", task: "t" }] },
-      'run request requires "agent", "task", and "intent" strings',
+      'run request requires "agent", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "run", agent: 1, task: "t", intent: "i" }] },
-      'run request requires "agent", "task", and "intent" strings',
+      { requests: [{ action: "run", agent: 1, task: "t", title: "i" }] },
+      'run request requires "agent", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "run", agent: "a", task: 1, intent: "i" }] },
-      'run request requires "agent", "task", and "intent" strings',
+      { requests: [{ action: "run", agent: "a", task: 1, title: "i" }] },
+      'run request requires "agent", "task", and "title" strings',
     ],
     [
-      { requests: [{ ...run, intent: 1 }] },
-      'run request requires "agent", "task", and "intent" strings',
+      { requests: [{ ...run, title: 1 }] },
+      'run request requires "agent", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "resume", resume_id: "id", task: "t", intent: "i", cwd: "/tmp" }] },
+      { requests: [{ action: "resume", resume_id: "id", task: "t", title: "i", cwd: "/tmp" }] },
       "resume request has unsupported fields",
     ],
     [
-      { requests: [{ action: "resume", task: "t", intent: "i" }] },
-      'resume request requires "resume_id", "task", and "intent" strings',
+      { requests: [{ action: "resume", task: "t", title: "i" }] },
+      'resume request requires "resume_id", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "resume", resume_id: "id", intent: "i" }] },
-      'resume request requires "resume_id", "task", and "intent" strings',
+      { requests: [{ action: "resume", resume_id: "id", title: "i" }] },
+      'resume request requires "resume_id", "task", and "title" strings',
     ],
     [
       { requests: [{ action: "resume", resume_id: "id", task: "t" }] },
-      'resume request requires "resume_id", "task", and "intent" strings',
+      'resume request requires "resume_id", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "resume", resume_id: 1, task: "t", intent: "i" }] },
-      'resume request requires "resume_id", "task", and "intent" strings',
+      { requests: [{ action: "resume", resume_id: 1, task: "t", title: "i" }] },
+      'resume request requires "resume_id", "task", and "title" strings',
     ],
     [
-      { requests: [{ action: "resume", resume_id: "id", task: 1, intent: "i" }] },
-      'resume request requires "resume_id", "task", and "intent" strings',
+      { requests: [{ action: "resume", resume_id: "id", task: 1, title: "i" }] },
+      'resume request requires "resume_id", "task", and "title" strings',
     ],
     [{ requests: [{ action: "other", task: "t" }] }, 'request action must be "run" or "resume"'],
   ];

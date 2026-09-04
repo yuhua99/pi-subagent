@@ -69,13 +69,13 @@ test("mixed requests roll back earlier resume reservations when a later lineage 
     "mixed-resume",
     {
       requests: [
-        { action: "run", agent: "worker", task: "new work", intent: "Start new work" },
-        { action: "resume", resume_id: source.id, task: "first follow up", intent: "Continue" },
+        { action: "run", agent: "worker", task: "new work", title: "Start new work" },
+        { action: "resume", resume_id: source.id, task: "first follow up", title: "Continue" },
         {
           action: "resume",
           resume_id: source.id,
           task: "conflicting follow up",
-          intent: "Conflict",
+          title: "Conflict",
         },
       ],
     },
@@ -266,7 +266,10 @@ test("list remains available for a pending question after a subagent starts", as
 
   const response = await execution.executeControl({ action: "list" }, summaryContext);
 
-  assert.match(response.content[0].text, new RegExp(`waiting_for_answer: \\[${run.id}\\] a: Which file should I edit\\?`));
+  assert.match(
+    response.content[0].text,
+    new RegExp(`waiting_for_answer: \\[${run.id}\\] a: Which file should I edit\\?`),
+  );
   assert.equal(response.details.results[0].registryId, run.id);
   clearSessionState();
 });
@@ -289,7 +292,9 @@ test("inspect remains available and shows a pending question after a subagent st
 
   assert.match(
     response.content[0].text,
-    new RegExp(`Subagent \\[${run.id}\\] \\(a\\) is waiting_for_answer\\.\\n\\nQuestion: Which file should I edit\\?`),
+    new RegExp(
+      `Subagent \\[${run.id}\\] \\(a\\) is waiting_for_answer\\.\\n\\nQuestion: Which file should I edit\\?`,
+    ),
   );
   assert.equal(response.details.result.status, "waiting_for_answer");
   clearSessionState();

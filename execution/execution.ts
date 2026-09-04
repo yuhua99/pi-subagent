@@ -47,7 +47,7 @@ interface ToolResult {
 
 interface PreparedRequest {
   placeholder: SingleResult;
-  intent: string;
+  title: string;
   runOptions: Omit<RunAgentOptions, "onQuestion" | "signal" | "reservedRegistryId"> & {
     reservedRegistryId: string;
   };
@@ -55,7 +55,7 @@ interface PreparedRequest {
 
 type PreparedBatch = { requests: PreparedRequest[] } | { error: string };
 
-const TASK_SUMMARY_INTENT_LIMIT = 60;
+const TASK_SUMMARY_TITLE_LIMIT = 60;
 
 interface SubagentExecution {
   execute(
@@ -95,10 +95,10 @@ export function createSubagentExecution(
       { triggerTurn: true, deliverAs: "steer" },
     );
   };
-  const setTaskSummary = (id: string, task: string, intent: string) => {
-    const summary = intent.replace(/\s+/g, " ").trim();
+  const setTaskSummary = (id: string, task: string, title: string) => {
+    const summary = title.replace(/\s+/g, " ").trim();
     if (!summary) return;
-    setRunTaskSummary(id, task, summary.slice(0, TASK_SUMMARY_INTENT_LIMIT));
+    setRunTaskSummary(id, task, summary.slice(0, TASK_SUMMARY_TITLE_LIMIT));
   };
 
   const retainedSessionPaths = () => {
@@ -187,7 +187,7 @@ export function createSubagentExecution(
           const placeholder = runPlaceholders[runIndex++]!;
           return {
             placeholder,
-            intent: request.intent,
+            title: request.title,
             runOptions: {
               cwd: defaultCwd,
               agents,
@@ -205,7 +205,7 @@ export function createSubagentExecution(
         const source = reservation.source;
         return {
           placeholder: reservation.run.result,
-          intent: request.intent,
+          title: request.title,
           runOptions: {
             cwd: source.workingDirectory ?? defaultCwd,
             agents,
@@ -231,7 +231,7 @@ export function createSubagentExecution(
     for (const request of requests) {
       const { registryId, task } = request.placeholder;
       bindToolCallRowInvalidate(toolCallId, registryId!);
-      setTaskSummary(registryId!, task, request.intent);
+      setTaskSummary(registryId!, task, request.title);
     }
 
     hasSpawned = true;

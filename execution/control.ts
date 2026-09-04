@@ -1,11 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatSubagentList } from "../tool/render.ts";
 import { fallbackActivitySummary, summarizeActivity } from "../tool/activity_summary.ts";
-import type {
-  SubagentCtlDetails,
-  SubagentInspectDetails,
-  SubagentListDetails,
-} from "../types.ts";
+import type { SubagentCtlDetails, SubagentInspectDetails, SubagentListDetails } from "../types.ts";
 import type { SubagentCtlInvocation } from "../tool/schema.ts";
 import {
   answerRunPendingQuestion,
@@ -108,11 +104,7 @@ export async function executeControl(
     const activitySummary =
       (await summarizeActivity(entry.task, entry.result.messages, ctx, signal)) ??
       fallbackActivitySummary(entry.result);
-    const status = live?.pendingQuestion
-      ? "waiting_for_answer"
-      : live
-        ? "running"
-        : "completed";
+    const status = live?.pendingQuestion ? "waiting_for_answer" : live ? "running" : "completed";
     const details: SubagentInspectDetails = {
       action: "inspect",
       id: invocation.id,
@@ -160,11 +152,7 @@ export async function executeControl(
         invocation.id,
       );
     }
-    return answerResult(
-      `Answered subagent [${entry.id}] (${entry.agent}).`,
-      entry.id,
-      entry.agent,
-    );
+    return answerResult(`Answered subagent [${entry.id}] (${entry.agent}).`, entry.id, entry.agent);
   }
   if (invocation.action === "kill") {
     const entry = deps.kill(invocation.id);
