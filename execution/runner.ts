@@ -8,6 +8,7 @@ import type { LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   createAgentSession,
+  createCodemodeExtension,
   defineTool,
   DefaultResourceLoader,
   getAgentDir,
@@ -199,6 +200,9 @@ async function createResourceLoader(
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: getAgentDir(),
+    extensionFactories: [
+      { name: "codemode", factory: createCodemodeExtension(), builtin: true, replaceable: true },
+    ],
     extensionsOverride: excludeSubagentExtensions,
     appendSystemPromptOverride: (base) =>
       agent.systemPrompt.trim() ? [...base, agent.systemPrompt] : base,
