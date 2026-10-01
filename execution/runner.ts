@@ -130,7 +130,7 @@ function addToolExecutionResult(
   event: {
     toolCallId?: string;
     toolName?: string;
-    result?: { content?: unknown; details?: unknown; usage?: unknown; addedToolNames?: unknown };
+    result?: { content?: unknown; details?: unknown; usage?: unknown };
     isError?: boolean;
   },
 ): boolean {
@@ -142,7 +142,6 @@ function addToolExecutionResult(
     content: event.result.content ?? [],
     details: event.result.details,
     usage: event.result.usage,
-    addedToolNames: event.result.addedToolNames,
     isError: event.isError,
     timestamp: Date.now(),
   } as Message);
@@ -159,7 +158,7 @@ export function processSessionEvent(
     toolResults?: Message[];
     toolCallId?: string;
     toolName?: string;
-    result?: { content?: unknown; details?: unknown; usage?: unknown; addedToolNames?: unknown };
+    result?: { content?: unknown; details?: unknown; usage?: unknown };
     isError?: boolean;
   };
 

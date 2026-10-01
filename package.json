@@ -17,8 +17,10 @@
     "typecheck": "oxlint --type-aware --type-check"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0",
-    "@earendil-works/pi-tui": "0.83.0",
+    "@earendil-works/pi-agent-core": "0.99.2",
+    "@earendil-works/pi-ai": "0.99.2",
+    "@earendil-works/pi-coding-agent": "0.99.2",
+    "@earendil-works/pi-tui": "0.99.2",
     "@types/node": "^25.2.3",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.69.0",
