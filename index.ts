@@ -9,7 +9,6 @@ import { type AgentConfig, discoverAgents } from "./agents.ts";
 import type { SubagentCtlDetails, SubagentDetails, SubagentListDetails } from "./types.ts";
 import { registerAgentsCommand } from "./agents/command.ts";
 import { createSubagentToggle } from "./agents/toggle.ts";
-import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./tool/render.ts";
 import { injectIntoSystemPrompt } from "./execution/prompt_injection.ts";
 import { createSubagentExecution } from "./execution/execution.ts";
 import { restoreRuns } from "./execution/run_history.ts";
@@ -78,7 +77,7 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent",
     description: TOOL_DESCRIPTION,
     parameters: SubagentParams,
-    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const invocation = parseSubagentInvocation(params);
       if ("error" in invocation) {
         return {
@@ -86,10 +85,8 @@ export default function (pi: ExtensionAPI) {
           details: undefined,
         };
       }
-      return execution.execute(toolCallId, invocation, ctx, signal);
+      return execution.execute(invocation, ctx, signal);
     },
-    renderCall: (args, theme, context) => renderCall(args, theme, context),
-    renderResult: (result, _options, theme) => renderResult(result, theme),
   });
 
   pi.registerTool<typeof SubagentCtlParams, SubagentToolDetails>({
@@ -107,8 +104,5 @@ export default function (pi: ExtensionAPI) {
       }
       return execution.executeControl(invocation);
     },
-    renderCall: (args, theme, context) => renderCtlCall(args, theme, context),
-    renderResult: (result, options, theme, context) =>
-      renderCtlResult(result, options, theme, context),
   });
 }

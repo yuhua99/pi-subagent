@@ -80,7 +80,7 @@ function errorMessage(error: unknown): string {
 
 /**
  * The run's canonical result object. A reserved run already owns one in the
- * registry; mutating it keeps the tool row, `/agents`, and the registry in sync.
+ * registry; mutating it keeps `/agents` and the registry in sync.
  */
 function acquireResult(
   opts: RunAgentOptions,

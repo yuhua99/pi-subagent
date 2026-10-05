@@ -22,7 +22,7 @@ export function makeRunningPlaceholder(
   };
 }
 
-/** Settle a run in place so the registry, the tool row, and `/agents` stay one object. */
+/** Settle a run in place so the registry and `/agents` stay one object. */
 export function failPlaceholder(
   result: SingleResult,
   status: "killed" | "failed",

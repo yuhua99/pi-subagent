@@ -8,15 +8,11 @@ import {
   clearSessionState,
   completeRun,
   listCompletedRuns,
-  getLiveStatus,
   getRun,
   listRuns,
-  notifyStatus,
   registerRun,
-  registerToolCallInvalidator,
   reserveResumeRun,
   setRunTaskSummary,
-  bindToolCallRowInvalidate,
   cancelResumeReservation,
   updateRun,
 } from "../execution/registry.ts";
@@ -126,105 +122,6 @@ test("completeRun preserves an existing result task summary without a live run",
   clearSessionState();
 });
 
-test("completeRun retains status subscribers for late updates until unsubscribed", () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let calls = 0;
-  const unsubscribe = run.onStatus(() => {
-    calls++;
-  });
-  completeRun(run.id, makeResult({ status: "ok" }));
-  assert.equal(calls, 1);
-  notifyStatus(run.id);
-  assert.equal(calls, 2);
-  unsubscribe();
-  notifyStatus(run.id);
-  assert.equal(calls, 2);
-});
-
-test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and completion", () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let a = 0,
-    b = 0;
-  registerToolCallInvalidator("first", () => {
-    a++;
-  });
-  registerToolCallInvalidator("second", () => {
-    b++;
-  });
-  bindToolCallRowInvalidate("first", run.id);
-  bindToolCallRowInvalidate("second", run.id);
-  notifyStatus(run.id);
-  assert.equal(a, 0);
-  assert.equal(b, 1);
-  completeRun(run.id, makeResult({ status: "ok" }));
-  assert.equal(b, 2);
-});
-
-test("tool call row invalidator handoff works in either registration order", () => {
-  clearSessionState();
-  const before = registerRun(makeRun());
-  let beforeCalls = 0;
-  registerToolCallInvalidator("before", () => {
-    beforeCalls++;
-  });
-  bindToolCallRowInvalidate("before", before.id);
-  notifyStatus(before.id);
-  assert.equal(beforeCalls, 1);
-
-  const after = registerRun(makeRun());
-  let afterCalls = 0;
-  bindToolCallRowInvalidate("after", after.id);
-  registerToolCallInvalidator("after", () => {
-    afterCalls++;
-  });
-  notifyStatus(after.id);
-  assert.equal(afterCalls, 1);
-  cleanup();
-});
-
-test("tool call row invalidator is handed off to every parallel member", () => {
-  clearSessionState();
-  const first = registerRun(makeRun());
-  const second = registerRun(makeRun());
-  let calls = 0;
-  bindToolCallRowInvalidate("batch", first.id);
-  bindToolCallRowInvalidate("batch", second.id);
-  registerToolCallInvalidator("batch", () => {
-    calls++;
-  });
-  notifyStatus(first.id);
-  notifyStatus(second.id);
-  assert.equal(calls, 2);
-  cleanup();
-});
-
-test("batch completion invalidates for each completed member", () => {
-  clearSessionState();
-  const first = registerRun(makeRun());
-  const second = registerRun(makeRun());
-  let calls = 0;
-  registerToolCallInvalidator("background-batch", () => {
-    calls++;
-  });
-  bindToolCallRowInvalidate("background-batch", first.id);
-  bindToolCallRowInvalidate("background-batch", second.id);
-  completeRun(first.id, makeResult({ status: "ok" }));
-  assert.equal(calls, 1);
-  completeRun(second.id, makeResult({ status: "ok" }));
-  assert.equal(calls, 2);
-});
-
-test("getLiveStatus returns completed/running/stale correctly", () => {
-  cleanup();
-  assert.equal(getLiveStatus("zzzz").kind, "stale");
-  const run = registerRun(makeRun());
-  assert.equal(getLiveStatus(run.id).kind, "running");
-  completeRun(run.id, makeResult({ status: "ok" }));
-  assert.equal(getLiveStatus(run.id).kind, "completed");
-});
-
 test("clearSessionState clears session-scoped run and resume state", () => {
   cleanup();
   const source = registerRun(
@@ -248,7 +145,6 @@ test("clearSessionState clears session-scoped run and resume state", () => {
   clearSessionState();
   assert.equal(listRuns().length, 0);
   assert.equal(listCompletedRuns().length, 0);
-  assert.equal(getLiveStatus(source.id).kind, "stale");
 });
 
 test("resume reservations require a successful completed run in the same parent session", () => {

@@ -7,7 +7,6 @@ Pi extension (`@yuhua99/pi-subagent`): adds subagent delegation tools and the `/
 One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `common.ts`, `shared.ts`); use domain names.
 
 - `index.ts` — tool registration and event wiring only
-- `tool/render.ts` — tool-row rendering only; rich detail lives in the child's herdr tab
 - `execution/runner.ts` — launches one child pi per run in a herdr tab; completes when herdr reports it idle
 - `execution/herdr.ts` — herdr CLI calls only
 - `execution/transcript.ts` — rebuilds a run's transcript and usage from the child's session file

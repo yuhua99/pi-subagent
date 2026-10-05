@@ -1,7 +1,7 @@
 /**
  * In-memory registry of subagent runs, keyed by short id. Each run exposes
  * a canonical live `result` object plus status subscribers used to notify
- * observers (tool rows, `/agents`) of state changes.
+ * observers of state changes.
  *
  * Completed runs are cached briefly so late lookups still resolve, and are
  * restored from the parent session on start (see run_history.ts).
@@ -43,30 +43,18 @@ export interface SubagentRun extends RunMetadata {
   onStatus(fn: () => void): () => void;
 }
 
-interface ToolCallInvalidation {
-  fn: () => void;
-  runIds: Set<string>;
-}
-
 interface RunState extends SubagentRun {
   pendingSteers: string[];
   steerCallback?: (text: string) => void;
   statusSubs: Set<() => void>;
-  rowInvalidate?: () => void;
 }
 
-interface CompletedRunState extends CompletedRun {
-  statusSubs?: Set<() => void>;
-  rowInvalidate?: () => void;
-}
 
 const MAX_COMPLETED = 50;
 
 const running = new Map<string, RunState>();
-const completed = new Map<string, CompletedRunState>();
+const completed = new Map<string, CompletedRun>();
 const resumeLocks = new Set<string>();
-const toolCallInvalidators = new Map<string, ToolCallInvalidation>();
-const pendingToolCallRuns = new Map<string, Set<string>>();
 
 function generateId(): string {
   let id: string;
@@ -148,66 +136,16 @@ export function listRuns(): SubagentRun[] {
   return [...running.values()];
 }
 
-function bindRowInvalidate(id: string, fn: () => void): void {
-  const entry = running.get(id);
-  if (entry) entry.rowInvalidate = fn;
-}
-
-export function registerToolCallInvalidator(toolCallId: string, fn: () => void): void {
-  if (toolCallInvalidators.has(toolCallId)) return;
-  const invalidation: ToolCallInvalidation = { fn, runIds: new Set() };
-  toolCallInvalidators.set(toolCallId, invalidation);
-  for (const id of pendingToolCallRuns.get(toolCallId) ?? []) {
-    bindRowInvalidate(id, fn);
-    invalidation.runIds.add(id);
-  }
-  pendingToolCallRuns.delete(toolCallId);
-}
-
-export function bindToolCallRowInvalidate(toolCallId: string, id: string): void {
-  const invalidation = toolCallInvalidators.get(toolCallId);
-  if (invalidation) {
-    bindRowInvalidate(id, invalidation.fn);
-    invalidation.runIds.add(id);
-    return;
-  }
-  let ids = pendingToolCallRuns.get(toolCallId);
-  if (!ids) {
-    ids = new Set();
-    pendingToolCallRuns.set(toolCallId, ids);
-  }
-  ids.add(id);
-}
-
-function pruneToolCallRun(id: string): void {
-  for (const [toolCallId, invalidation] of toolCallInvalidators) {
-    if (invalidation.runIds.delete(id) && invalidation.runIds.size === 0)
-      toolCallInvalidators.delete(toolCallId);
-  }
-  for (const [toolCallId, ids] of pendingToolCallRuns) {
-    ids.delete(id);
-    if (ids.size === 0) pendingToolCallRuns.delete(toolCallId);
-  }
-}
-
 export function notifyStatus(id: string): void {
   const entry = running.get(id);
-  if (entry) {
-    entry.rowInvalidate?.();
-    for (const fn of entry.statusSubs) fn();
-    return;
-  }
-  const done = completed.get(id);
-  if (!done) return;
-  done.rowInvalidate?.();
-  for (const fn of done.statusSubs ?? []) fn();
+  if (entry) for (const fn of entry.statusSubs) fn();
 }
 
 export function completeRun(id: string, result: SingleResult): CompletedRun {
   const entry = running.get(id);
   const finishedAt = Date.now();
   result.taskSummary ??= entry?.result.taskSummary;
-  const done: CompletedRunState = {
+  const done: CompletedRun = {
     id,
     agent: entry?.agent ?? result.agent,
     task: entry?.task ?? result.task,
@@ -220,23 +158,16 @@ export function completeRun(id: string, result: SingleResult): CompletedRun {
     sourceRunId: entry?.sourceRunId,
     lineageId: entry?.lineageId ?? id,
     result,
-    statusSubs: entry?.statusSubs,
-    rowInvalidate: entry?.rowInvalidate,
   };
   completed.set(id, done);
   if (entry?.sourceRunId && entry.lineageId) resumeLocks.delete(entry.lineageId);
   while (completed.size > MAX_COMPLETED) {
     const removed = completed.keys().next().value;
-    if (removed) {
-      completed.delete(removed);
-      pruneToolCallRun(removed);
-    }
+    if (removed) completed.delete(removed);
   }
   if (entry) {
     entry.pendingSteers.length = 0;
-    entry.rowInvalidate?.();
     for (const fn of entry.statusSubs) fn();
-    entry.rowInvalidate = undefined;
     running.delete(id);
   }
   return done;
@@ -255,8 +186,6 @@ export function clearSessionState(): void {
   running.clear();
   completed.clear();
   resumeLocks.clear();
-  toolCallInvalidators.clear();
-  pendingToolCallRuns.clear();
 }
 
 export interface ResumeReservation {
@@ -326,35 +255,5 @@ export function cancelResumeReservation(id: string): boolean {
   if (!entry?.sourceRunId || !entry.lineageId) return false;
   running.delete(id);
   resumeLocks.delete(entry.lineageId);
-  pruneToolCallRun(id);
   return true;
-}
-
-export function getLiveStatus(
-  id: string,
-):
-  | { kind: "completed"; result: SingleResult }
-  | { kind: "running"; result: SingleResult }
-  | { kind: "stale" } {
-  const done = completed.get(id);
-  if (done) return { kind: "completed", result: done.result };
-  const entry = running.get(id);
-  if (entry) return { kind: "running", result: entry.result };
-  return { kind: "stale" };
-}
-
-export interface ResolvedResult {
-  result: SingleResult;
-  stale: boolean;
-}
-
-/**
- * Resolves a placeholder result to its live/completed state. Pure — has no
- * side effects on the registry.
- */
-export function resolveLiveResult(r: SingleResult): ResolvedResult {
-  if (r.status !== "running" || !r.registryId) return { result: r, stale: false };
-  const status = getLiveStatus(r.registryId);
-  if (status.kind === "stale") return { result: r, stale: true };
-  return { result: status.result, stale: false };
 }

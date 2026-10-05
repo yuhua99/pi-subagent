@@ -63,7 +63,6 @@ test("mixed requests roll back earlier resume reservations when a later lineage 
   ]);
 
   const response = await execution.execute(
-    "mixed-resume",
     {
       requests: [
         { action: "run", agent: "worker", task: "new work", title: "Start new work" },

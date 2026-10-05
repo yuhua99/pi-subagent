@@ -9,7 +9,6 @@ import {
   cancelResumeReservation,
   completeRun,
   getRun,
-  bindToolCallRowInvalidate,
   listCompletedRuns,
   listRuns,
   reserveResumeRun,
@@ -60,7 +59,6 @@ const TASK_SUMMARY_TITLE_LIMIT = 60;
 
 interface SubagentExecution {
   execute(
-    toolCallId: string,
     invocation: SubagentInvocation,
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
@@ -224,13 +222,11 @@ export function createSubagentExecution(
 
   const startBatch = (
     requests: PreparedRequest[],
-    toolCallId: string,
     signal?: AbortSignal,
   ): ToolResult => {
     const placeholders = requests.map((request) => request.placeholder);
     for (const request of requests) {
       const { registryId, task } = request.placeholder;
-      bindToolCallRowInvalidate(toolCallId, registryId!);
       setTaskSummary(registryId!, task, request.title);
       const run = getRun(registryId!);
       if (run) recordRun(pi, run);
@@ -306,7 +302,6 @@ export function createSubagentExecution(
   };
 
   const execute = async (
-    toolCallId: string,
     invocation: SubagentInvocation,
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
@@ -332,7 +327,7 @@ export function createSubagentExecution(
       };
     }
     ui = ctx.ui;
-    return startBatch(prepared.requests, toolCallId, signal);
+    return startBatch(prepared.requests, signal);
   };
 
   const kill = (id: string) => {

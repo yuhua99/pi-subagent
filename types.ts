@@ -39,18 +39,18 @@ export interface SingleResult {
   registryId?: string;
 }
 
-/** Metadata attached to every tool result for rendering. */
+/** Metadata attached to every tool result. */
 export interface SubagentDetails {
   results: SingleResult[];
 }
 
-/** Metadata attached to subagent_ctl list results for rendering. */
+/** Metadata attached to subagent_ctl list results. */
 export interface SubagentListDetails {
   action: "list";
   results: SingleResult[];
 }
 
-/** Metadata attached to subagent_ctl kill and steer results for rendering. */
+/** Metadata attached to subagent_ctl kill and steer results. */
 export interface SubagentCtlDetails {
   action: "kill" | "steer";
   id: string;
@@ -132,6 +132,14 @@ export function normalizeCompletedResult(
 
   result.status = "ok";
   return result;
+}
+
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 /** Summarize a result for a tool response. */

@@ -1,5 +1,4 @@
-import { formatSubagentList } from "../tool/render.ts";
-import type { SubagentCtlDetails, SubagentListDetails } from "../types.ts";
+import { formatElapsed, type SubagentCtlDetails, type SubagentListDetails } from "../types.ts";
 import type { SubagentCtlInvocation } from "../tool/schema.ts";
 import { listRuns, type SubagentRun } from "./registry.ts";
 
@@ -13,6 +12,17 @@ export interface ControlDeps {
   hasSpawned: () => boolean;
   kill: (id: string) => SubagentRun | undefined;
   steer: (id: string, text: string) => SubagentRun | { error: string };
+}
+
+function formatSubagentList(entries: SubagentRun[], now = Date.now()): string {
+  if (entries.length === 0) return "No subagents currently running.";
+  const lines: string[] = [`${entries.length} running subagent(s):`];
+  for (const e of entries) {
+    lines.push(
+      `[${e.id}] ${e.agent}${e.result.taskSummary ? ` — ${e.result.taskSummary}` : ""} — running ${formatElapsed(now - e.startedAt)}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 export function executeControl(

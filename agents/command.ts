@@ -2,8 +2,7 @@ import { type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works
 import { type AutocompleteItem } from "@earendil-works/pi-tui";
 import { closeTab, createTab, focusTab, startPi } from "../execution/herdr.ts";
 import { getRun, listCompletedRuns, listRuns } from "../execution/registry.ts";
-import { formatElapsed } from "../tool/render.ts";
-import { isResultError, type SubagentToggle } from "../types.ts";
+import { formatElapsed, isResultError, type SubagentToggle } from "../types.ts";
 
 const AGENT_TOGGLE_ARGUMENTS = ["on", "off", "enable", "disable"];
 
