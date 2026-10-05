@@ -14,7 +14,6 @@ import {
   closeTab,
   createTab,
   promptAgent,
-  setDisplayAgent,
   startPi,
   tabExists,
   waitAgent,
@@ -164,7 +163,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if ("error" in piArgs) return failedResult(result, piArgs.error);
 
   const startedAt = Date.now();
-  const agentName = `subagent-${registryId}`;
+  const agentName = `${agent.name}-${registryId}`;
   let tabId: string | undefined;
   let paneId: string | undefined;
   let tabClosed: Promise<void> | undefined;
@@ -214,7 +213,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     if (!interrupt) {
       const tab = await createTab({
         cwd: opts.taskCwd ?? opts.cwd,
-        label: result.taskSummary ? `${agent.name}: ${result.taskSummary}` : agent.name,
+        label: "[sub]",
         focus: false,
         env: { [DISABLED_ENV]: "1" },
       });
@@ -226,8 +225,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     }
     if (!interrupt) {
       started = true;
-      // Cosmetic: a failed sidebar label must not fail the run.
-      setDisplayAgent(paneId!, `↳ ${agent.name}`).catch(() => {});
       // Steers queued during startup must land after the task prompt.
       await untilInterrupted(promptAgent(paneId!, `Task: ${opts.task}`, ["working", "blocked"]));
     }

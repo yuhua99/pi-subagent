@@ -50,19 +50,6 @@ export async function startPi(name: string, paneId: string, piArgs: string[]): P
   await herdr(["agent", "start", name, "--kind", "pi", "--pane", paneId, "--", ...piArgs]);
 }
 
-/** Replace the agent name herdr's sidebar shows for a pane; display only. */
-export async function setDisplayAgent(paneId: string, text: string): Promise<void> {
-  await herdr([
-    "pane",
-    "report-metadata",
-    paneId,
-    "--source",
-    "pi-subagent",
-    "--display-agent",
-    text,
-  ]);
-}
-
 type AgentStatus = "idle" | "working" | "blocked" | "done";
 
 function untilArgs(states: AgentStatus[]): string[] {
