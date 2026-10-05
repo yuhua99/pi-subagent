@@ -3,7 +3,8 @@
  * a canonical live `result` object plus status subscribers used to notify
  * observers (tool rows, `/agents`) of state changes.
  *
- * Completed runs are cached briefly so late lookups still resolve.
+ * Completed runs are cached briefly so late lookups still resolve, and are
+ * restored from the parent session on start (see run_history.ts).
  */
 
 import { randomBytes } from "node:crypto";
@@ -202,11 +203,11 @@ export function notifyStatus(id: string): void {
   for (const fn of done.statusSubs ?? []) fn();
 }
 
-export function completeRun(id: string, result: SingleResult): void {
+export function completeRun(id: string, result: SingleResult): CompletedRun {
   const entry = running.get(id);
   const finishedAt = Date.now();
   result.taskSummary ??= entry?.result.taskSummary;
-  completed.set(id, {
+  const done: CompletedRunState = {
     id,
     agent: entry?.agent ?? result.agent,
     task: entry?.task ?? result.task,
@@ -221,7 +222,8 @@ export function completeRun(id: string, result: SingleResult): void {
     result,
     statusSubs: entry?.statusSubs,
     rowInvalidate: entry?.rowInvalidate,
-  });
+  };
+  completed.set(id, done);
   if (entry?.sourceRunId && entry.lineageId) resumeLocks.delete(entry.lineageId);
   while (completed.size > MAX_COMPLETED) {
     const removed = completed.keys().next().value;
@@ -237,6 +239,12 @@ export function completeRun(id: string, result: SingleResult): void {
     entry.rowInvalidate = undefined;
     running.delete(id);
   }
+  return done;
+}
+
+/** Seed completed runs restored from the parent session, oldest first. */
+export function restoreCompletedRuns(runs: CompletedRun[]): void {
+  for (const run of runs.slice(-MAX_COMPLETED)) completed.set(run.id, run);
 }
 
 export function listCompletedRuns(): CompletedRun[] {

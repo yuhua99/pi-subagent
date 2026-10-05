@@ -16,6 +16,7 @@ import {
   type ResumeReservation,
   type SubagentRun,
 } from "./registry.ts";
+import { recordRun } from "./run_history.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
 import { executeControl as executeControlAction } from "./control.ts";
 import {
@@ -71,7 +72,7 @@ interface SubagentExecution {
 }
 
 export function createSubagentExecution(
-  pi: Pick<ExtensionAPI, "sendMessage">,
+  pi: Pick<ExtensionAPI, "sendMessage" | "appendEntry">,
   getAgents: () => AgentConfig[],
 ): SubagentExecution {
   let hasSpawned = false;
@@ -86,7 +87,7 @@ export function createSubagentExecution(
 
   const completeSubagentRun = (id: string, result: SingleResult) => {
     if (!getRun(id)) return;
-    completeRun(id, result);
+    recordRun(pi, completeRun(id, result));
   };
 
   const onResumeKill = (id: string) => {
@@ -201,6 +202,8 @@ export function createSubagentExecution(
       const { registryId, task } = request.placeholder;
       bindToolCallRowInvalidate(toolCallId, registryId!);
       setTaskSummary(registryId!, task, request.title);
+      const run = getRun(registryId!);
+      if (run) recordRun(pi, run);
     }
 
     hasSpawned = true;

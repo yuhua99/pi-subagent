@@ -12,6 +12,7 @@ import { createSubagentToggle } from "./agents/toggle.ts";
 import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./tool/render.ts";
 import { injectIntoSystemPrompt } from "./execution/prompt_injection.ts";
 import { createSubagentExecution } from "./execution/execution.ts";
+import { restoreRuns } from "./execution/run_history.ts";
 import { DISABLED_ENV } from "./execution/runner.ts";
 import {
   CTL_TOOL_DESCRIPTION,
@@ -38,6 +39,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     toggle.restoreFromBranch(ctx.sessionManager.getBranch());
+    restoreRuns(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
 
     const discovery = discoverAgents(ctx.cwd, "both");
     discoveredAgents = discovery.agents;
