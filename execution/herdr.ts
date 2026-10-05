@@ -14,7 +14,8 @@ export function isInsideHerdr(): boolean {
 async function herdr(args: string[]): Promise<any> {
   try {
     const { stdout } = await execFileAsync("herdr", args);
-    return JSON.parse(stdout).result;
+    // Some commands (e.g. pane report-metadata) succeed with empty stdout.
+    return stdout.trim() ? JSON.parse(stdout).result : undefined;
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr?.trim() ?? "";
     let message = stderr || (error instanceof Error ? error.message : String(error));
@@ -47,6 +48,19 @@ export async function createTab(opts: {
 /** Start an interactive pi in a fresh tab's shell pane; resolves once herdr sees it ready. */
 export async function startPi(name: string, paneId: string, piArgs: string[]): Promise<void> {
   await herdr(["agent", "start", name, "--kind", "pi", "--pane", paneId, "--", ...piArgs]);
+}
+
+/** Replace the agent name herdr's sidebar shows for a pane; display only. */
+export async function setDisplayAgent(paneId: string, text: string): Promise<void> {
+  await herdr([
+    "pane",
+    "report-metadata",
+    paneId,
+    "--source",
+    "pi-subagent",
+    "--display-agent",
+    text,
+  ]);
 }
 
 type AgentStatus = "idle" | "working" | "blocked" | "done";

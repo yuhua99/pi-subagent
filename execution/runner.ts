@@ -2,7 +2,6 @@
  * Herdr-backed subagent runner: each run is an interactive pi in its own herdr tab.
  */
 
-import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -15,6 +14,7 @@ import {
   closeTab,
   createTab,
   promptAgent,
+  setDisplayAgent,
   startPi,
   tabExists,
   waitAgent,
@@ -164,8 +164,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if ("error" in piArgs) return failedResult(result, piArgs.error);
 
   const startedAt = Date.now();
-  // herdr agent names are unique per herdr server, which other parent pi sessions share.
-  const agentName = `subagent-${registryId}-${randomBytes(3).toString("hex")}`;
+  const agentName = `subagent-${registryId}`;
   let tabId: string | undefined;
   let paneId: string | undefined;
   let tabClosed: Promise<void> | undefined;
@@ -215,7 +214,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     if (!interrupt) {
       const tab = await createTab({
         cwd: opts.taskCwd ?? opts.cwd,
-        label: `${agent.name} ${registryId}`,
+        label: result.taskSummary ? `${agent.name}: ${result.taskSummary}` : agent.name,
         focus: false,
         env: { [DISABLED_ENV]: "1" },
       });
@@ -227,6 +226,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     }
     if (!interrupt) {
       started = true;
+      // Cosmetic: a failed sidebar label must not fail the run.
+      setDisplayAgent(paneId!, `↳ ${agent.name}`).catch(() => {});
       // Steers queued during startup must land after the task prompt.
       await untilInterrupted(promptAgent(paneId!, `Task: ${opts.task}`, ["working", "blocked"]));
     }
