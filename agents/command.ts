@@ -1,12 +1,48 @@
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type AutocompleteItem, type OverlayOptions } from "@earendil-works/pi-tui";
-import { showAgentsList } from "./list.ts";
+import { type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { type AutocompleteItem } from "@earendil-works/pi-tui";
 import { closeTab, createTab, focusTab, startPi } from "../execution/herdr.ts";
 import { getRun, listCompletedRuns, listRuns } from "../execution/registry.ts";
-import { type SubagentToggle } from "../types.ts";
+import { formatElapsed } from "../tool/render.ts";
+import { isResultError, type SubagentToggle } from "../types.ts";
 
-const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
 const AGENT_TOGGLE_ARGUMENTS = ["on", "off", "enable", "disable"];
+
+// The built-in selector cannot scroll, so keep the list within a short terminal.
+const MAX_LISTED_COMPLETED = 15;
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, 60);
+
+/** Pick a run, one line each, newest completed after running; resolves to its id. */
+async function pickRun(ctx: ExtensionCommandContext): Promise<string | undefined> {
+  const now = Date.now();
+  const running = listRuns();
+  const completed = listCompletedRuns().slice(0, MAX_LISTED_COMPLETED);
+  const rows = [
+    ...running.map((run) => ({
+      id: run.id,
+      label: `○ [${run.id}] ${run.agent} — ${formatElapsed(now - run.startedAt)} — ${run.result.taskSummary ?? oneLine(run.task)}`,
+    })),
+    ...completed.map((run) => {
+      const { status, usage, taskSummary } = run.result;
+      const icon = status === "killed" ? "■" : isResultError(run.result) ? "✗" : "✓";
+      const aborted = status === "aborted" ? " · aborted" : "";
+      const cost = usage.cost > 0 ? ` · $${usage.cost.toFixed(3)}` : "";
+      const duration = formatElapsed(run.finishedAt - run.startedAt);
+      return {
+        id: run.id,
+        label: `${icon} [${run.id}] ${run.agent} — ${duration}${aborted}${cost} — ${taskSummary ?? oneLine(run.task)}`,
+      };
+    }),
+  ];
+  if (rows.length === 0) {
+    ctx.ui.notify("No subagent runs.", "info");
+    return undefined;
+  }
+  const choice = await ctx.ui.select(
+    `Subagents — ${running.length} running · ${completed.length} completed`,
+    rows.map((row) => row.label),
+  );
+  return rows.find((row) => row.label === choice)?.id;
+}
 
 /** Focus a live run's tab, or reopen a finished run's session in a new tab. */
 async function openRun(id: string): Promise<string | undefined> {
@@ -80,15 +116,7 @@ export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) 
         return;
       }
 
-      const killedIds = new Set<string>();
-      const killRun = (id: string) => {
-        const run = getRun(id);
-        if (!run) return;
-        run.kill();
-        killedIds.add(id);
-      };
-
-      const selectedId = await showAgentsList(ctx, killedIds, killRun, AGENTS_OVERLAY_OPTIONS);
+      const selectedId = await pickRun(ctx);
       if (!selectedId) return;
       try {
         const notice = await openRun(selectedId);
