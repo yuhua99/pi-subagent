@@ -36,7 +36,6 @@ export interface SingleResult {
   model?: string;
   stopReason?: string;
   errorMessage?: string;
-  sawAgentEnd?: boolean;
   registryId?: string;
 }
 
@@ -93,11 +92,6 @@ export function hasFinalAssistantOutput(r: Pick<SingleResult, "messages">): bool
   );
 }
 
-/** Whether the child semantically completed the run. */
-export function hasSemanticCompletion(r: Pick<SingleResult, "messages" | "sawAgentEnd">): boolean {
-  return Boolean(r.sawAgentEnd) && hasFinalAssistantOutput(r);
-}
-
 /** Whether a result should be treated as successful by the wrapper/UI. */
 export function isResultSuccess(r: Pick<SingleResult, "status">): boolean {
   return r.status === "ok";
@@ -114,11 +108,6 @@ export function normalizeCompletedResult(
   interrupt?: "aborted" | "killed",
 ): SingleResult {
   if (interrupt) {
-    if (hasSemanticCompletion(result)) {
-      result.status = "ok";
-      if (result.stopReason === "aborted") result.stopReason = undefined;
-      return result;
-    }
     const message = interrupt === "killed" ? "Subagent was killed." : "Subagent was aborted.";
     result.status = interrupt;
     result.errorMessage = message;

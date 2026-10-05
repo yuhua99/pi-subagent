@@ -258,7 +258,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if (!interrupt && finalAssistant?.stopReason === "aborted") interrupt = "aborted";
   if (failure !== undefined) failedResult(result, failure);
   else if (!interrupt) {
-    result.sawAgentEnd = true;
     if (!finalAssistant) {
       failedResult(result, "Subagent completed without an assistant response.");
     } else {

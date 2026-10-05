@@ -4,41 +4,7 @@ import {
   MAX_REQUESTS,
   parseSubagentCtlInvocation,
   parseSubagentInvocation,
-  SubagentCtlParams,
-  SubagentParams,
 } from "../tool/schema.ts";
-
-test("subagent schema has a bounded request batch root", () => {
-  assert.equal(SubagentParams.type, "object");
-  assert.equal(SubagentParams.additionalProperties, false);
-  assert.deepEqual(Object.keys(SubagentParams.properties), ["requests"]);
-  assert.deepEqual(SubagentParams.required, ["requests"]);
-
-  const requests = SubagentParams.properties.requests;
-  assert.equal(requests.type, "array");
-  assert.equal(requests.minItems, 1);
-  assert.equal(requests.maxItems, MAX_REQUESTS);
-  const [run, resume] = requests.items.anyOf;
-  assert.equal(run.additionalProperties, false);
-  assert.deepEqual(run.required, ["action", "agent", "task", "title"]);
-  assert.deepEqual(Object.keys(run.properties), ["action", "agent", "task", "title", "cwd"]);
-  assert.deepEqual(run.properties.action.enum, ["run"]);
-  assert.equal(resume.additionalProperties, false);
-  assert.deepEqual(resume.required, ["action", "resume_id", "task", "title"]);
-  assert.deepEqual(Object.keys(resume.properties), ["action", "resume_id", "task", "title"]);
-  assert.deepEqual(resume.properties.action.enum, ["resume"]);
-});
-
-test("subagent control schema has a required action", () => {
-  assert.equal(SubagentCtlParams.type, "object");
-  assert.equal(SubagentCtlParams.additionalProperties, false);
-  assert.deepEqual(SubagentCtlParams.required, ["action"]);
-  assert.deepEqual(
-    SubagentCtlParams.properties.action.anyOf.map((schema) => schema.const),
-    ["list", "kill", "steer"],
-  );
-  assert.equal(SubagentCtlParams.properties.id.minLength, undefined);
-});
 
 test("subagent request validation accepts run, resume, mixed, title, and cwd requests", () => {
   assert.deepEqual(

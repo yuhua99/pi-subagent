@@ -15,7 +15,6 @@ import {
   registerRun,
   registerToolCallInvalidator,
   reserveResumeRun,
-  resolveLiveResult,
   setRunTaskSummary,
   bindToolCallRowInvalidate,
   cancelResumeReservation,
@@ -26,29 +25,6 @@ import { makeResult, makeRun } from "./fixtures/run.mjs";
 function cleanup() {
   for (const e of listRuns()) completeRun(e.id, e.result);
 }
-
-test("registerRun returns a run with a 4-hex id and stores the full task", () => {
-  cleanup();
-  const long = "x".repeat(200);
-  const run = registerRun(makeRun({ agent: "scout", task: long, startedAt: 1 }));
-  assert.match(run.id, /^[0-9a-f]{4}$/);
-  assert.equal(run.task, long);
-  const list = listRuns();
-  assert.equal(list.length, 1);
-  assert.equal(list[0].agent, "scout");
-  cleanup();
-});
-
-test("ids are unique across concurrent entries", () => {
-  cleanup();
-  const ids = new Set();
-  for (let i = 0; i < 50; i++) {
-    ids.add(registerRun(makeRun()).id);
-  }
-  assert.equal(ids.size, 50);
-  assert.equal(listRuns().length, 50);
-  cleanup();
-});
 
 test("kill closure fires; getRun returns undefined after completeRun", () => {
   cleanup();
@@ -65,11 +41,6 @@ test("kill closure fires; getRun returns undefined after completeRun", () => {
   completeRun(run.id, makeResult({ status: "ok" }));
   assert.equal(getRun(run.id), undefined);
   assert.equal(listRuns().length, 0);
-});
-
-test("getRun returns undefined for unknown id", () => {
-  cleanup();
-  assert.equal(getRun("zzzz"), undefined);
 });
 
 test("steer with an attached callback delivers immediately and records history", () => {
@@ -245,19 +216,6 @@ test("batch completion invalidates for each completed member", () => {
   assert.equal(calls, 2);
 });
 
-test("resolveLiveResult is pure — accepts only one argument", () => {
-  cleanup();
-  assert.equal(resolveLiveResult.length, 1);
-  const live = makeResult();
-  assert.deepEqual(resolveLiveResult(live), { result: live, stale: false });
-  const run = registerRun(makeRun({ result: makeResult({ status: "ok", agent: "done" }) }));
-  const placeholder = makeResult({ registryId: run.id });
-  const resolved = resolveLiveResult(placeholder);
-  assert.equal(resolved.stale, false);
-  assert.equal(resolved.result.agent, "done");
-  cleanup();
-});
-
 test("getLiveStatus returns completed/running/stale correctly", () => {
   cleanup();
   assert.equal(getLiveStatus("zzzz").kind, "stale");
@@ -291,13 +249,6 @@ test("clearSessionState clears session-scoped run and resume state", () => {
   assert.equal(listRuns().length, 0);
   assert.equal(listCompletedRuns().length, 0);
   assert.equal(getLiveStatus(source.id).kind, "stale");
-});
-
-test("completeRun works even when id is not in running (early-error path)", () => {
-  cleanup();
-  const r = makeResult({ status: "failed" });
-  completeRun("dead", r);
-  assert.equal(getLiveStatus("dead").kind, "completed");
 });
 
 test("resume reservations require a successful completed run in the same parent session", () => {

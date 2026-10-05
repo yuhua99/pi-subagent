@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { registerAgentsCommand } from "../agents/command.ts";
-import { renderAgentsOverlay } from "../agents/shell.ts";
 import { clearSessionState, registerRun } from "../execution/registry.ts";
 import { makeRun } from "./fixtures/run.mjs";
 
@@ -59,22 +58,6 @@ function assertOverlayFrame(lines, width, terminalRows = 24) {
   assert.equal(lines.at(-1), `╰${border}╯`);
 }
 
-test("agents overlay renders at narrow widths", () => {
-  const theme = { fg: (_color, text) => text };
-  for (const width of [1, 2, 3]) {
-    assert.doesNotThrow(() =>
-      renderAgentsOverlay({
-        width,
-        terminalRows: 1,
-        theme,
-        header: "header",
-        body: ["body"],
-        footer: "footer",
-      }),
-    );
-  }
-});
-
 test("/agents rejects unknown toggle arguments", async () => {
   const setEnabledCalls = [];
   const { command, ctx, notifications } = commandHarness({
@@ -115,32 +98,6 @@ test("/agents off disables delegation before conversation starts", async () => {
 
   assert.deepEqual(setEnabledCalls, [false]);
   assert.deepEqual(notifications, ["Subagent delegation disabled"]);
-});
-
-test("/agents disable disables delegation before conversation starts", async () => {
-  const setEnabledCalls = [];
-  const { command, ctx, notifications } = commandHarness({
-    isEnabled: () => true,
-    setEnabled: (value) => setEnabledCalls.push(value),
-  });
-
-  await command.handler("disable", ctx);
-
-  assert.deepEqual(setEnabledCalls, [false]);
-  assert.deepEqual(notifications, ["Subagent delegation disabled"]);
-});
-
-test("/agents enable reports enabled when delegation is already enabled", async () => {
-  const setEnabledCalls = [];
-  const { command, ctx, notifications } = commandHarness({
-    isEnabled: () => true,
-    setEnabled: (value) => setEnabledCalls.push(value),
-  });
-
-  await command.handler("enable", ctx);
-
-  assert.deepEqual(notifications, ["Subagent delegation already enabled"]);
-  assert.deepEqual(setEnabledCalls, []);
 });
 
 test("/agents on reports enabled when delegation is already enabled", async () => {

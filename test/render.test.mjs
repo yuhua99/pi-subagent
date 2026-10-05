@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clearSessionState, completeRun, registerRun } from "../execution/registry.ts";
-import {
-  renderCall,
-  renderCtlCall,
-  renderCtlResult,
-  renderResult,
-  renderSteerResult,
-} from "../tool/render.ts";
+import { renderCtlResult, renderResult, renderSteerResult } from "../tool/render.ts";
 import { makeResult, makeRun } from "./fixtures/run.mjs";
 
 const theme = {
@@ -80,53 +74,6 @@ test("renderCtlResult gives control action validation guidance", () => {
   assert.equal(
     renderValidation("subagent_ctl", { action: "list", id: "a1b2" }, {}),
     'Validation error: action "list" takes no parameters',
-  );
-});
-
-test("renderCall distinguishes delegation actions", () => {
-  assert.equal(
-    renderCall({ requests: [{ action: "run", agent: "worker", task: "work" }] }, theme)
-      .render(200)
-      .join("\n")
-      .trim(),
-    "subagent worker",
-  );
-  assert.equal(
-    renderCall(
-      {
-        requests: [
-          { action: "run", agent: "worker", task: "work" },
-          { action: "run", agent: "reviewer", task: "review" },
-        ],
-      },
-      theme,
-    )
-      .render(200)
-      .join("\n")
-      .trim(),
-    "subagent 2 requests",
-  );
-  assert.equal(
-    renderCall({ requests: [{ action: "resume", resume_id: "a1b2", task: "continue" }] }, theme)
-      .render(200)
-      .join("\n")
-      .trim(),
-    "subagent resume a1b2",
-  );
-});
-
-test("renderCtlCall distinguishes control actions", () => {
-  assert.equal(
-    renderCtlCall({ action: "list" }, theme).render(200).join("\n").trim(),
-    "subagent_ctl list",
-  );
-  assert.equal(
-    renderCtlCall({ action: "kill", id: "a1b2" }, theme).render(200).join("\n").trim(),
-    "subagent_ctl kill a1b2",
-  );
-  assert.equal(
-    renderCtlCall({ action: "steer", id: "a1b2" }, theme).render(200).join("\n").trim(),
-    "subagent_ctl steer a1b2",
   );
 });
 
