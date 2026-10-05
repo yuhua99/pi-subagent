@@ -6,17 +6,13 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
-import type {
-  SubagentCtlDetails,
-  SubagentDetails,
-  SubagentInspectDetails,
-  SubagentListDetails,
-} from "./types.ts";
+import type { SubagentCtlDetails, SubagentDetails, SubagentListDetails } from "./types.ts";
 import { registerAgentsCommand } from "./agents/command.ts";
 import { createSubagentToggle } from "./agents/toggle.ts";
 import { renderCall, renderCtlCall, renderCtlResult, renderResult } from "./tool/render.ts";
 import { injectIntoSystemPrompt } from "./execution/prompt_injection.ts";
 import { createSubagentExecution } from "./execution/execution.ts";
+import { DISABLED_ENV } from "./execution/runner.ts";
 import {
   CTL_TOOL_DESCRIPTION,
   formatSubagentSystemPrompt,
@@ -27,14 +23,11 @@ import {
   TOOL_DESCRIPTION,
 } from "./tool/schema.ts";
 
-type SubagentToolDetails =
-  | SubagentDetails
-  | SubagentListDetails
-  | SubagentInspectDetails
-  | SubagentCtlDetails
-  | undefined;
+type SubagentToolDetails = SubagentDetails | SubagentListDetails | SubagentCtlDetails | undefined;
 
 export default function (pi: ExtensionAPI) {
+  if (process.env[DISABLED_ENV]) return;
+
   const toggle = createSubagentToggle(pi);
   registerAgentsCommand(pi, toggle);
   let discoveredAgents: AgentConfig[] = [];
@@ -102,7 +95,7 @@ export default function (pi: ExtensionAPI) {
     label: "Subagent control",
     description: CTL_TOOL_DESCRIPTION,
     parameters: SubagentCtlParams,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params) {
       const invocation = parseSubagentCtlInvocation(params);
       if ("error" in invocation) {
         return {
@@ -110,7 +103,7 @@ export default function (pi: ExtensionAPI) {
           details: undefined,
         };
       }
-      return execution.executeControl(invocation, ctx, signal);
+      return execution.executeControl(invocation);
     },
     renderCall: (args, theme, context) => renderCtlCall(args, theme, context),
     renderResult: (result, options, theme, context) =>

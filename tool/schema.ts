@@ -42,22 +42,15 @@ export const SubagentParams = Type.Object(
 
 export const SubagentCtlParams = Type.Object(
   {
-    action: Type.Union([
-      Type.Literal("list"),
-      Type.Literal("kill"),
-      Type.Literal("steer"),
-      Type.Literal("answer"),
-      Type.Literal("inspect"),
-    ]),
+    action: Type.Union([Type.Literal("list"), Type.Literal("kill"), Type.Literal("steer")]),
     id: Type.Optional(
       Type.String({
-        description:
-          "Required for kill, steer, answer, and inspect. Run id from list output or a result message.",
+        description: "Required for kill and steer. Run id from list output or a result message.",
       }),
     ),
     text: Type.Optional(
       Type.String({
-        description: "Required for steer and answer. Message to deliver to the subagent.",
+        description: "Required for steer. Message to deliver to the subagent.",
       }),
     ),
   },
@@ -75,9 +68,7 @@ export interface SubagentInvocation {
 export type SubagentCtlInvocation =
   | { action: "list" }
   | { action: "kill"; id: string }
-  | { action: "steer"; id: string; text: string }
-  | { action: "answer"; id: string; text: string }
-  | { action: "inspect"; id: string };
+  | { action: "steer"; id: string; text: string };
 
 type ParseResult<T> = T | { error: string };
 
@@ -172,14 +163,8 @@ export function parseSubagentInvocation(params: unknown): ParseResult<SubagentIn
 export function parseSubagentCtlInvocation(params: unknown): ParseResult<SubagentCtlInvocation> {
   if (!isRecord(params)) return { error: "subagent_ctl requires an action" };
   const action = params.action;
-  if (
-    action !== "list" &&
-    action !== "kill" &&
-    action !== "steer" &&
-    action !== "answer" &&
-    action !== "inspect"
-  ) {
-    return { error: 'action must be "list", "kill", "steer", "answer", or "inspect"' };
+  if (action !== "list" && action !== "kill" && action !== "steer") {
+    return { error: 'action must be "list", "kill", or "steer"' };
   }
   if (action === "list") {
     const rejected = rejectedField(action, params, ["action"]);
@@ -188,13 +173,6 @@ export function parseSubagentCtlInvocation(params: unknown): ParseResult<Subagen
   if (action === "kill") {
     if (typeof params.id !== "string" || params.id.length === 0) {
       return { error: 'action "kill" requires a non-empty "id"' };
-    }
-    const rejected = rejectedField(action, params, ["action", "id"]);
-    return rejected ? { error: rejected } : { action, id: params.id };
-  }
-  if (action === "inspect") {
-    if (typeof params.id !== "string" || params.id.length === 0) {
-      return { error: 'action "inspect" requires a non-empty "id"' };
     }
     const rejected = rejectedField(action, params, ["action", "id"]);
     return rejected ? { error: rejected } : { action, id: params.id };
@@ -215,7 +193,7 @@ export const TOOL_DESCRIPTION = [
 
 export const CTL_TOOL_DESCRIPTION = [
   "Intervene in running subagents.",
-  'Set action to "list", "kill" with id, "steer" with id and text, "answer" with id and text, or "inspect" with id.',
+  'Set action to "list", "kill" with id, or "steer" with id and text.',
 ].join("\n");
 
 export function formatSubagentSystemPrompt(agents: AgentConfig[]): string {

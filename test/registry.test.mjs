@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
-  answerRunPendingQuestion,
   attachRunSteer,
   clearSessionState,
   completeRun,
@@ -13,13 +12,10 @@ import {
   getRun,
   listRuns,
   notifyStatus,
-  notifyStream,
   registerRun,
   registerToolCallInvalidator,
   reserveResumeRun,
   resolveLiveResult,
-  rejectRunPendingQuestion,
-  setRunPendingQuestion,
   setRunTaskSummary,
   bindToolCallRowInvalidate,
   cancelResumeReservation,
@@ -30,8 +26,6 @@ import { makeResult, makeRun } from "./fixtures/run.mjs";
 function cleanup() {
   for (const e of listRuns()) completeRun(e.id, e.result);
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test("registerRun returns a run with a 4-hex id and stores the full task", () => {
   cleanup();
@@ -94,137 +88,6 @@ test("steer with an attached callback delivers immediately and records history",
   assert.equal(typeof run.steers[0].at, "number");
   completeRun(run.id, makeResult({ status: "ok" }));
   assert.deepEqual(listCompletedRuns()[0].steers, run.steers);
-  cleanup();
-});
-
-test("pending questions can be registered once per live run", async () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let answer;
-  const firstQuestion = new Promise((resolve, reject) => {
-    answer = { resolve, reject };
-  });
-
-  assert.equal(
-    setRunPendingQuestion(run.id, {
-      question: "Which file should I edit?",
-      resolve: answer.resolve,
-      reject: answer.reject,
-    }),
-    true,
-  );
-  assert.equal(run.pendingQuestion.question, "Which file should I edit?");
-  assert.equal(
-    setRunPendingQuestion(run.id, {
-      question: "A second question",
-      resolve: () => {},
-      reject: () => {},
-    }),
-    false,
-  );
-  assert.equal(
-    setRunPendingQuestion("zzzz", { question: "Unknown", resolve: () => {}, reject: () => {} }),
-    false,
-  );
-  assert.equal(run.pendingQuestion.question, "Which file should I edit?");
-
-  run.steer("Edit registry.ts");
-  assert.equal(run.pendingQuestion.question, "Which file should I edit?");
-  assert.deepEqual(
-    run.steers.map(({ text }) => text),
-    ["Edit registry.ts"],
-  );
-  const delivered = [];
-  attachRunSteer(run.id, (text) => {
-    delivered.push(text);
-  });
-  assert.deepEqual(delivered, ["Edit registry.ts"]);
-  assert.equal(answerRunPendingQuestion(run.id, "Edit registry.ts"), true);
-  assert.equal(await firstQuestion, "Edit registry.ts");
-  assert.equal(run.pendingQuestion, undefined);
-  cleanup();
-});
-
-test("steer leaves a pending question for answerRunPendingQuestion", async () => {
-  cleanup();
-  const delivered = [];
-  const run = registerRun(makeRun());
-  let statusCalls = 0;
-  run.onStatus(() => {
-    statusCalls++;
-  });
-  attachRunSteer(run.id, (text) => {
-    delivered.push(text);
-  });
-  let answer;
-  const question = new Promise((resolve, reject) => {
-    answer = { resolve, reject };
-  });
-  setRunPendingQuestion(run.id, {
-    question: "Which test should I add?",
-    resolve: answer.resolve,
-    reject: answer.reject,
-  });
-
-  run.steer("Add a registry test");
-
-  assert.equal(run.pendingQuestion.question, "Which test should I add?");
-  assert.deepEqual(delivered, ["Add a registry test"]);
-  assert.equal(statusCalls, 1);
-  assert.equal(answerRunPendingQuestion(run.id, "Add a registry test"), true);
-  assert.equal(await question, "Add a registry test");
-  assert.equal(run.pendingQuestion, undefined);
-  assert.equal(statusCalls, 2);
-  cleanup();
-});
-
-test("answerRunPendingQuestion returns false for unknown and unanswered runs", () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  assert.equal(answerRunPendingQuestion("zzzz", "answer"), false);
-  assert.equal(answerRunPendingQuestion(run.id, "answer"), false);
-  cleanup();
-});
-
-test("rejectRunPendingQuestion rejects, clears, and otherwise does nothing", async () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let answer;
-  const question = new Promise((resolve, reject) => {
-    answer = { resolve, reject };
-  });
-  setRunPendingQuestion(run.id, {
-    question: "Should I continue?",
-    resolve: answer.resolve,
-    reject: answer.reject,
-  });
-
-  rejectRunPendingQuestion(run.id, new Error("main agent unavailable"));
-
-  await assert.rejects(question, { message: "main agent unavailable" });
-  assert.equal(run.pendingQuestion, undefined);
-  assert.doesNotThrow(() => rejectRunPendingQuestion(run.id, new Error("ignored")));
-  assert.doesNotThrow(() => rejectRunPendingQuestion("zzzz", new Error("ignored")));
-  cleanup();
-});
-
-test("completeRun rejects a pending question", async () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let answer;
-  const question = new Promise((resolve, reject) => {
-    answer = { resolve, reject };
-  });
-  setRunPendingQuestion(run.id, {
-    question: "Should I continue?",
-    resolve: answer.resolve,
-    reject: answer.reject,
-  });
-
-  completeRun(run.id, makeResult({ status: "ok" }));
-
-  await assert.rejects(question, { message: "run completed" });
-  assert.equal(run.pendingQuestion, undefined);
   cleanup();
 });
 
@@ -306,58 +169,6 @@ test("completeRun retains status subscribers for late updates until unsubscribed
   unsubscribe();
   notifyStatus(run.id);
   assert.equal(calls, 2);
-});
-
-test("onStatus and onStream unsubscribe works", async () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let s = 0,
-    m = 0;
-  const off1 = run.onStatus(() => {
-    s++;
-  });
-  const off2 = run.onStream(() => {
-    m++;
-  });
-  notifyStatus(run.id);
-  assert.equal(s, 1);
-  off1();
-  off2();
-  notifyStatus(run.id);
-  assert.equal(s, 1);
-  notifyStream(run.id);
-  await new Promise((r) => setTimeout(r, 40));
-  assert.equal(m, 0);
-  cleanup();
-});
-
-test("notifyStream coalesces rapid notifies into one callback", async () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let calls = 0;
-  run.onStream(() => {
-    calls++;
-  });
-  notifyStream(run.id);
-  notifyStream(run.id);
-  notifyStream(run.id);
-  assert.equal(calls, 0);
-  await sleep(120);
-  assert.equal(calls, 1);
-  cleanup();
-});
-
-test("completeRun cancels a pending stream notification", async () => {
-  cleanup();
-  const run = registerRun(makeRun());
-  let calls = 0;
-  run.onStream(() => {
-    calls++;
-  });
-  notifyStream(run.id);
-  completeRun(run.id, makeResult({ status: "ok" }));
-  await sleep(40);
-  assert.equal(calls, 0);
 });
 
 test("bindToolCallRowInvalidate: single-slot, fired by notifyStatus and completion", () => {

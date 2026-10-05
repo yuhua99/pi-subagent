@@ -1,36 +1,41 @@
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, type OverlayOptions } from "@earendil-works/pi-tui";
-import { type DetailEntry, showAgentsDetail } from "./detail.ts";
 import { showAgentsList } from "./list.ts";
-import { getRun, listCompletedRuns } from "../execution/registry.ts";
+import { closeTab, createTab, focusTab, startPi } from "../execution/herdr.ts";
+import { getRun, listCompletedRuns, listRuns } from "../execution/registry.ts";
 import { type SubagentToggle } from "../types.ts";
 
 const AGENTS_OVERLAY_OPTIONS: OverlayOptions = { width: "90%" };
 const AGENT_TOGGLE_ARGUMENTS = ["on", "off", "enable", "disable"];
 
-function resolveDetailEntry(id: string): DetailEntry | undefined {
+/** Focus a live run's tab, or reopen a finished run's session in a new tab. */
+async function openRun(id: string): Promise<string | undefined> {
   const run = getRun(id);
   if (run) {
-    return {
-      id: run.id,
-      agent: run.agent,
-      task: run.task,
-      startedAt: run.startedAt,
-      result: run.result,
-      onStatus: (fn) => run.onStatus(fn),
-      onStream: (fn) => run.onStream(fn),
-    };
+    if (!run.tabId) return `Subagent [${id}] is still starting.`;
+    await focusTab(run.tabId);
+    return undefined;
   }
   const completed = listCompletedRuns().find((entry) => entry.id === id);
-  if (!completed) return undefined;
-  return {
-    id: completed.id,
-    agent: completed.agent,
-    task: completed.task,
-    startedAt: completed.startedAt,
-    finishedAt: completed.finishedAt,
-    result: completed.result,
-  };
+  if (!completed?.sessionPath) return `Subagent [${id}] has no session to open.`;
+  // A resume of this lineage is writing the same session file; show it instead of a second writer.
+  const resuming = listRuns().find((entry) => entry.sessionPath === completed.sessionPath);
+  if (resuming) return openRun(resuming.id);
+  const tab = await createTab({
+    cwd: completed.workingDirectory ?? process.cwd(),
+    label: `${completed.agent} ${id}`,
+    focus: true,
+  });
+  try {
+    await startPi(`subagent-${id}-${Date.now().toString(36)}`, tab.paneId, [
+      "--session",
+      completed.sessionPath,
+    ]);
+  } catch (error) {
+    await closeTab(tab.tabId).catch(() => {});
+    throw error;
+  }
+  return undefined;
 }
 
 export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) {
@@ -83,13 +88,13 @@ export function registerAgentsCommand(pi: ExtensionAPI, toggle: SubagentToggle) 
         killedIds.add(id);
       };
 
-      while (true) {
-        const selectedId = await showAgentsList(ctx, killedIds, killRun, AGENTS_OVERLAY_OPTIONS);
-        if (!selectedId) return;
-
-        const entry = resolveDetailEntry(selectedId);
-        if (!entry) continue;
-        await showAgentsDetail(ctx, entry, AGENTS_OVERLAY_OPTIONS);
+      const selectedId = await showAgentsList(ctx, killedIds, killRun, AGENTS_OVERLAY_OPTIONS);
+      if (!selectedId) return;
+      try {
+        const notice = await openRun(selectedId);
+        if (notice) ctx.ui.notify(notice, "info");
+      } catch (error) {
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }
     },
   });

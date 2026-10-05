@@ -1,7 +1,7 @@
 /**
  * In-memory registry of subagent runs, keyed by short id. Each run exposes
- * a canonical live `result` object plus status/stream subscribers used to
- * notify observers (TUI, popup, transcript views) of state changes.
+ * a canonical live `result` object plus status subscribers used to notify
+ * observers (tool rows, `/agents`) of state changes.
  *
  * Completed runs are cached briefly so late lookups still resolve.
  */
@@ -16,6 +16,8 @@ export interface RunMetadata {
   workingDirectory?: string;
   sourceRunId?: string;
   lineageId?: string;
+  /** Herdr tab hosting the live child pi. */
+  tabId?: string;
 }
 
 export interface CompletedRun extends RunMetadata {
@@ -35,15 +37,9 @@ export interface SubagentRun extends RunMetadata {
   startedAt: number;
   result: SingleResult;
   kill: () => void;
-  pendingQuestion?: {
-    question: string;
-    resolve: (answer: string) => void;
-    reject: (err: Error) => void;
-  };
   steer(text: string): void;
   steers: readonly { text: string; at: number }[];
   onStatus(fn: () => void): () => void;
-  onStream(fn: () => void): () => void;
 }
 
 interface ToolCallInvalidation {
@@ -55,9 +51,7 @@ interface RunState extends SubagentRun {
   pendingSteers: string[];
   steerCallback?: (text: string) => void;
   statusSubs: Set<() => void>;
-  streamSubs: Set<() => void>;
   rowInvalidate?: () => void;
-  streamTimer?: ReturnType<typeof setTimeout>;
 }
 
 interface CompletedRunState extends CompletedRun {
@@ -66,7 +60,6 @@ interface CompletedRunState extends CompletedRun {
 }
 
 const MAX_COMPLETED = 50;
-const STREAM_COALESCE_MS = 100;
 
 const running = new Map<string, RunState>();
 const completed = new Map<string, CompletedRunState>();
@@ -83,12 +76,11 @@ function generateId(): string {
 }
 
 export function registerRun(
-  init: Omit<SubagentRun, "id" | "steer" | "steers" | "onStatus" | "onStream">,
+  init: Omit<SubagentRun, "id" | "steer" | "steers" | "onStatus">,
 ): SubagentRun {
   const id = generateId();
   init.result.registryId = id;
   const statusSubs = new Set<() => void>();
-  const streamSubs = new Set<() => void>();
   const steers: { text: string; at: number }[] = [];
   const pendingSteers: string[] = [];
   const state: RunState = {
@@ -103,14 +95,9 @@ export function registerRun(
       else pendingSteers.push(text);
     },
     statusSubs,
-    streamSubs,
     onStatus(fn) {
       statusSubs.add(fn);
       return () => statusSubs.delete(fn);
-    },
-    onStream(fn) {
-      streamSubs.add(fn);
-      return () => streamSubs.delete(fn);
     },
   };
   running.set(id, state);
@@ -129,6 +116,7 @@ export function updateRun(
       | "parentSessionId"
       | "sourceRunId"
       | "lineageId"
+      | "tabId"
     >
   >,
 ): void {
@@ -146,36 +134,6 @@ export function attachRunSteer(id: string, steer: (text: string) => void): void 
   if (!entry) return;
   entry.steerCallback = steer;
   for (const text of entry.pendingSteers.splice(0)) steer(text);
-}
-
-export function setRunPendingQuestion(
-  id: string,
-  pendingQuestion: NonNullable<SubagentRun["pendingQuestion"]>,
-): boolean {
-  const entry = running.get(id);
-  if (!entry || entry.pendingQuestion) return false;
-  entry.pendingQuestion = pendingQuestion;
-  notifyStatus(id);
-  return true;
-}
-
-export function answerRunPendingQuestion(id: string, text: string): boolean {
-  const entry = running.get(id);
-  const pendingQuestion = entry?.pendingQuestion;
-  if (!pendingQuestion) return false;
-  entry.pendingQuestion = undefined;
-  pendingQuestion.resolve(text);
-  notifyStatus(id);
-  return true;
-}
-
-export function rejectRunPendingQuestion(id: string, error: Error): void {
-  const entry = running.get(id);
-  const pendingQuestion = entry?.pendingQuestion;
-  if (!pendingQuestion) return;
-  entry.pendingQuestion = undefined;
-  pendingQuestion.reject(error);
-  notifyStatus(id);
 }
 
 export function setRunTaskSummary(id: string, task: string, taskSummary: string): void {
@@ -244,28 +202,9 @@ export function notifyStatus(id: string): void {
   for (const fn of done.statusSubs ?? []) fn();
 }
 
-export function notifyStream(id: string): void {
-  const entry = running.get(id);
-  if (!entry) return;
-  if (entry.streamTimer) return;
-  const timer = setTimeout(() => {
-    const cur = running.get(id);
-    if (!cur) return;
-    cur.streamTimer = undefined;
-    for (const fn of cur.streamSubs) fn();
-  }, STREAM_COALESCE_MS);
-  timer.unref?.();
-  entry.streamTimer = timer;
-}
-
 export function completeRun(id: string, result: SingleResult): void {
   const entry = running.get(id);
   const finishedAt = Date.now();
-  if (entry?.pendingQuestion) {
-    const pendingQuestion = entry.pendingQuestion;
-    entry.pendingQuestion = undefined;
-    pendingQuestion.reject(new Error("run completed"));
-  }
   result.taskSummary ??= entry?.result.taskSummary;
   completed.set(id, {
     id,
@@ -293,13 +232,8 @@ export function completeRun(id: string, result: SingleResult): void {
   }
   if (entry) {
     entry.pendingSteers.length = 0;
-    if (entry.streamTimer) {
-      clearTimeout(entry.streamTimer);
-      entry.streamTimer = undefined;
-    }
     entry.rowInvalidate?.();
     for (const fn of entry.statusSubs) fn();
-    entry.streamSubs.clear();
     entry.rowInvalidate = undefined;
     running.delete(id);
   }

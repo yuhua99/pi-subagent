@@ -159,7 +159,7 @@ export function showAgentsList(
               selectList
                 ? selectList.render(contentWidth)
                 : [theme.fg("muted", "  No subagents running.")],
-            footer: theme.fg("dim", "enter view · x kill · c-u/d · esc close"),
+            footer: theme.fg("dim", "enter open tab · x kill · c-u/d · esc close"),
           }),
         invalidate: () => selectList?.invalidate(),
         handleInput: (data: string) => {

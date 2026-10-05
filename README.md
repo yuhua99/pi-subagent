@@ -1,18 +1,19 @@
 # Pi Subagent
 
-**Delegate tasks to specialized subagents in isolated `pi` processes.**
+**Delegate tasks to specialized subagents, each running as a real `pi` TUI in its own [herdr](https://herdr.dev) tab.**
 
 Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent); this package is a substantial rewrite (async delegation, `/agents` TUI, `subagent_ctl`, single-level nesting).
 
 ## Features
 
+- **Real TUI per child** — each run opens a herdr tab with an interactive `pi`; you can watch it or type into it, but anything that ends its agent loop (e.g. Esc) completes the run and closes the tab
 - **Isolated task-only context** — each run receives only its task
 - **Native session resume** — continue a successfully completed child session
 - **Async by default** — tool returns as soon as the child starts; results arrive as a follow-up message
 - **Parallel runs** — up to 5 concurrent requests
 - **Single-level only** — children cannot nest further subagents
-- **`/agents`** — live status and transcript preview in the TUI
-- **`subagent_ctl`** — list, inspect, stop, or steer children
+- **`/agents`** — run list; enter focuses a live child's tab or reopens a finished child's session in a new tab
+- **`subagent_ctl`** — list, stop, or steer children
 - **Orchestrator file** — main-agent-only delegation policy via `role: orchestrator`
 
 ## Install
@@ -20,6 +21,8 @@ Originally forked from [mjakl/pi-subagent](https://github.com/mjakl/pi-subagent)
 ```bash
 pi install git:github.com/yuhua99/pi-subagent
 ```
+
+Requires running `pi` inside herdr (`HERDR_ENV=1`); delegation fails otherwise.
 
 ## Agent definitions
 
@@ -75,12 +78,16 @@ Delegate independent work to the most appropriate specialized agent.
 
 Use `subagent` to create or continue work. A single call can include up to five requests.
 
-Use `subagent_ctl` to list, inspect, stop, or steer children.
+Use `subagent_ctl` to list, stop, or steer children.
 
 - **New work** — each work item receives isolated context; include all needed context in its instructions.
-- **Continued work** — resumes a successfully completed child session from the same parent session. It creates a new run id and preserves lineage; only one continuation per lineage may run at a time.
+- **Continued work** — resumes a successfully completed child session from the same parent session with `pi --session`, appending to that session file. It creates a new run id and preserves lineage; all runs in a lineage share one session file, and only one continuation per lineage may run at a time.
 
-Single-level delegation is a construction-time capability: child sessions load the parent's extensions except pi-subagent, so they physically lack the subagent tools. The parent sees final text only; tool rows and transcripts live in the TUI / `/agents`.
+Each run opens a background herdr tab and starts `pi` there with `herdr agent start`. The task is submitted with `herdr agent prompt`; steers are accepted once the child starts working on it, and the run completes when herdr reports the child idle (herdr's pi integration maps this to `agent_settled`, after automatic retries and compaction). The tab then closes and the transcript is read from the child's session file. Steers are sent with `herdr agent prompt`, like typed input. Closing the tab or quitting its pi earlier kills the run; Esc in the tab aborts it. The child pi gets the environment of a fresh herdr shell, not the parent pi's process environment. Each fresh run gets its own session dir under `$TMPDIR/subagent-sessions`; nothing there is deleted. While a lineage is resuming, `/agents` on its earlier runs focuses the running tab instead of opening a second writer.
+
+Requires herdr's pi integration (`herdr integration install pi`) for reliable idle detection.
+
+Set `PI_SUBAGENT_DISABLED=1` to turn the extension off entirely for a pi process: no tools, no `/agents`, no prompt injection, and no way to re-enable it from inside. Single-level delegation uses the same switch: children run with `PI_SUBAGENT_DISABLED=1`, so they lack the subagent tools. Children cannot ask the main agent questions; answer them yourself in the child's tab. The parent sees final text only.
 
 ## Attribution
 

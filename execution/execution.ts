@@ -1,7 +1,8 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import * as fs from "node:fs";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../agents.ts";
 import { failPlaceholder, reserveRunPlaceholders } from "./delegation.ts";
-import { cleanupManagedSessions, hasManagedSessionPath } from "./session_files.ts";
+import { isInsideHerdr } from "./herdr.ts";
 import {
   clearSessionState,
   cancelResumeReservation,
@@ -24,7 +25,6 @@ import {
   type SingleResult,
   type SubagentDetails,
   type SubagentCtlDetails,
-  type SubagentInspectDetails,
   type SubagentListDetails,
 } from "../types.ts";
 import {
@@ -33,7 +33,7 @@ import {
   type SubagentRequest,
 } from "../tool/schema.ts";
 
-export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelRegistry"> {
+export interface SubagentExecutionContext {
   cwd: string;
   sessionManager: {
     getSessionId: () => string;
@@ -42,15 +42,13 @@ export interface SubagentExecutionContext extends Pick<ExtensionContext, "modelR
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
-  details: SubagentDetails | SubagentListDetails | SubagentInspectDetails | SubagentCtlDetails;
+  details: SubagentDetails | SubagentListDetails | SubagentCtlDetails;
 }
 
 interface PreparedRequest {
   placeholder: SingleResult;
   title: string;
-  runOptions: Omit<RunAgentOptions, "onQuestion" | "signal" | "reservedRegistryId"> & {
-    reservedRegistryId: string;
-  };
+  runOptions: Omit<RunAgentOptions, "signal">;
 }
 
 type PreparedBatch = { requests: PreparedRequest[] } | { error: string };
@@ -64,11 +62,7 @@ interface SubagentExecution {
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
   ): Promise<ToolResult>;
-  executeControl(
-    invocation: SubagentCtlInvocation,
-    ctx: Pick<ExtensionContext, "modelRegistry">,
-    signal?: AbortSignal,
-  ): Promise<ToolResult>;
+  executeControl(invocation: SubagentCtlInvocation): ToolResult;
   kill(id: string): SubagentRun | undefined;
   steer(id: string, text: string): SubagentRun | { error: string };
   onAgentStart(): void;
@@ -84,40 +78,15 @@ export function createSubagentExecution(
   const makeDetails = (results: SingleResult[]): SubagentDetails => ({
     results,
   });
-  const sendQuestion = (id: string, agent: string, question: string) => {
-    pi.sendMessage(
-      {
-        customType: "subagent_question",
-        content: `Subagent [${id}] (${agent}) needs an answer:\n\n${question}\n\nAnswer via subagent_ctl action "answer" with run id "${id}".`,
-        display: false,
-        details: { id, agent, question },
-      },
-      { triggerTurn: true, deliverAs: "steer" },
-    );
-  };
   const setTaskSummary = (id: string, task: string, title: string) => {
     const summary = title.replace(/\s+/g, " ").trim();
     if (!summary) return;
     setRunTaskSummary(id, task, summary.slice(0, TASK_SUMMARY_TITLE_LIMIT));
   };
 
-  const retainedSessionPaths = () => {
-    const paths = new Set<string>();
-    for (const entry of listRuns()) {
-      if (entry.sessionPath) paths.add(entry.sessionPath);
-    }
-    for (const entry of listCompletedRuns()) {
-      if (isResultSuccess(entry.result) && entry.sessionPath) {
-        paths.add(entry.sessionPath);
-      }
-    }
-    return paths;
-  };
-
   const completeSubagentRun = (id: string, result: SingleResult) => {
     if (!getRun(id)) return;
     completeRun(id, result);
-    cleanupManagedSessions(retainedSessionPaths());
   };
 
   const onResumeKill = (id: string) => {
@@ -158,7 +127,7 @@ export function createSubagentExecution(
         request.resume_id,
         request.task,
         parentSessionId,
-        hasManagedSessionPath,
+        fs.existsSync,
         onResumeKill,
       );
       if ("error" in reservation) {
@@ -240,7 +209,7 @@ export function createSubagentExecution(
       requests.map(async (request) => {
         const { placeholder, runOptions } = request;
         try {
-          const result = await runAgent({ ...runOptions, signal, onQuestion: sendQuestion });
+          const result = await runAgent({ ...runOptions, signal });
           completeSubagentRun(runOptions.reservedRegistryId, result);
           return result;
         } catch (err) {
@@ -308,6 +277,14 @@ export function createSubagentExecution(
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
   ): Promise<ToolResult> => {
+    if (!isInsideHerdr()) {
+      return {
+        content: [
+          { type: "text", text: "Subagents require running pi inside herdr (HERDR_ENV=1)." },
+        ],
+        details: makeDetails([]),
+      };
+    }
     const prepared = prepareBatch(
       invocation.requests,
       getAgents(),
@@ -346,8 +323,8 @@ export function createSubagentExecution(
 
   return {
     execute,
-    async executeControl(invocation, ctx, signal) {
-      return executeControlAction(invocation, ctx, signal, {
+    executeControl(invocation) {
+      return executeControlAction(invocation, {
         hasSpawned: () => hasSpawned,
         kill,
         steer,
@@ -384,7 +361,6 @@ export function createSubagentExecution(
       );
       for (const entry of entries) entry.kill();
       await Promise.all(completions);
-      cleanupManagedSessions();
       clearSessionState();
     },
   };

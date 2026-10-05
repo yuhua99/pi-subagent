@@ -35,7 +35,7 @@ test("subagent control schema has a required action", () => {
   assert.deepEqual(SubagentCtlParams.required, ["action"]);
   assert.deepEqual(
     SubagentCtlParams.properties.action.anyOf.map((schema) => schema.const),
-    ["list", "kill", "steer", "answer", "inspect"],
+    ["list", "kill", "steer"],
   );
   assert.equal(SubagentCtlParams.properties.id.minLength, undefined);
 });
@@ -152,14 +152,8 @@ test("subagent control validation enforces each action", () => {
     id: "id",
     text: "focus",
   });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "answer", id: "id", text: "answer" }), {
-    action: "answer",
-    id: "id",
-    text: "answer",
-  });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "id" }), {
-    action: "inspect",
-    id: "id",
+    error: 'action must be "list", "kill", or "steer"',
   });
   assert.deepEqual(parseSubagentCtlInvocation({ action: "list", id: "id" }), {
     error: 'action "list" takes no parameters',
@@ -176,19 +170,7 @@ test("subagent control validation enforces each action", () => {
   assert.deepEqual(parseSubagentCtlInvocation({ action: "steer", id: "id" }), {
     error: 'action "steer" requires "text"',
   });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "answer", id: "" }), {
-    error: 'action "answer" requires a non-empty "id"',
-  });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "answer", id: "id" }), {
-    error: 'action "answer" requires "text"',
-  });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect" }), {
-    error: 'action "inspect" requires a non-empty "id"',
-  });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "" }), {
-    error: 'action "inspect" requires a non-empty "id"',
-  });
-  assert.deepEqual(parseSubagentCtlInvocation({ action: "inspect", id: "id", run_id: "other" }), {
-    error: 'action "inspect" takes only "id"',
+  assert.deepEqual(parseSubagentCtlInvocation({ action: "kill", id: "id", run_id: "other" }), {
+    error: 'action "kill" takes only "id"',
   });
 });

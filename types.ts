@@ -38,7 +38,6 @@ export interface SingleResult {
   errorMessage?: string;
   sawAgentEnd?: boolean;
   registryId?: string;
-  partialMessage?: AssistantMessage;
 }
 
 /** Metadata attached to every tool result for rendering. */
@@ -52,29 +51,9 @@ export interface SubagentListDetails {
   results: SingleResult[];
 }
 
-/** Inspectable state of a subagent run. */
-export interface SubagentInspectResult {
-  id: string;
-  agent: string;
-  task: string;
-  taskSummary?: string;
-  activitySummary?: string;
-  startedAt: number;
-  finishedAt?: number;
-  status: "running" | "waiting_for_answer" | "completed";
-  result: SingleResult;
-}
-
-/** Metadata attached to subagent_ctl inspect results for rendering. */
-export interface SubagentInspectDetails {
-  action: "inspect";
-  id: string;
-  result?: SubagentInspectResult;
-}
-
-/** Metadata attached to subagent_ctl kill, steer, and answer results for rendering. */
+/** Metadata attached to subagent_ctl kill and steer results for rendering. */
 export interface SubagentCtlDetails {
-  action: "kill" | "steer" | "answer";
+  action: "kill" | "steer";
   id: string;
   agent?: string;
 }
@@ -129,13 +108,11 @@ export function isResultError(r: Pick<SingleResult, "status">): boolean {
   return r.status === "failed" || r.status === "aborted" || r.status === "killed";
 }
 
-/** Settle a run's status, reconciling interrupts with semantic completion from Pi's event stream. */
+/** Settle a run's status, reconciling interrupts with semantic completion read from the child's session. */
 export function normalizeCompletedResult(
   result: SingleResult,
   interrupt?: "aborted" | "killed",
 ): SingleResult {
-  result.partialMessage = undefined;
-
   if (interrupt) {
     if (hasSemanticCompletion(result)) {
       result.status = "ok";

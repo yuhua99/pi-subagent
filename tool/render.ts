@@ -1,7 +1,7 @@
 /**
  * TUI rendering for subagent tool calls and results.
  *
- * Tool rows show errors and live status only. Rich detail lives in `/agents`.
+ * Tool rows show errors and live status only. Rich detail lives in the child's herdr tab.
  */
 
 import { type ThemeColor } from "@earendil-works/pi-coding-agent";
@@ -19,14 +19,12 @@ import {
   type SingleResult,
   type SubagentCtlDetails,
   type SubagentDetails,
-  type SubagentInspectDetails,
   type SubagentListDetails,
   type UsageStats,
   isResultError,
 } from "../types.ts";
 
 const STALE_FINISHED_MSG = "finished — result delivered separately";
-const MAX_PENDING_QUESTION = 80;
 
 export type RenderContext = {
   state: Record<string, any>;
@@ -104,29 +102,9 @@ function isRenderableListDetails(value: unknown): value is SubagentListDetails {
 function isRenderableKillDetails(value: unknown): value is SubagentCtlDetails {
   return (
     isRecord(value) &&
-    (value.action === "kill" || value.action === "steer" || value.action === "answer") &&
+    (value.action === "kill" || value.action === "steer") &&
     typeof value.id === "string" &&
     (!("agent" in value) || typeof value.agent === "string")
-  );
-}
-
-function isRenderableInspectDetails(value: unknown): value is SubagentInspectDetails {
-  if (!isRecord(value) || value.action !== "inspect" || typeof value.id !== "string") return false;
-  if (value.result === undefined) return true;
-  if (!isRecord(value.result)) return false;
-  return (
-    typeof value.result.id === "string" &&
-    typeof value.result.agent === "string" &&
-    typeof value.result.task === "string" &&
-    (value.result.taskSummary === undefined || typeof value.result.taskSummary === "string") &&
-    (value.result.activitySummary === undefined ||
-      typeof value.result.activitySummary === "string") &&
-    typeof value.result.startedAt === "number" &&
-    (value.result.finishedAt === undefined || typeof value.result.finishedAt === "number") &&
-    (value.result.status === "running" ||
-      value.result.status === "waiting_for_answer" ||
-      value.result.status === "completed") &&
-    isRenderableResult(value.result.result)
   );
 }
 
@@ -204,15 +182,6 @@ function statusColor(r: SingleResult): ThemeColor {
   return isResultError(r) ? "error" : "success";
 }
 
-function pendingQuestion(r: SingleResult): string | undefined {
-  const question = r.registryId && getRun(r.registryId)?.pendingQuestion?.question;
-  if (!question) return undefined;
-  const singleLine = question.replace(/\s*[\r\n]+\s*/g, " ");
-  return singleLine.length > MAX_PENDING_QUESTION
-    ? `${singleLine.slice(0, MAX_PENDING_QUESTION - 1)}…`
-    : singleLine;
-}
-
 function statusMessage(r: SingleResult): string {
   if (r.status === "running") return "running";
   if (r.status === "killed")
@@ -237,9 +206,7 @@ function renderResolvedRow(
 ): string {
   if (stale)
     return `${staleRowHeader(original, theme, prefix)} ${theme.fg("dim", STALE_FINISHED_MSG)}`;
-  const question = pendingQuestion(result);
-  const waiting = question !== undefined;
-  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${waiting ? theme.fg("warning", "?") : statusIcon(result, theme)} ${theme.fg(waiting ? "warning" : statusColor(result), waiting ? "waiting for answer" : statusMessage(result))}${waiting ? theme.fg("dim", ` — ${question}`) : ""}`;
+  return `${theme.fg("muted", prefix)}${theme.fg("accent", result.agent)}${taskSummarySuffix(result, theme)}${runningIdBadge(result, theme)} ${statusIcon(result, theme)} ${theme.fg(statusColor(result), statusMessage(result))}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,10 +255,7 @@ export function renderCtlCall(
 ): Text {
   const title = theme.fg("toolTitle", theme.bold(`subagent_ctl ${args.action ?? "..."}`));
   const id =
-    args.action === "inspect" ||
-    args.action === "kill" ||
-    args.action === "steer" ||
-    args.action === "answer"
+    args.action === "kill" || args.action === "steer"
       ? theme.fg("accent", ` ${args.id ?? "..."}`)
       : "";
   return new Text(title + id, 0, 0);
@@ -395,52 +359,6 @@ export function renderSteerResult(
   return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }
 
-export function renderAnswerResult(
-  result: { content: ResultContent; details?: unknown },
-  _options: unknown,
-  theme: { fg: ThemeFg; bold: (s: string) => string },
-): Text {
-  const details = isRenderableKillDetails(result.details) ? result.details : undefined;
-  if (!details) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
-  if (typeof details.agent === "string") {
-    return new Text(
-      `${theme.fg("muted", "└─ ")}${theme.fg("success", "✓")} ${theme.fg("success", "answered")} ${theme.fg("accent", details.agent)}${theme.fg("dim", ` [${details.id}]`)}`,
-      0,
-      0,
-    );
-  }
-  return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
-}
-
-export function renderInspectResult(
-  result: { content: ResultContent; details?: unknown },
-  _options: unknown,
-  theme: { fg: ThemeFg; bold: (s: string) => string },
-): Text {
-  const details = isRenderableInspectDetails(result.details) ? result.details : undefined;
-  if (!details?.result) return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
-  const inspected = details.result;
-  const waitingForAnswer = inspected.status === "waiting_for_answer";
-  const active = inspected.status === "running" || waitingForAnswer;
-  const icon = active
-    ? theme.fg("warning", waitingForAnswer ? "?" : "○")
-    : inspected.result.status === "killed"
-      ? theme.fg("muted", "■")
-      : isResultError(inspected.result)
-        ? theme.fg("error", "✗")
-        : theme.fg("success", "✓");
-  const status = theme.fg(
-    active ? "warning" : "muted",
-    waitingForAnswer ? "waiting for answer" : inspected.status,
-  );
-  const activity = theme.fg("dim", inspected.activitySummary ?? "No activity yet.");
-  return new Text(
-    `${theme.fg("muted", "└─ ")}${icon} ${status} ${theme.fg("accent", inspected.agent)}${theme.fg("dim", ` [${inspected.id}]`)}\n${theme.fg("muted", "   ")}${activity}`,
-    0,
-    0,
-  );
-}
-
 export function renderCtlResult(
   result: { content: ResultContent; details?: unknown },
   options: unknown,
@@ -449,12 +367,9 @@ export function renderCtlResult(
 ): Text {
   if (isRenderableListDetails(result.details))
     return renderListResult(result, options, theme, context);
-  if (isRenderableInspectDetails(result.details))
-    return renderInspectResult(result, options, theme);
   if (isRenderableKillDetails(result.details)) {
     if (result.details.action === "kill") return renderKillResult(result, options, theme);
-    if (result.details.action === "steer") return renderSteerResult(result, options, theme);
-    return renderAnswerResult(result, options, theme);
+    return renderSteerResult(result, options, theme);
   }
   return new Text(fallbackText(result.content, "subagent_ctl"), 0, 0);
 }

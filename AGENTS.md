@@ -8,8 +8,10 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 
 - `index.ts` — tool registration and event wiring only
 - `agents/shell.ts` — shared overlay shell geometry (not a bash shell)
-- `tool/render.ts` — tool-row rendering only; rich detail belongs in `/agents`
-- `tool/activity_summary.ts` — activity summary config; calls the LLM
+- `tool/render.ts` — tool-row rendering only; rich detail lives in the child's herdr tab
+- `execution/runner.ts` — launches one child pi per run in a herdr tab; completes when herdr reports it idle
+- `execution/herdr.ts` — herdr CLI calls only
+- `execution/transcript.ts` — rebuilds a run's transcript and usage from the child's session file
 - `types.ts` — shared types and small helpers; no I/O, no spawning
 - `test/` — `*.test.mjs` suites and fixtures; import `.ts` directly under `node --test` (no build step, no runtime TS syntax: enums, namespaces, parameter properties)
 
