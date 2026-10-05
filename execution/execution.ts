@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { Loader } from "@earendil-works/pi-tui";
 import type { AgentConfig } from "../agents.ts";
 import { failPlaceholder, reserveRunPlaceholders } from "./delegation.ts";
 import { isInsideHerdr } from "./herdr.ts";
@@ -39,6 +40,7 @@ export interface SubagentExecutionContext {
   sessionManager: {
     getSessionId: () => string;
   };
+  ui: Pick<ExtensionUIContext, "setWidget">;
 }
 
 interface ToolResult {
@@ -76,6 +78,33 @@ export function createSubagentExecution(
   getAgents: () => AgentConfig[],
 ): SubagentExecution {
   let hasSpawned = false;
+  let ui: SubagentExecutionContext["ui"] | undefined;
+  let loader: Loader | undefined;
+  const updateStatus = () => {
+    const count = listRuns().length;
+    const message = count === 1 ? "subagent running..." : `${count} subagents running...`;
+    if (count === 0) ui?.setWidget("subagent", undefined);
+    else if (loader) loader.setMessage(message);
+    else
+      ui?.setWidget("subagent", (tui, theme) => {
+        const instance = new Loader(
+          tui,
+          (text) => theme.fg("accent", text),
+          (text) => theme.fg("muted", text),
+          message,
+        );
+        loader = instance;
+        const render = instance.render.bind(instance);
+        return Object.assign(instance, {
+          // Widget container already adds a spacer above; drop Loader's leading blank line.
+          render: (width: number) => render(width).slice(1),
+          dispose() {
+            instance.stop();
+            if (loader === instance) loader = undefined;
+          },
+        });
+      });
+  };
   const makeDetails = (results: SingleResult[]): SubagentDetails => ({
     results,
   });
@@ -88,6 +117,7 @@ export function createSubagentExecution(
   const completeSubagentRun = (id: string, result: SingleResult) => {
     if (!getRun(id)) return;
     recordRun(pi, completeRun(id, result));
+    updateStatus();
   };
 
   const onResumeKill = (id: string) => {
@@ -207,6 +237,7 @@ export function createSubagentExecution(
     }
 
     hasSpawned = true;
+    updateStatus();
 
     const batchPromise = Promise.all(
       requests.map(async (request) => {
@@ -300,6 +331,7 @@ export function createSubagentExecution(
         details: makeDetails([]),
       };
     }
+    ui = ctx.ui;
     return startBatch(prepared.requests, toolCallId, signal);
   };
 
