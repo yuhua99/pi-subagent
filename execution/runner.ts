@@ -106,7 +106,7 @@ async function buildPiArgs(
   agent: AgentConfig,
   sessionDir: string,
 ): Promise<string[] | { error: string }> {
-  const args: string[] = [];
+  const args: string[] = ["--offline"];
   if (agent.systemPrompt.trim()) {
     const promptFile = path.join(sessionDir, "system-prompt.md");
     fs.writeFileSync(promptFile, agent.systemPrompt);
