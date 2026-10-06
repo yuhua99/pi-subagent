@@ -45,17 +45,12 @@ export default function (pi: ExtensionAPI) {
     discoveredOrchestrator = discovery.orchestrator;
 
     if (ctx.hasUI && (discoveredAgents.length > 0 || discoveredOrchestrator)) {
-      const lines = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`);
-      if (discoveredOrchestrator) {
-        lines.push(
-          `  - ${discoveredOrchestrator.name} (${discoveredOrchestrator.source}, orchestrator)`,
-        );
+      const parts: string[] = [];
+      if (discoveredAgents.length > 0) {
+        parts.push(`Subagents: ${discoveredAgents.map((a) => a.name).join(", ")}`);
       }
-      const header =
-        discoveredAgents.length > 0
-          ? `Found ${discoveredAgents.length} subagent(s):`
-          : "Found orchestrator:";
-      ctx.ui.notify(`${header}\n${lines.join("\n")}`, "info");
+      if (discoveredOrchestrator) parts.push(`orchestrator: ${discoveredOrchestrator.name}`);
+      ctx.ui.notify(parts.join(" · "), "info");
     }
   });
 
