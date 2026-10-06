@@ -9,7 +9,6 @@ import { type AgentConfig, discoverAgents } from "./agents.ts";
 import type { SubagentCtlDetails, SubagentDetails, SubagentListDetails } from "./types.ts";
 import { registerAgentsCommand } from "./agents/command.ts";
 import { createSubagentToggle } from "./agents/toggle.ts";
-import { injectIntoSystemPrompt } from "./execution/prompt_injection.ts";
 import { createSubagentExecution } from "./execution/execution.ts";
 import { restoreRuns } from "./execution/run_history.ts";
 import { DISABLED_ENV } from "./execution/runner.ts";
@@ -61,10 +60,8 @@ export default function (pi: ExtensionAPI) {
     const orchestratorPrompt = discoveredOrchestrator?.systemPrompt.trim();
     if (orchestratorPrompt) parts.push(orchestratorPrompt);
     if (discoveredAgents.length > 0) parts.push(formatSubagentSystemPrompt(discoveredAgents));
-    if (parts.length === 0) return undefined;
-    return {
-      systemPrompt: injectIntoSystemPrompt(event.systemPrompt, parts.join("\n\n")),
-    };
+    if (parts.length > 0) event.systemPromptOptions.sections.subagents = parts.join("\n\n");
+    return undefined;
   });
 
   pi.registerTool<typeof SubagentParams, SubagentToolDetails>({
