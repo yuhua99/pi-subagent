@@ -6,7 +6,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { ModelRuntime, resolveCliModel } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../agents.ts";
 import { attachRunSteer, getRun, notifyStatus, updateRun } from "./registry.ts";
 import {
@@ -40,16 +39,6 @@ const THINKING_LEVELS: readonly ThinkingLevel[] = [
   "xhigh",
   "max",
 ];
-
-async function resolveThinking(agent: AgentConfig): Promise<ThinkingLevel | undefined> {
-  const modelName = agent.model!;
-  const modelRuntime = await ModelRuntime.create();
-  const resolution = resolveCliModel({ cliModel: modelName, modelRuntime });
-  if (resolution.error || !resolution.model) {
-    throw new Error(resolution.error ?? `Could not resolve model "${modelName}".`);
-  }
-  return (agent.thinking as ThinkingLevel | undefined) ?? resolution.thinkingLevel;
-}
 
 export interface RunAgentOptions {
   cwd: string;
@@ -101,11 +90,11 @@ function acquireResult(
 }
 
 /** Validate the agent config and build the child pi's CLI arguments. */
-async function buildPiArgs(
+function buildPiArgs(
   opts: RunAgentOptions,
   agent: AgentConfig,
   sessionDir: string,
-): Promise<string[] | { error: string }> {
+): string[] | { error: string } {
   const args: string[] = ["--offline"];
   if (agent.systemPrompt.trim()) {
     const promptFile = path.join(sessionDir, "system-prompt.md");
@@ -125,16 +114,8 @@ async function buildPiArgs(
       error: `Invalid thinking level "${agent.thinking}" for agent "${agent.name}". Expected one of: ${THINKING_LEVELS.join(", ")}.`,
     };
   }
-  let thinking: ThinkingLevel | undefined;
-  try {
-    thinking = await resolveThinking(agent);
-  } catch (error) {
-    return { error: errorMessage(error) };
-  }
-  if (thinking === undefined) {
-    return { error: `Agent "${agent.name}" config must specify a thinking level for fresh runs.` };
-  }
-  args.push("--model", agent.model, "--thinking", thinking);
+  args.push("--model", agent.model);
+  if (agent.thinking) args.push("--thinking", agent.thinking);
   if (agent.tools) args.push("--tools", agent.tools.join(","));
   return args;
 }
@@ -159,7 +140,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   const sessionDir = fs.mkdtempSync(
     path.join(SESSION_ROOT, `${agent.name.replace(/[^\w.-]+/g, "_")}-`),
   );
-  const piArgs = await buildPiArgs(opts, agent, sessionDir);
+  const piArgs = buildPiArgs(opts, agent, sessionDir);
   if ("error" in piArgs) return failedResult(result, piArgs.error);
 
   const startedAt = Date.now();
