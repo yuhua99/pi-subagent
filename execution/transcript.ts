@@ -4,7 +4,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Message } from "@earendil-works/pi-ai";
+import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import type { SingleResult } from "../types.ts";
 
 /** The run's session file (`<timestamp>_<sessionId>.jsonl`) inside its private `--session-dir`. */
@@ -21,16 +21,11 @@ export function findSessionFile(dir: string, sessionId: string): string | undefi
  */
 export function readTranscript(result: SingleResult, sessionFile: string, since: number): void {
   let skippedTaskPrompt = false;
-  for (const line of fs.readFileSync(sessionFile, "utf8").split("\n")) {
-    if (!line) continue;
-    let entry: { type?: string; message?: Message };
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue; // a kill can cut off the last line mid-write
-    }
+  // Skips malformed lines, such as a last line a kill cut off mid-write.
+  for (const entry of parseSessionEntries(fs.readFileSync(sessionFile, "utf8"))) {
+    if (entry.type !== "message") continue;
     const message = entry.message;
-    if (entry.type !== "message" || !message || message.timestamp < since) continue;
+    if (message.timestamp < since) continue;
     if (message.role === "user" && !skippedTaskPrompt) {
       skippedTaskPrompt = true;
       continue;
