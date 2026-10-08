@@ -21,10 +21,10 @@ async function pickRun(ctx: ExtensionCommandContext): Promise<string | undefined
       label: `○ [${run.id}] ${run.agent} — ${formatElapsed(now - run.startedAt)} — ${run.result.taskSummary ?? oneLine(run.task)}`,
     })),
     ...completed.map((run) => {
-      const { status, usage, taskSummary } = run.result;
+      const { status, cost: runCost, taskSummary } = run.result;
       const icon = status === "killed" ? "■" : isResultError(run.result) ? "✗" : "✓";
       const aborted = status === "aborted" ? " · aborted" : "";
-      const cost = usage.cost > 0 ? ` · $${usage.cost.toFixed(3)}` : "";
+      const cost = runCost > 0 ? ` · $${runCost.toFixed(3)}` : "";
       const duration = formatElapsed(run.finishedAt - run.startedAt);
       return {
         id: run.id,

@@ -1,5 +1,5 @@
 /**
- * Rebuild a run's transcript and usage from the child pi's session file.
+ * Rebuild a run's transcript and cost from the child pi's session file.
  */
 
 import * as fs from "node:fs";
@@ -17,7 +17,7 @@ export function findSessionFile(dir: string, sessionId: string): string | undefi
 
 /**
  * Append messages created at or after `since` (resumed history is older) to the
- * result, skipping the run's own task prompt and accumulating assistant usage.
+ * result, skipping the run's own task prompt and accumulating assistant cost.
  */
 export function readTranscript(result: SingleResult, sessionFile: string, since: number): void {
   let skippedTaskPrompt = false;
@@ -34,15 +34,6 @@ export function readTranscript(result: SingleResult, sessionFile: string, since:
       continue;
     }
     result.messages.push(message);
-    if (message.role !== "assistant") continue;
-    result.usage.turns++;
-    const usage = message.usage;
-    if (!usage) continue;
-    result.usage.input += usage.input || 0;
-    result.usage.output += usage.output || 0;
-    result.usage.cacheRead += usage.cacheRead || 0;
-    result.usage.cacheWrite += usage.cacheWrite || 0;
-    result.usage.cost += usage.cost?.total || 0;
-    result.usage.contextTokens = usage.totalTokens || 0;
+    if (message.role === "assistant") result.cost += message.usage?.cost?.total || 0;
   }
 }

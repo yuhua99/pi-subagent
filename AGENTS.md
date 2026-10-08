@@ -9,7 +9,7 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 - `index.ts` — tool registration and event wiring only
 - `execution/runner.ts` — launches one child pi per run in a herdr tab; completes when herdr reports it idle
 - `execution/herdr.ts` — herdr CLI calls only
-- `execution/transcript.ts` — rebuilds a run's transcript and usage from the child's session file
+- `execution/transcript.ts` — rebuilds a run's transcript and cost from the child's session file
 - `execution/run_history.ts` — records runs as parent-session custom entries and restores them on `session_start`
 - `types.ts` — shared types and small helpers; no I/O, no spawning
 - `test/` — `*.test.mjs` suites and fixtures; import `.ts` directly under `node --test` (no build step, no runtime TS syntax: enums, namespaces, parameter properties)

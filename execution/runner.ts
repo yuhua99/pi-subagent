@@ -20,7 +20,6 @@ import {
 import { findSessionFile, readTranscript } from "./transcript.ts";
 import {
   type SingleResult,
-  emptyUsage,
   getFinalAssistantMessage,
   normalizeCompletedResult,
 } from "../types.ts";
@@ -84,7 +83,7 @@ function acquireResult(
     status: "running",
     messages: [],
     stderr: "",
-    usage: emptyUsage(),
+    cost: 0,
     registryId: opts.reservedRegistryId,
   };
 }

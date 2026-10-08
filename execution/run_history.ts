@@ -6,7 +6,7 @@
 
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { restoreCompletedRuns, type CompletedRun, type SubagentRun } from "./registry.ts";
-import type { RunStatus, SingleResult, UsageStats } from "../types.ts";
+import type { RunStatus, SingleResult } from "../types.ts";
 
 const RUN_ENTRY_TYPE = "subagent-run";
 
@@ -19,7 +19,7 @@ interface RunRecord {
   status: RunStatus;
   startedAt: number;
   finishedAt?: number;
-  usage: UsageStats;
+  cost: number;
   model?: string;
   errorMessage?: string;
   parentSessionId?: string;
@@ -43,7 +43,7 @@ export function recordRun(
     status: result.status,
     startedAt: run.startedAt,
     finishedAt: "finishedAt" in run ? run.finishedAt : undefined,
-    usage: result.usage,
+    cost: result.cost,
     model: result.model,
     errorMessage: result.errorMessage,
     parentSessionId: run.parentSessionId,
@@ -99,7 +99,7 @@ function toCompletedRun(record: RunRecord): CompletedRun {
       status: killed ? "killed" : record.status,
       messages: [],
       stderr: "",
-      usage: record.usage,
+      cost: record.cost,
       model: record.model,
       errorMessage: killed
         ? "Subagent was killed when its parent session ended."

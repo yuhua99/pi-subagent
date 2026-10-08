@@ -9,17 +9,6 @@ export interface SubagentToggle {
   setEnabled(value: boolean): void;
 }
 
-/** Aggregated token usage from a subagent run. */
-export interface UsageStats {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-  contextTokens: number;
-  turns: number;
-}
-
 /** Outcome of a subagent run. `running` until the run settles. */
 export type RunStatus = "running" | "ok" | "failed" | "aborted" | "killed";
 
@@ -32,7 +21,8 @@ export interface SingleResult {
   status: RunStatus;
   messages: Message[];
   stderr: string;
-  usage: UsageStats;
+  /** Total cost of the run's assistant messages. */
+  cost: number;
   model?: string;
   stopReason?: string;
   errorMessage?: string;
@@ -55,11 +45,6 @@ export interface SubagentCtlDetails {
   action: "kill" | "steer";
   id: string;
   agent?: string;
-}
-
-/** Create an empty UsageStats object. */
-export function emptyUsage(): UsageStats {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 }
 
 /** Return the final assistant message in a transcript. */

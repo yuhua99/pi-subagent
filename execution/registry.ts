@@ -9,7 +9,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { SingleResult } from "../types.ts";
-import { emptyUsage, isResultSuccess } from "../types.ts";
+import { isResultSuccess } from "../types.ts";
 
 export interface RunMetadata {
   parentSessionId?: string;
@@ -232,7 +232,7 @@ export function reserveResumeRun(
     status: "running",
     messages: [],
     stderr: "",
-    usage: emptyUsage(),
+    cost: 0,
     model: source.result.model,
   };
   const run = registerRun({

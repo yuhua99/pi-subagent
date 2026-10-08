@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../agents.ts";
 import { registerRun } from "./registry.ts";
-import { emptyUsage, type SingleResult } from "../types.ts";
+import type { SingleResult } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Placeholder lifecycle
@@ -18,7 +18,7 @@ export function makeRunningPlaceholder(
     status: "running",
     messages: [],
     stderr: "",
-    usage: emptyUsage(),
+    cost: 0,
   };
 }
 

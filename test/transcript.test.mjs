@@ -36,7 +36,7 @@ test("findSessionFile picks the run's own session among others in its dir", () =
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("readTranscript keeps new messages, skips the task prompt, and sums usage", () => {
+test("readTranscript keeps new messages, skips the task prompt, and sums cost", () => {
   const assistant = {
     role: "assistant",
     model: "test-model",
@@ -81,14 +81,6 @@ test("readTranscript keeps new messages, skips the task prompt, and sums usage",
   readTranscript(result, file, 10);
 
   assert.deepEqual(result.messages, [assistant, toolResult, steer]);
-  assert.deepEqual(result.usage, {
-    input: 3,
-    output: 5,
-    cacheRead: 7,
-    cacheWrite: 11,
-    cost: 0.25,
-    contextTokens: 26,
-    turns: 1,
-  });
+  assert.equal(result.cost, 0.25);
   fs.rmSync(dir, { recursive: true, force: true });
 });
