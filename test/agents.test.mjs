@@ -37,7 +37,13 @@ function createTestableAgentsModule() {
 
   fs.writeFileSync(
     stubPath,
-    `export function parseFrontmatter(content) {
+    `import os from "node:os";
+    import path from "node:path";
+    export const CONFIG_DIR_NAME = ".pi";
+    export function getAgentDir() {
+      return process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), CONFIG_DIR_NAME, "agent");
+    }
+    export function parseFrontmatter(content) {
       const match = content.match(/^---\\r?\\n([\\s\\S]*?)\\r?\\n---\\r?\\n?([\\s\\S]*)$/);
       if (!match) return { frontmatter: {}, body: content };
       const frontmatter = {};

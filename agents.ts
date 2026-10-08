@@ -10,9 +10,8 @@
  *   - Project agents: .pi/agents/*.md  (walks up from cwd)
  */
 
-import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 
 type AgentScope = "user" | "project" | "both";
@@ -48,16 +47,14 @@ function isDirectory(p: string): boolean {
 }
 
 function getUserAgentsDir(): string {
-  const configDir =
-    process.env["PI_CODING_AGENT_DIR"]?.trim() || path.join(os.homedir(), ".pi", "agent");
-  return path.join(configDir, "agents");
+  return path.join(getAgentDir(), "agents");
 }
 
 /** Walk up from `cwd` looking for a `.pi/agents` directory. */
 function findNearestProjectAgentsDir(cwd: string): string | null {
   let dir = cwd;
   while (true) {
-    const candidate = path.join(dir, ".pi", "agents");
+    const candidate = path.join(dir, CONFIG_DIR_NAME, "agents");
     if (isDirectory(candidate)) return candidate;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
