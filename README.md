@@ -51,7 +51,7 @@ You are an expert technical writer. Improve clarity and conciseness.
 | `role`        | no       | `orchestrator` marks the file as main-agent-only policy; not callable |
 | `model`       | no       | Optional `provider/model`; else parent default                        |
 | `thinking`    | no       | `off` … `xhigh` (same as `--thinking`)                                |
-| `tools`       | no       | Built-ins only; default `read,bash,edit,write`                        |
+| `tools`       | no       | Passed to `--tools`; plain names replace defaults, or use only `+name`/`-name` to adjust them (pi ≥1.1.0) |
 
 Body is **appended** to Pi’s system prompt. Built-ins: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, `codemode`.
 
