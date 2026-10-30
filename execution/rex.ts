@@ -13,6 +13,9 @@ export const EXIT_ON_SETTLE_ENV = "PI_SUBAGENT_EXIT_ON_SETTLE";
 
 const session = () => process.env.REX_SESSION!;
 
+/** Each tab's last steer, so one steer's paste and Enter land before the next begins. */
+const steerQueues = new WeakMap<object, Promise<void>>();
+
 function failure(args: string[], error: unknown): Error {
   const stderr = (error as { stderr?: string }).stderr?.trim().replace(/^Error: /, "");
   const message = stderr || (error instanceof Error ? error.message : String(error));
@@ -49,11 +52,16 @@ export const rexMultiplexer: Multiplexer = {
     return { tab, started: Promise.resolve("started" as const) };
   },
 
-  async steer(tab, text) {
+  steer(tab, text) {
     // A paste keeps multi-line text in one prompt; Enter then submits it.
     const event = { block_id: tab.paneId, event: { type: "paste", payload: { text } } };
-    await rex(["api", "call", "-s", session(), "block.event", JSON.stringify(event)]);
-    await rex(["send-key", "-s", session(), "-b", tab.paneId, "enter"]);
+    const submit = async () => {
+      await rex(["api", "call", "-s", session(), "block.event", JSON.stringify(event)]);
+      await rex(["send-key", "-s", session(), "-b", tab.paneId, "enter"]);
+    };
+    const next = (steerQueues.get(tab) ?? Promise.resolve()).catch(() => {}).then(submit);
+    steerQueues.set(tab, next);
+    return next;
   },
 
   async waitSettled(tab) {
