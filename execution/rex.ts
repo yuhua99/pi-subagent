@@ -72,6 +72,8 @@ export const rexMultiplexer: Multiplexer = {
     try {
       payload = JSON.parse((ended as { stdout?: string }).stdout ?? "");
     } catch {
+      // The block was already gone when the wait began.
+      if (/not found/.test((ended as { stderr?: string }).stderr ?? "")) return "closed";
       throw failure(args, ended);
     }
     if (payload.exit_code === undefined) return "closed";
