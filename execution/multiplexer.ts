@@ -3,8 +3,9 @@
  */
 
 import { herdrMultiplexer } from "./herdr.ts";
+import { rexMultiplexer } from "./rex.ts";
 
-export const MULTIPLEXER_REQUIRED = "Subagents require running pi inside herdr (HERDR_ENV=1).";
+export const MULTIPLEXER_REQUIRED = "Subagents require running pi inside rex or herdr.";
 
 /** A tab hosting one pi; ids are backend-specific. */
 export interface PiTab {
@@ -41,7 +42,7 @@ export interface Multiplexer {
 }
 
 /** In priority order; the first detected backend hosts runs. */
-const BACKENDS: Multiplexer[] = [herdrMultiplexer];
+const BACKENDS: Multiplexer[] = [rexMultiplexer, herdrMultiplexer];
 
 export function detectMultiplexer(): Multiplexer | undefined {
   return BACKENDS.find((backend) => backend.detect());

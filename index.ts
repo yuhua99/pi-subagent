@@ -11,6 +11,7 @@ import { registerAgentsCommand } from "./agents/command.ts";
 import { createSubagentToggle } from "./agents/toggle.ts";
 import { createSubagentExecution } from "./execution/execution.ts";
 import { restoreRuns } from "./execution/run_history.ts";
+import { EXIT_ON_SETTLE_ENV } from "./execution/rex.ts";
 import { DISABLED_ENV } from "./execution/runner.ts";
 import {
   CTL_TOOL_DESCRIPTION,
@@ -25,7 +26,10 @@ import {
 type SubagentToolDetails = SubagentDetails | SubagentListDetails | SubagentCtlDetails | undefined;
 
 export default function (pi: ExtensionAPI) {
-  if (process.env[DISABLED_ENV]) return;
+  if (process.env[DISABLED_ENV]) {
+    if (process.env[EXIT_ON_SETTLE_ENV]) pi.on("agent_settled", (_event, ctx) => ctx.shutdown());
+    return;
+  }
 
   const toggle = createSubagentToggle(pi);
   registerAgentsCommand(pi, toggle);

@@ -16,7 +16,7 @@ import {
   normalizeCompletedResult,
 } from "../types.ts";
 
-/** When set, this extension registers nothing; children get it for single-level delegation. */
+/** When set, this extension registers no tools; children get it for single-level delegation. */
 export const DISABLED_ENV = "PI_SUBAGENT_DISABLED";
 
 const SESSION_ROOT = path.join(os.tmpdir(), "subagent-sessions");
