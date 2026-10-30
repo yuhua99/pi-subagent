@@ -1,6 +1,6 @@
 import { type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem } from "@earendil-works/pi-tui";
-import { closeTab, createTab, focusTab, startPi } from "../execution/herdr.ts";
+import { detectMultiplexer, MULTIPLEXER_REQUIRED } from "../execution/multiplexer.ts";
 import { getRun, listCompletedRuns, listRuns } from "../execution/registry.ts";
 import { formatElapsed, isResultError, type SubagentToggle } from "../types.ts";
 
@@ -46,9 +46,11 @@ async function pickRun(ctx: ExtensionCommandContext): Promise<string | undefined
 /** Focus a live run's tab, or reopen a finished run's session in a new tab. */
 async function openRun(id: string): Promise<string | undefined> {
   const run = getRun(id);
-  if (run) {
-    if (!run.tabId) return `Subagent [${id}] is still starting.`;
-    await focusTab(run.tabId);
+  if (run && !run.tab) return `Subagent [${id}] is still starting.`;
+  const multiplexer = detectMultiplexer();
+  if (!multiplexer) return MULTIPLEXER_REQUIRED;
+  if (run?.tab) {
+    await multiplexer.focus(run.tab);
     return undefined;
   }
   const completed = listCompletedRuns().find((entry) => entry.id === id);
@@ -56,18 +58,17 @@ async function openRun(id: string): Promise<string | undefined> {
   // A resume of this lineage is writing the same session file; show it instead of a second writer.
   const resuming = listRuns().find((entry) => entry.sessionPath === completed.sessionPath);
   if (resuming) return openRun(resuming.id);
-  const tab = await createTab({
+  const { tab, started } = await multiplexer.openPi({
     cwd: completed.workingDirectory ?? process.cwd(),
     label: `${completed.agent} ${id}`,
     focus: true,
+    name: `subagent-${id}-${Date.now().toString(36)}`,
+    piArgs: ["--session", completed.sessionPath],
   });
   try {
-    await startPi(`subagent-${id}-${Date.now().toString(36)}`, tab.paneId, [
-      "--session",
-      completed.sessionPath,
-    ]);
+    await started;
   } catch (error) {
-    await closeTab(tab.tabId).catch(() => {});
+    await multiplexer.close(tab).catch(() => {});
     throw error;
   }
   return undefined;

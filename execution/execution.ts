@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding
 import { Loader } from "@earendil-works/pi-tui";
 import type { AgentConfig } from "../agents.ts";
 import { failPlaceholder, reserveRunPlaceholders } from "./delegation.ts";
-import { isInsideHerdr } from "./herdr.ts";
+import { detectMultiplexer, MULTIPLEXER_REQUIRED, type Multiplexer } from "./multiplexer.ts";
 import {
   clearSessionState,
   cancelResumeReservation,
@@ -50,7 +50,7 @@ interface ToolResult {
 interface PreparedRequest {
   placeholder: SingleResult;
   title: string;
-  runOptions: Omit<RunAgentOptions, "signal">;
+  runOptions: Omit<RunAgentOptions, "signal" | "multiplexer">;
 }
 
 type PreparedBatch = { requests: PreparedRequest[] } | { error: string };
@@ -222,6 +222,7 @@ export function createSubagentExecution(
 
   const startBatch = (
     requests: PreparedRequest[],
+    multiplexer: Multiplexer,
     signal?: AbortSignal,
   ): ToolResult => {
     const placeholders = requests.map((request) => request.placeholder);
@@ -239,7 +240,7 @@ export function createSubagentExecution(
       requests.map(async (request) => {
         const { placeholder, runOptions } = request;
         try {
-          const result = await runAgent({ ...runOptions, signal });
+          const result = await runAgent({ ...runOptions, multiplexer, signal });
           completeSubagentRun(runOptions.reservedRegistryId, result);
           return result;
         } catch (err) {
@@ -306,11 +307,10 @@ export function createSubagentExecution(
     ctx: SubagentExecutionContext,
     signal?: AbortSignal,
   ): Promise<ToolResult> => {
-    if (!isInsideHerdr()) {
+    const multiplexer = detectMultiplexer();
+    if (!multiplexer) {
       return {
-        content: [
-          { type: "text", text: "Subagents require running pi inside herdr (HERDR_ENV=1)." },
-        ],
+        content: [{ type: "text", text: MULTIPLEXER_REQUIRED }],
         details: makeDetails([]),
       };
     }
@@ -327,7 +327,7 @@ export function createSubagentExecution(
       };
     }
     ui = ctx.ui;
-    return startBatch(prepared.requests, signal);
+    return startBatch(prepared.requests, multiplexer, signal);
   };
 
   const kill = (id: string) => {

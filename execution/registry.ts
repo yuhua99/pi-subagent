@@ -9,6 +9,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { SingleResult } from "../types.ts";
+import type { PiTab } from "./multiplexer.ts";
 import { isResultSuccess } from "../types.ts";
 
 export interface RunMetadata {
@@ -17,8 +18,8 @@ export interface RunMetadata {
   workingDirectory?: string;
   sourceRunId?: string;
   lineageId?: string;
-  /** Herdr tab hosting the live child pi. */
-  tabId?: string;
+  /** Multiplexer tab hosting the live child pi. */
+  tab?: PiTab;
 }
 
 export interface CompletedRun extends RunMetadata {
@@ -105,7 +106,7 @@ export function updateRun(
       | "parentSessionId"
       | "sourceRunId"
       | "lineageId"
-      | "tabId"
+      | "tab"
     >
   >,
 ): void {

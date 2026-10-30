@@ -1,15 +1,12 @@
 /**
- * Herdr CLI wrapper: tabs and pi agents in the caller's herdr session.
+ * Herdr backend: each pi runs as a herdr agent in its own tab of the caller's workspace.
  */
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { Multiplexer, OpenPiOptions, PiTab } from "./multiplexer.ts";
 
 const execFileAsync = promisify(execFile);
-
-export function isInsideHerdr(): boolean {
-  return process.env.HERDR_ENV === "1";
-}
 
 async function herdr(args: string[]): Promise<any> {
   try {
@@ -26,17 +23,7 @@ async function herdr(args: string[]): Promise<any> {
   }
 }
 
-export interface HerdrTab {
-  tabId: string;
-  paneId: string;
-}
-
-export async function createTab(opts: {
-  cwd: string;
-  label: string;
-  focus: boolean;
-  env?: Record<string, string>;
-}): Promise<HerdrTab> {
+async function createTab(opts: OpenPiOptions): Promise<PiTab> {
   const args = ["tab", "create", "--cwd", opts.cwd, "--label", opts.label];
   if (process.env.HERDR_WORKSPACE_ID) args.push("--workspace", process.env.HERDR_WORKSPACE_ID);
   for (const [key, value] of Object.entries(opts.env ?? {})) args.push("--env", `${key}=${value}`);
@@ -46,7 +33,7 @@ export async function createTab(opts: {
 }
 
 /** Start an interactive pi in a fresh tab's shell pane; resolves once herdr sees it ready. */
-export async function startPi(name: string, paneId: string, piArgs: string[]): Promise<void> {
+async function startPi(name: string, paneId: string, piArgs: string[]): Promise<void> {
   await herdr(["agent", "start", name, "--kind", "pi", "--pane", paneId, "--", ...piArgs]);
 }
 
@@ -57,38 +44,69 @@ function untilArgs(states: AgentStatus[]): string[] {
 }
 
 /** Submit text to a live agent like typed input; with `until`, resolve once one of those states follows. */
-export async function promptAgent(
-  target: string,
-  text: string,
-  until: AgentStatus[] = [],
-): Promise<void> {
+async function promptAgent(target: string, text: string, until: AgentStatus[] = []): Promise<void> {
   const args = ["agent", "prompt", target, text];
   if (until.length > 0) args.push("--wait", ...untilArgs(until));
   await herdr(args);
 }
 
-export async function waitAgent(target: string, until: AgentStatus[]): Promise<void> {
+async function waitAgent(target: string, until: AgentStatus[]): Promise<void> {
   await herdr(["agent", "wait", target, ...untilArgs(until)]);
 }
 
-export async function agentExists(target: string): Promise<boolean> {
+async function agentExists(target: string): Promise<boolean> {
   return herdr(["agent", "get", target]).then(
     () => true,
     () => false,
   );
 }
 
-export async function tabExists(tabId: string): Promise<boolean> {
+async function tabExists(tabId: string): Promise<boolean> {
   return herdr(["tab", "get", tabId]).then(
     () => true,
     () => false,
   );
 }
 
-export async function focusTab(tabId: string): Promise<void> {
-  await herdr(["tab", "focus", tabId]);
+/** Whether a failed herdr call is explained by a closed tab, or by quitting pi once it started. */
+async function wasClosed(tab: PiTab, piStarted: boolean): Promise<boolean> {
+  if (!(await tabExists(tab.tabId))) return true;
+  return piStarted && !(await agentExists(tab.paneId));
 }
 
-export async function closeTab(tabId: string): Promise<void> {
-  await herdr(["tab", "close", tabId]);
-}
+export const herdrMultiplexer: Multiplexer = {
+  detect: () => process.env.HERDR_ENV === "1",
+
+  async openPi(opts) {
+    const tab = await createTab(opts);
+    const started = (async () => {
+      let piStarted = false;
+      try {
+        await startPi(opts.name, tab.paneId, opts.piArgs);
+        piStarted = true;
+        if (opts.task) await promptAgent(tab.paneId, opts.task, ["working", "blocked"]);
+        return "started" as const;
+      } catch (error) {
+        if (await wasClosed(tab, piStarted)) return "closed" as const;
+        throw error;
+      }
+    })();
+    return { tab, started };
+  },
+
+  steer: (tab, text) => promptAgent(tab.paneId, text),
+
+  async waitSettled(tab) {
+    try {
+      await waitAgent(tab.paneId, ["idle", "done"]);
+      return "settled";
+    } catch (error) {
+      if (await wasClosed(tab, true)) return "closed";
+      throw error;
+    }
+  },
+
+  focus: (tab) => herdr(["tab", "focus", tab.tabId]),
+
+  close: (tab) => herdr(["tab", "close", tab.tabId]),
+};

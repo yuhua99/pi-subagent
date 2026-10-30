@@ -1,5 +1,5 @@
 /**
- * Herdr-backed subagent runner: each run is an interactive pi in its own herdr tab.
+ * Subagent runner: each run is an interactive pi in its own multiplexer tab.
  */
 
 import * as fs from "node:fs";
@@ -8,15 +8,7 @@ import * as path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentConfig } from "../agents.ts";
 import { attachRunSteer, getRun, notifyStatus, updateRun } from "./registry.ts";
-import {
-  agentExists,
-  closeTab,
-  createTab,
-  promptAgent,
-  startPi,
-  tabExists,
-  waitAgent,
-} from "./herdr.ts";
+import type { Multiplexer, PiTab } from "./multiplexer.ts";
 import { findSessionFile, readTranscript } from "./transcript.ts";
 import {
   type SingleResult,
@@ -52,6 +44,7 @@ export interface RunAgentOptions {
   lineageId?: string;
   signal?: AbortSignal;
   reservedRegistryId: string;
+  multiplexer: Multiplexer;
 }
 
 function failedResult(result: SingleResult, message: string): SingleResult {
@@ -120,9 +113,9 @@ function buildPiArgs(
 }
 
 /**
- * Run one subagent as an interactive pi in a new herdr tab. Completes when herdr
- * sees the first prompt settle (idle), then closes the tab and reads the
- * transcript from the session file. Closing the tab early kills the run.
+ * Run one subagent as an interactive pi in a new multiplexer tab. Completes when
+ * the task settles, then closes the tab and reads the transcript from the
+ * session file. Closing the tab early kills the run.
  */
 export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   const registryId = opts.reservedRegistryId;
@@ -143,9 +136,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if ("error" in piArgs) return failedResult(result, piArgs.error);
 
   const startedAt = Date.now();
-  const agentName = `${agent.name}-${registryId}`;
-  let tabId: string | undefined;
-  let paneId: string | undefined;
+  const multiplexer = opts.multiplexer;
+  let tab: PiTab | undefined;
   let tabClosed: Promise<void> | undefined;
   let interrupt: "aborted" | "killed" | undefined;
   let failure: string | undefined;
@@ -153,7 +145,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   let interrupted!: () => void;
   const whenInterrupted = new Promise<void>((resolve) => (interrupted = resolve));
   const closeOwnTab = () => {
-    if (tabId && !tabClosed) tabClosed = closeTab(tabId);
+    if (tab && !tabClosed) tabClosed = multiplexer.close(tab);
   };
   const stop = (outcome: "aborted" | "killed") => {
     if (finished) return;
@@ -161,13 +153,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     interrupted();
     closeOwnTab();
   };
-  /** Await a herdr call unless the run is interrupted first. */
-  const untilInterrupted = (step: Promise<void>) => {
+  /** Await a multiplexer call unless the run is interrupted first. */
+  const untilInterrupted = <T>(step: Promise<T>) => {
     step.catch(() => {});
     return Promise.race([step, whenInterrupted]);
   };
   const steer = (text: string) => {
-    promptAgent(paneId!, text).catch((error: unknown) => {
+    multiplexer.steer(tab!, text).catch((error: unknown) => {
       result.stderr = [result.stderr, `Steer failed: ${errorMessage(error)}`]
         .filter(Boolean)
         .join("\n");
@@ -188,35 +180,29 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if (opts.signal?.aborted) abortHandler();
   else opts.signal?.addEventListener("abort", abortHandler, { once: true });
 
-  let started = false;
   try {
     if (!interrupt) {
-      const tab = await createTab({
+      const opened = await multiplexer.openPi({
         cwd: opts.taskCwd ?? opts.cwd,
         label: "[sub]",
         focus: false,
+        name: `${agent.name}-${registryId}`,
         env: { [DISABLED_ENV]: "1" },
+        piArgs,
+        task: `Task: ${opts.task}`,
       });
-      tabId = tab.tabId;
-      paneId = tab.paneId;
-      updateRun(registryId, { tabId });
+      tab = opened.tab;
+      updateRun(registryId, { tab });
       if (interrupt) closeOwnTab();
-      else await untilInterrupted(startPi(agentName, paneId, piArgs));
-    }
-    if (!interrupt) {
-      started = true;
       // Steers queued during startup must land after the task prompt.
-      await untilInterrupted(promptAgent(paneId!, `Task: ${opts.task}`, ["working", "blocked"]));
+      if ((await untilInterrupted(opened.started)) === "closed") interrupt ??= "killed";
     }
     if (!interrupt) {
       attachRunSteer(registryId, steer);
-      await untilInterrupted(waitAgent(paneId!, ["idle", "done"]));
+      if ((await untilInterrupted(multiplexer.waitSettled(tab!))) === "closed") interrupt = "killed";
     }
   } catch (error) {
-    // A closed tab, or a pi the user quit after it started, is a kill rather than a failure.
-    if (tabId && !(await tabExists(tabId))) interrupt = "killed";
-    else if (started && !(await agentExists(paneId!))) interrupt = "killed";
-    else failure = errorMessage(error);
+    failure = errorMessage(error);
   }
 
   finished = true;
