@@ -1,10 +1,10 @@
 # Pi Subagent
 
-**Delegate tasks to specialized subagents, each running as a real `pi` TUI in its own [herdr](https://herdr.dev) tab.**
+**Delegate tasks to specialized subagents, each running as a real `pi` TUI in its own [rex](https://www.superlogical.com/rex) or [herdr](https://herdr.dev) tab.**
 
 ## Features
 
-- **Real TUI per child** — watch a run in its herdr tab or type into it
+- **Real TUI per child** — watch a run in its tab or type into it
 - **Isolated context** — each run receives only its task
 - **Resume** — continue a successfully completed run
 - **Async and parallel** — up to 5 requests per call; results arrive as a follow-up message
@@ -21,7 +21,7 @@ The herdr version lives on the `herdr` branch:
 pi install git:github.com/yuhua99/pi-subagent@herdr
 ```
 
-Requires running `pi` inside herdr, with herdr's pi integration installed (`herdr integration install pi`).
+Requires running `pi` inside rex or herdr; rex wins when both are detected. Herdr also needs its pi integration (`herdr integration install pi`).
 
 ## Agent definitions
 
@@ -79,7 +79,7 @@ Delegate independent work to the most appropriate specialized agent.
 - **Continued work** — resume a successfully completed run from the same parent session. Only one resume per run chain may run at a time.
 - Closing a child's tab kills the run; Esc in it aborts the run. On completion the tab closes.
 - `/reload` and `/resume` kill running children; earlier runs stay in `/agents` and remain resumable.
-- Children get the environment of a new herdr shell, not the parent pi's environment.
+- Children get the environment of a new rex login shell or herdr shell, not the parent pi's environment.
 - `PI_SUBAGENT_DISABLED=1` turns the extension off for that pi process.
 
 ## Attribution
