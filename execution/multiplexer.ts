@@ -42,7 +42,7 @@ export interface Multiplexer {
 }
 
 /** In priority order; the first detected backend hosts runs. */
-const BACKENDS: Multiplexer[] = [rexMultiplexer, herdrMultiplexer];
+const BACKENDS: Multiplexer[] = [herdrMultiplexer, rexMultiplexer];
 
 export function detectMultiplexer(): Multiplexer | undefined {
   return BACKENDS.find((backend) => backend.detect());

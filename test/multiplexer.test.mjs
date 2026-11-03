@@ -22,12 +22,12 @@ function withEnv(env, fn) {
   }
 }
 
-test("detectMultiplexer prefers rex over herdr", () => {
+test("detectMultiplexer prefers herdr over rex", () => {
   withEnv({ REX_SESSION: "session:1", HERDR_ENV: "1" }, () =>
-    assert.equal(detectMultiplexer(), rexMultiplexer),
-  );
-  withEnv({ REX_SESSION: undefined, HERDR_ENV: "1" }, () =>
     assert.equal(detectMultiplexer(), herdrMultiplexer),
+  );
+  withEnv({ REX_SESSION: "session:1", HERDR_ENV: undefined }, () =>
+    assert.equal(detectMultiplexer(), rexMultiplexer),
   );
   withEnv({ REX_SESSION: undefined, HERDR_ENV: undefined }, () =>
     assert.equal(detectMultiplexer(), undefined),

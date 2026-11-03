@@ -8,7 +8,7 @@ One owner per file. Do not create catch-all modules (`utils.ts`, `helpers.ts`, `
 
 - `index.ts` — tool registration and event wiring only
 - `execution/runner.ts` — launches one child pi per run in a multiplexer tab; completes when the multiplexer reports its task settled
-- `execution/multiplexer.ts` — multiplexer interface and backend selection (first detected wins: rex, then herdr)
+- `execution/multiplexer.ts` — multiplexer interface and backend selection (first detected wins: herdr, then rex)
 - `execution/herdr.ts` — herdr backend; herdr CLI calls only
 - `execution/rex.ts` — rex backend; rex CLI calls only. Task runs' child pi exits on `agent_settled` (`PI_SUBAGENT_EXIT_ON_SETTLE`, handled in `index.ts`)
 - `execution/transcript.ts` — rebuilds a run's transcript and cost from the child's session file

@@ -21,7 +21,7 @@ The herdr version lives on the `herdr` branch:
 pi install git:github.com/yuhua99/pi-subagent@herdr
 ```
 
-Requires running `pi` inside rex or herdr; rex wins when both are detected. Herdr also needs its pi integration (`herdr integration install pi`).
+Requires running `pi` inside rex or herdr; herdr wins when both are detected. Herdr also needs its pi integration (`herdr integration install pi`).
 
 ## Agent definitions
 
